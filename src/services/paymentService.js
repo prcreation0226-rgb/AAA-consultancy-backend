@@ -122,14 +122,14 @@ const processPaymentEvent = async (event) => {
               additionalApplicants: isNoShowAssessment ? 0 : additionalApplicantsCount,
               status: isNoShowAssessment 
                 ? 'Partially Paid' 
-                : (isTranslation ? 'Documents Under Review' : 'Payment Received'),
+                : (isTranslation ? 'Under Process' : 'Payment Received'),
               visaStatus: isNoShowAssessment
                 ? 'Not Started'
-                : (isTranslation ? 'Not Started' : 'Document Preparation')
+                : (isTranslation ? 'Under Process' : 'Document Preparation')
             }
           });
 
-          // Update associated Lead status to 'Payment Received' if it exists and this is not just a No-Show Assessment
+          // Update associated Lead status to 'Under Process' / 'Payment Received' if it exists
           if (!isNoShowAssessment) {
             const lead = await tx.lead.findFirst({
               where: { clientId: payment.clientId }
@@ -137,14 +137,14 @@ const processPaymentEvent = async (event) => {
             if (lead) {
               await tx.lead.update({
                 where: { id: lead.id },
-                data: { status: 'Payment Received' }
+                data: { status: isTranslation ? 'Under Process' : 'Payment Received' }
               });
-              console.log(`[Stripe Webhook] Updated associated Lead ${lead.id} status to Payment Received.`);
+              console.log(`[Stripe Webhook] Updated associated Lead ${lead.id} status to ${isTranslation ? 'Under Process' : 'Payment Received'}.`);
             }
           }
 
           // Send Checklist Email only if they paid for full package
-          if (!isNoShowAssessment) {
+          if (!isNoShowAssessment && !isTranslation) {
             try {
               const { sendVisaChecklist } = require('./emailService');
               await sendVisaChecklist(updatedClient.email, `${updatedClient.firstName} ${updatedClient.lastName}`, updatedClient.serviceType);
@@ -167,6 +167,23 @@ const processPaymentEvent = async (event) => {
             console.log(`[Auto-WhatsApp Payment Webhook] Sent payment success & portal credentials to client ${updatedClient.phone}`);
           } catch (waErr) {
             console.error('[Auto-WhatsApp Payment Webhook] Failed to send WhatsApp notification:', waErr.message);
+          }
+
+          // Send Payment Confirmation Email
+          try {
+            const { sendPaymentSuccessEmail } = require('./emailService');
+            const customerId = updatedClient.clientCode || `CID-${12000 + parseInt(updatedClient.id.replace(/\D/g, '').slice(-3) || '1')}`;
+            await sendPaymentSuccessEmail({
+              to: updatedClient.email,
+              clientName: `${updatedClient.firstName} ${updatedClient.lastName}`,
+              customerId: customerId,
+              serviceType: updatedClient.serviceType,
+              amount: totalPaid,
+              tempPassword: session.metadata?.tempPassword || null
+            });
+            console.log(`[Auto-Email Payment Webhook] Sent payment confirmation email to client ${updatedClient.email}`);
+          } catch (emailConfErr) {
+            console.error('[Auto-Email Payment Webhook] Failed to send payment confirmation email:', emailConfErr.message);
           }
 
           // Send package payment email if it is a package selection checkout

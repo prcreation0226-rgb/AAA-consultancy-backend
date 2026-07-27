@@ -279,7 +279,8 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
 
     const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
     const email = client.email || 'N/A';
-    const password = generatedPassword || (client.isTemporaryPassword ? 'Check your registered email' : 'Your registered password');
+    const customerId = client.clientCode || (client.id ? `CID-${12000 + parseInt(client.id.replace(/\D/g, '').slice(-3) || '1')}` : 'CID-12001');
+    const password = generatedPassword || (client.plainTempPassword ? client.plainTempPassword : (client.isTemporaryPassword ? 'Sent via Email / Set at Registration' : 'Your registered password'));
     const service = serviceType || client.serviceType || 'Spanish Sworn Translation';
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const portalUrl = `${frontendUrl}/#/portal/login`;
@@ -292,6 +293,7 @@ Dear ${clientName},
 Thank you for your payment to AAA Business Consultancy. Your order has been successfully received.
 
 📄 *Payment Receipt Details:*
+• Customer ID: ${customerId}
 • Receipt ID: ${receiptId}
 • Service: ${service}
 • Amount Paid: €${formattedAmount}

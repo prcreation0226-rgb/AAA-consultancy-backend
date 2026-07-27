@@ -627,8 +627,12 @@ exports.uploadTranslationDocument = async (req, res) => {
           const salt = await bcrypt.genSalt(10);
           const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
+          const clientCount = await prisma.client.count();
+          const autoClientCode = `CID-${12001 + clientCount}`;
+
           client = await prisma.client.create({
             data: {
+              clientCode: autoClientCode,
               firstName,
               lastName,
               email: email.toLowerCase(),
@@ -637,7 +641,7 @@ exports.uploadTranslationDocument = async (req, res) => {
               serviceType: 'Spanish Sworn Translation',
               password: hashedPassword,
               isTemporaryPassword: true,
-              status: 'Quote Requested',
+              status: 'Payment Not Completed',
               sourceLanguage: sourceLang,
               targetLanguage: targetLanguage || 'Spanish',
               wordCount: wordCount
@@ -667,7 +671,7 @@ exports.uploadTranslationDocument = async (req, res) => {
               phone,
               nationality: nationality || null,
               serviceType: 'Spanish Sworn Translation',
-              status: 'Quote Requested',
+              status: 'Payment Not Completed',
               clientId: client.id,
               sourceLanguage: sourceLang,
               targetLanguage: targetLanguage || 'Spanish',
@@ -745,8 +749,12 @@ exports.checkoutTranslationDocument = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
+      const clientCount = await prisma.client.count();
+      const autoClientCode = `CID-${12001 + clientCount}`;
+
       client = await prisma.client.create({
         data: {
+          clientCode: autoClientCode,
           firstName,
           lastName,
           email: email.toLowerCase(),
@@ -755,7 +763,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
           serviceType: 'Spanish Sworn Translation',
           password: hashedPassword,
           isTemporaryPassword: true,
-          status: 'Documents Under Review',
+          status: 'Payment Not Completed',
           sourceLanguage: sourceLanguage || 'English',
           targetLanguage: targetLanguage || 'Spanish',
           wordCount: parseInt(wordCount, 10) || 0
@@ -765,7 +773,6 @@ exports.checkoutTranslationDocument = async (req, res) => {
       client = await prisma.client.update({
         where: { id: client.id },
         data: {
-          status: 'Documents Under Review',
           sourceLanguage: sourceLanguage || undefined,
           targetLanguage: targetLanguage || undefined,
           wordCount: wordCount ? parseInt(wordCount, 10) : undefined
