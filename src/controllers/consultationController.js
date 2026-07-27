@@ -134,6 +134,39 @@ const updateOutcome = async (req, res) => {
     if (typeof eligibility === 'object' && eligibility !== null) {
       eligibility = JSON.stringify(eligibility);
     }
+
+    // 1-Hour Cancellation Rule Enforcement
+    if (status === 'Cancelled') {
+      const existingConsultation = await prisma.consultation.findUnique({
+        where: { id }
+      });
+      if (!existingConsultation) {
+        return res.status(404).json({ message: 'Consultation not found' });
+      }
+
+      if (existingConsultation.status === 'Cancelled') {
+        // Idempotency: Already cancelled, just return success
+        return res.json(existingConsultation);
+      }
+
+      const timeStr = existingConsultation.timeSlot && existingConsultation.timeSlot.includes(':') 
+        ? existingConsultation.timeSlot 
+        : '10:00';
+      const meetingStartStr = `${existingConsultation.date}T${timeStr}:00.000Z`;
+      const meetingStart = new Date(meetingStartStr);
+      
+      if (!isNaN(meetingStart.getTime())) {
+        const timeDiffMs = meetingStart.getTime() - Date.now();
+        const oneHourMs = 60 * 60 * 1000;
+        
+        if (timeDiffMs <= oneHourMs && timeDiffMs > -oneHourMs) { // Prevent cancellation if within 1 hour before or during
+          return res.status(400).json({ 
+            success: false, 
+            message: 'Cancellation not allowed within 1 hour of the scheduled meeting time.' 
+          });
+        }
+      }
+    }
     
     const consultation = await prisma.consultation.update({
       where: { id },
@@ -368,26 +401,16 @@ const updateOutcome = async (req, res) => {
 
       // Send Rebook link (fire-and-forget — non-blocking)
       try {
-        const { sendCustomWhatsApp } = require('../services/chatbotService');
-        const clientName = `${updatedLead.firstName} ${updatedLead.lastName}`;
-        const rebookLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form?id=${updatedLead.id}&rebook=true`;
-        
-        const cancelMsg = `Hello *${clientName}*,\n\nYour Spain Visa Consultation has been cancelled. You can easily rebook your free Eligibility Assessment at any time using the link below:\n\n🔗 ${rebookLink}`;
-        
-        sendCustomWhatsApp(updatedLead.phone, cancelMsg).catch(err => console.error('[BG-WA] Cancel WA failed:', err.message));
-        
-        sendEmail({
-          to: updatedLead.email,
-          subject: 'Spain Visa Consultation Cancelled - Rebook Now',
-          html: `
-            <h3>Consultation Cancelled</h3>
-            <p>Dear ${updatedLead.firstName},</p>
-            <p>Your Spain Visa Consultation has been cancelled. You can easily rebook your free Eligibility Assessment at any time using the link below:</p>
-            <p><a href="${rebookLink}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Rebook Consultation</a></p>
-            <p>Thank you!</p>
-          `
-        }).catch(err => console.error('[BG-Email] Cancel email failed:', err.message));
-        console.log(`[Auto-Cancel] Dispatched cancellation rebook link to ${updatedLead.email}`);
+        const { notifyClient } = require('../services/notificationService');
+        if (updatedLead.clientId) {
+          notifyClient({
+            event: 'MEETING_CANCELLED',
+            clientId: updatedLead.clientId,
+            consultationId: consultation.id
+          }).catch(err => console.error('[Auto-Cancel] notifyClient failed:', err.message));
+        } else {
+          console.warn(`[Auto-Cancel] No clientId on lead ${updatedLead.id}, skipping central notification`);
+        }
 
         // Schedule 24-hour delayed rebooking reminder if remindersQueue is active
         if (remindersQueue && remindersQueue.add) {
