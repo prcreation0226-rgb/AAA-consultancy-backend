@@ -236,6 +236,7 @@ model Payment {
 
   // Genuinely Missing Fields:
   packageType                String?
+  paymentPurpose             String?
   additionalApplicants       Int?      @default(0)
   assessmentCreditUsed       Boolean   @default(false)
   creditReservedForPaymentId String?
