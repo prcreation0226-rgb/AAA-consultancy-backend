@@ -476,7 +476,21 @@ async function updateMeetingPreference(req, res) {
         formSubmittedAt: lead.formSubmittedAt
       }
     });
+
+    // 🔔 Trigger In-App Notifications for all staff (same as createLead)
+    const { createLeadNotification } = require('./notificationController');
+    createLeadNotification({
+      leadName: `${lead.firstName} ${lead.lastName}`,
+      email: lead.email,
+      phone: lead.phone,
+      country: lead.countryOfResidence,
+      serviceCategory: lead.serviceType,
+      appointmentDate: lead.meetingPreferredDate ? `${lead.meetingPreferredDate} ${lead.meetingPreferredTime || ''}` : null,
+      reqApp: req.app
+    }).catch(err => console.error('[Meeting Pref Notification Error]:', err.message));
+
     syncLeadConsultation(lead.id).catch(err => console.error('[BG] syncLeadConsultation failed:', err.message));
+
   } catch (error) {
     res.status(500).json({ message: 'Server error saving meeting preferences', error: error.message });
   }
