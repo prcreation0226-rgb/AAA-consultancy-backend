@@ -747,16 +747,19 @@ const createStripeCheckoutSession = async (req, res) => {
     }
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const safePackageId = (packageId || 'custom').toString().toUpperCase();
+    const safeAmount = Number(amount) || enforcedAmount || 0;
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
           currency: 'eur',
           product_data: {
-            name: `Spain Relocation Package - ${packageId.toUpperCase()}`,
+            name: `Spain Relocation Package - ${safePackageId}`,
             description: `Certified Spain visa relocation & administrative services support`,
           },
-          unit_amount: Math.round(Number(amount) * 1.05 * 100), // + 5% VAT included
+          unit_amount: Math.max(50, Math.round(safeAmount * 1.05 * 100)), // + 5% VAT included (min 50 cents)
         },
         quantity: 1,
       }],
@@ -766,9 +769,9 @@ const createStripeCheckoutSession = async (req, res) => {
       metadata: {
         clientId,
         paymentId: payment.id,
-        packageId,
-        amount: String(amount),
-        discount: String(discount)
+        packageId: String(packageId || 'custom'),
+        amount: String(safeAmount),
+        discount: String(discount || 0)
       }
     });
 
@@ -785,7 +788,7 @@ const createStripeCheckoutSession = async (req, res) => {
 
   } catch (error) {
     console.error('Error creating Stripe session:', error);
-    res.status(500).json({ success: false, message: 'Server error creating payment session' });
+    res.status(500).json({ success: false, message: error.message || 'Server error creating payment session' });
   }
 };
 
