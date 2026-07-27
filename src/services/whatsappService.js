@@ -41,8 +41,8 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
     cleanTo = '+' + cleanTo;
   }
 
-  // Sandbox Mode Whitelist Filter (Defaults to Active with +917047687998)
-  const isTestMode = process.env.TEST_MODE !== 'false'; // Defaults to true
+  // Sandbox Mode Whitelist Filter (Defaults to INACTIVE in production unless explicitly set)
+  const isTestMode = process.env.TEST_MODE === 'true'; // FIX: Defaults to false
   if (isTestMode) {
     const whitelistStr = process.env.TEST_PHONES || '+917047687998,+971524350123,+971524360123,+971566952566';
     const testPhones = whitelistStr.split(',').map(p => p.trim());
@@ -61,7 +61,12 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
     payment_reminder_48h: 'HXdf389214c0d680e13b1ac350963136ae',
     google_review: 'HX8ded76e53776ddfd06f90c990f656107',
     aaa_meeting_reminder_24h: 'HX2f47579af995ae8f89e0995030cd7d75',
-    aaa_meeting_reminder_1h: 'HX745752fa78cb0a8a2675e376fe385330'
+    aaa_meeting_reminder_1h: 'HX745752fa78cb0a8a2675e376fe385330',
+    // --- REQUIRED NEW TEMPLATES FOR NOTIFICATION FLOW ---
+    // If these are missing in Twilio, Twilio will reject the fallback text outside 24h window
+    meeting_cancelled: process.env.TWILIO_TEMPLATE_MEETING_CANCELLED || null,
+    meeting_booked: process.env.TWILIO_TEMPLATE_MEETING_BOOKED || null,
+    meeting_rescheduled: process.env.TWILIO_TEMPLATE_MEETING_RESCHEDULED || null
   };
 
   if (isConfigured) {
@@ -279,7 +284,8 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
 
     const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
     const email = client.email || 'N/A';
-    const password = generatedPassword || (client.isTemporaryPassword ? 'Check your registered email' : 'Your registered password');
+    const customerId = client.clientCode || (client.id ? `CID-${12000 + parseInt(client.id.replace(/\D/g, '').slice(-3) || '1')}` : 'CID-12001');
+    const password = generatedPassword || (client.plainTempPassword ? client.plainTempPassword : (client.isTemporaryPassword ? 'Sent via Email / Set at Registration' : 'Your registered password'));
     const service = serviceType || client.serviceType || 'Spanish Sworn Translation';
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const portalUrl = `${frontendUrl}/#/portal/login`;
@@ -292,6 +298,7 @@ Dear ${clientName},
 Thank you for your payment to AAA Business Consultancy. Your order has been successfully received.
 
 📄 *Payment Receipt Details:*
+• Customer ID: ${customerId}
 • Receipt ID: ${receiptId}
 • Service: ${service}
 • Amount Paid: €${formattedAmount}

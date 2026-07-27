@@ -245,8 +245,8 @@ async function sendCustomWhatsApp(phone, messageBody) {
     cleanPhone = '+' + cleanPhone;
   }
 
-  // Sandbox Mode Whitelist Filter (Defaults to Active with +917047687998)
-  const isTestMode = process.env.TEST_MODE !== 'false'; // Defaults to true
+  // Sandbox Mode Whitelist Filter (Defaults to INACTIVE in production unless explicitly set)
+  const isTestMode = process.env.TEST_MODE === 'true'; // FIX: Defaults to false
   if (isTestMode) {
     const whitelistStr = process.env.TEST_PHONES || '+917047687998,+971524350123,+971524360123,+971566952566';
     const testPhones = whitelistStr.split(',').map(p => p.trim());

@@ -144,6 +144,7 @@ const updateCustomizationSettings = async (req, res) => {
 
 let CURRENT_LEAD_STAGES = [
   { id: 'stage_new_lead', name: 'New Lead', type: 'lead', color: '#2196F3', emoji: '🆕' },
+  { id: 'stage_payment_not_completed', name: 'Payment Not Completed', type: 'lead', color: '#FF9800', emoji: '⏳' },
   { id: 'stage_meeting_scheduled', name: 'Meeting Scheduled', type: 'lead', color: '#3F51B5', emoji: '📅' },
   { id: 'stage_meeting_completed', name: 'Meeting Completed', type: 'lead', color: '#4CAF50', emoji: '✅' },
   { id: 'stage_meeting_cancelled', name: 'Meeting Cancelled', type: 'lead', color: '#F44336', emoji: '❌' },
@@ -153,7 +154,20 @@ let CURRENT_LEAD_STAGES = [
   { id: 'stage_waiting_payment', name: 'Waiting for Payment', type: 'client', color: '#FF5722', emoji: '💳' },
   { id: 'stage_documents_pending', name: 'Documents Pending', type: 'client', color: '#E91E63', emoji: '📎' },
   { id: 'stage_under_process', name: 'Under Process', type: 'client', color: '#03A9F4', emoji: '📂' },
+  { id: 'stage_visa_refused', name: 'Visa Refused', type: 'client', color: '#F44336', emoji: '🚫' },
+  { id: 'stage_resubmission_in_progress', name: 'Resubmission in Progress', type: 'client', color: '#FF9800', emoji: '🔄' },
+  { id: 'stage_ready_for_resubmission', name: 'Ready for Resubmission', type: 'client', color: '#00BCD4', emoji: '📋' },
+  { id: 'stage_resubmitted', name: 'Resubmitted', type: 'client', color: '#673AB7', emoji: '📤' },
+  { id: 'stage_appeal_in_progress', name: 'Appeal in Progress', type: 'client', color: '#9C27B0', emoji: '⚖️' },
+  { id: 'stage_appeal_approved', name: 'Appeal Approved', type: 'client', color: '#4CAF50', emoji: '🎉' },
+  { id: 'stage_appeal_refused', name: 'Appeal Refused', type: 'client', color: '#F44336', emoji: '💔' },
+  { id: 'stage_refund_eligible', name: 'Refund Eligible', type: 'client', color: '#FF9800', emoji: '💵' },
+  { id: 'stage_refund_under_review', name: 'Refund Under Review', type: 'client', color: '#FFC107', emoji: '🔍' },
+  { id: 'stage_refund_approved', name: 'Refund Approved', type: 'client', color: '#8BC34A', emoji: '👍' },
+  { id: 'stage_refund_completed', name: 'Refund Completed', type: 'client', color: '#4CAF50', emoji: '💰' },
+  { id: 'stage_refund_rejected', name: 'Refund Rejected', type: 'client', color: '#F44336', emoji: '🙅' },
   { id: 'stage_completed', name: 'Completed', type: 'client', color: '#4CAF50', emoji: '✅' },
+  { id: 'stage_case_closed', name: 'Case Closed', type: 'client', color: '#607D8B', emoji: '🔒' },
   { id: 'stage_closed', name: 'Closed', type: 'client', color: '#9E9E9E', emoji: '🔒' },
   { id: 'stage_cold_lead', name: 'Cold Lead', type: 'lead', color: '#009688', emoji: '❄️' },
   { id: 'stage_lost_lead', name: 'Lost Lead', type: 'lead', color: '#F44336', emoji: '❌' }

@@ -6,20 +6,29 @@ const getLeads = async (req, res) => {
       include: {
         assignedTo: {
           select: { fullName: true }
+        },
+        client: {
+          select: { id: true, clientCode: true, documents: true }
         }
       },
       orderBy: { createdAt: 'desc' }
     });
     // Map to frontend expectation
-    const mapped = leads.map(l => ({
-      ...l,
-      createdDate: l.createdAt,
-      assignedAt: l.assignedAt || l.createdAt,
-      name: `${l.firstName} ${l.lastName}`,
-      serviceId: l.serviceType,
-      assignedConsultantId: l.assignedToId,
-      assignedConsultantName: l.assignedTo?.fullName
-    }));
+    const mapped = leads.map((l, idx) => {
+      const autoCode = l.client?.clientCode || `CID-${12001 + (leads.length - 1 - idx)}`;
+      return {
+        ...l,
+        createdDate: l.createdAt,
+        assignedAt: l.assignedAt || l.createdAt,
+        name: `${l.firstName} ${l.lastName}`,
+        serviceId: l.serviceType,
+        assignedConsultantId: l.assignedToId,
+        assignedConsultantName: l.assignedTo?.fullName,
+        clientCode: autoCode,
+        displayId: autoCode,
+        documents: l.client?.documents || []
+      };
+    });
     res.json(mapped);
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching leads', error: error.message });
@@ -290,6 +299,11 @@ const getLeadById = async (req, res) => {
       include: {
         assignedTo: {
           select: { fullName: true }
+        },
+        client: {
+          include: {
+            documents: true
+          }
         }
       }
     });
@@ -301,12 +315,16 @@ const getLeadById = async (req, res) => {
       await syncLeadConsultation(lead.id).catch(err => console.error('[getLeadById] Sync Error:', err.message));
     }
 
+    const autoCode = lead.client?.clientCode || `CID-${12001}`;
     const mapped = {
       ...lead,
       name: `${lead.firstName} ${lead.lastName}`,
       serviceId: lead.serviceType,
       assignedConsultantId: lead.assignedToId,
-      assignedConsultantName: lead.assignedTo?.fullName
+      assignedConsultantName: lead.assignedTo?.fullName,
+      clientCode: autoCode,
+      displayId: autoCode,
+      documents: lead.client?.documents || []
     };
     res.json(mapped);
   } catch (error) {
@@ -503,6 +521,11 @@ async function syncLeadConsultation(leadId) {
       where: { id: leadId }
     });
     if (!lead || !lead.assignedToId) {
+      return;
+    }
+
+    const isTranslation = (lead.serviceType || '').toLowerCase().includes('translation') || (lead.serviceType || '').toLowerCase().includes('sworn');
+    if (isTranslation) {
       return;
     }
 

@@ -391,93 +391,21 @@ exports.createEligibilityBooking = async (req, res) => {
         const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultation.id}`;
         const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
-        // 1. Send WhatsApp Message
+        // 1 & 2. Send WhatsApp Message and Branded Email via centralized service
         try {
-          const { sendCustomWhatsApp } = require('../services/chatbotService');
-          const waMsg = `✈️ *Spain Visa Consultation Confirmed!*
-
-Dear *${clientName}*,
-
-Your Spain Visa Eligibility Assessment is confirmed.
-
-📅 *Date:* ${date}
-⏰ *Time:* ${timeSlot} (UTC)
-🔗 *Zoom Join Link:* ${link}
-
-─────────────
-👇 *Quick Action Links:*
-• 🔄 *Reschedule Booking:* ${rescheduleUrl}
-• ❌ *Cancel Booking:* ${cancelUrl}
-• 📦 *View Visa Packages:* ${packagesUrl}
-
-_Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
-
-          await sendCustomWhatsApp(phone, waMsg);
-
-          await prisma.communicationLog.create({
+          const { notifyClient } = require('../services/notificationService');
+          await notifyClient({
+            event: 'MEETING_BOOKED',
+            clientId: client.id,
+            consultationId: consultation.id,
             data: {
-              clientId: client.id,
-              phone: phone,
-              name: clientName,
-              channel: 'WHATSAPP',
-              direction: 'OUTBOUND',
-              deliveryStatus: 'SENT',
-              content: waMsg
+              date,
+              time: timeSlot,
+              link
             }
-          }).catch(e => console.warn('[CommLog] Write error:', e.message));
-        } catch (waErr) {
-          console.error('[NOTIFICATIONS] Failed to send WhatsApp confirmation:', waErr.message);
-          await prisma.communicationLog.create({
-            data: {
-              clientId: client.id,
-              phone: phone,
-              name: clientName,
-              channel: 'WHATSAPP',
-              direction: 'OUTBOUND',
-              deliveryStatus: 'FAILED',
-              failureReason: waErr.message,
-              content: 'Failed WhatsApp booking confirmation'
-            }
-          }).catch(e => console.warn('[CommLog] Error write error:', e.message));
-        }
-
-        // 2. Send Branded Email
-        try {
-          const { sendAppointmentConfirmationEmail } = require('../services/emailService');
-          await sendAppointmentConfirmationEmail({
-            to: email,
-            firstName,
-            date,
-            timeSlot,
-            meetingLink: link,
-            consultationId: consultation.id
           });
-
-          await prisma.communicationLog.create({
-            data: {
-              clientId: client.id,
-              phone: phone,
-              name: clientName,
-              channel: 'EMAIL',
-              direction: 'OUTBOUND',
-              deliveryStatus: 'SENT',
-              content: `Appointment Confirmation Email sent to ${email} for ${date} at ${timeSlot}`
-            }
-          }).catch(e => console.warn('[CommLog] Write error:', e.message));
-        } catch (emailErr) {
-          console.error('[NOTIFICATIONS] Failed to send Email confirmation:', emailErr.message);
-          await prisma.communicationLog.create({
-            data: {
-              clientId: client.id,
-              phone: phone,
-              name: clientName,
-              channel: 'EMAIL',
-              direction: 'OUTBOUND',
-              deliveryStatus: 'FAILED',
-              failureReason: emailErr.message,
-              content: `Failed Email booking confirmation to ${email}`
-            }
-          }).catch(e => console.warn('[CommLog] Error write error:', e.message));
+        } catch (notifErr) {
+          console.error('[NOTIFICATIONS] Failed to trigger central notification:', notifErr.message);
         }
 
         // 3. Schedule 3 Reminders (24h, 1h, 10m before)
@@ -627,8 +555,12 @@ exports.uploadTranslationDocument = async (req, res) => {
           const salt = await bcrypt.genSalt(10);
           const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
+          const clientCount = await prisma.client.count();
+          const autoClientCode = `CID-${12001 + clientCount}`;
+
           client = await prisma.client.create({
             data: {
+              clientCode: autoClientCode,
               firstName,
               lastName,
               email: email.toLowerCase(),
@@ -637,7 +569,7 @@ exports.uploadTranslationDocument = async (req, res) => {
               serviceType: 'Spanish Sworn Translation',
               password: hashedPassword,
               isTemporaryPassword: true,
-              status: 'Quote Requested',
+              status: 'Payment Not Completed',
               sourceLanguage: sourceLang,
               targetLanguage: targetLanguage || 'Spanish',
               wordCount: wordCount
@@ -667,7 +599,7 @@ exports.uploadTranslationDocument = async (req, res) => {
               phone,
               nationality: nationality || null,
               serviceType: 'Spanish Sworn Translation',
-              status: 'Quote Requested',
+              status: 'Payment Not Completed',
               clientId: client.id,
               sourceLanguage: sourceLang,
               targetLanguage: targetLanguage || 'Spanish',
@@ -745,8 +677,12 @@ exports.checkoutTranslationDocument = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
+      const clientCount = await prisma.client.count();
+      const autoClientCode = `CID-${12001 + clientCount}`;
+
       client = await prisma.client.create({
         data: {
+          clientCode: autoClientCode,
           firstName,
           lastName,
           email: email.toLowerCase(),
@@ -755,7 +691,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
           serviceType: 'Spanish Sworn Translation',
           password: hashedPassword,
           isTemporaryPassword: true,
-          status: 'Documents Under Review',
+          status: 'Payment Not Completed',
           sourceLanguage: sourceLanguage || 'English',
           targetLanguage: targetLanguage || 'Spanish',
           wordCount: parseInt(wordCount, 10) || 0
@@ -765,7 +701,6 @@ exports.checkoutTranslationDocument = async (req, res) => {
       client = await prisma.client.update({
         where: { id: client.id },
         data: {
-          status: 'Documents Under Review',
           sourceLanguage: sourceLanguage || undefined,
           targetLanguage: targetLanguage || undefined,
           wordCount: wordCount ? parseInt(wordCount, 10) : undefined

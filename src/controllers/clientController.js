@@ -25,7 +25,7 @@ const getClients = async (req, res) => {
     
     const totalClientsCount = clients.length;
     const mapped = clients.map((c, index) => {
-      const autoCode = `CID ${12000 + (totalClientsCount - index)}`;
+      const autoCode = `CID-${12000 + (totalClientsCount - index)}`;
       const finalClientCode = c.clientCode || autoCode;
       
       return {
