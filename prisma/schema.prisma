@@ -234,6 +234,15 @@ model Payment {
   billingDate      DateTime @default(now())
   dueDate          DateTime
 
+  // Genuinely Missing Fields:
+  packageType                String?
+  additionalApplicants       Int?      @default(0)
+  assessmentCreditUsed       Boolean   @default(false)
+  creditReservedForPaymentId String?
+  creditReservedUntil        DateTime?
+  paidAt                     DateTime?
+  invoiceSnapshot            Json?
+
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

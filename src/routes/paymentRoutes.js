@@ -11,7 +11,10 @@ const {
   getCommissionsReport,
   createStripeCheckoutSession,
   verifyStripeCheckoutSession,
-  getCommissionHistory
+  getCommissionHistory,
+  getClientPackages,
+  createPackageCheckout,
+  getPaymentBySessionId
 } = require('../controllers/paymentController');
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 
@@ -24,6 +27,11 @@ router.post('/generate-link', authMiddleware, rbacMiddleware(['super_admin', 'ad
 router.patch('/:id/status', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance']), updatePaymentStatus);
 router.post('/create-checkout-session', authMiddleware, createStripeCheckoutSession);
 router.post('/verify-checkout-session', verifyStripeCheckoutSession);
+
+// Residency Packages Select & Invoicing
+router.get('/packages', authMiddleware, getClientPackages);
+router.post('/package-checkout', authMiddleware, createPackageCheckout);
+router.get('/session/:sessionId', authMiddleware, getPaymentBySessionId);
 
 // Refunds
 router.get('/refunds', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'finance', 'consultant']), getRefundRequests);

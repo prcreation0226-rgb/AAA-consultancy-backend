@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
+const prisma = require('../config/db');
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM = process.env.RESEND_FROM;
@@ -307,6 +308,115 @@ exports.sendInvoiceNotificationEmail = async ({ to, clientName, amount, discount
     subject: `Relocation Invoice & Client Portal Account - AAA Business Consultancy 🇪🇸`,
     html
   });
+};
+
+exports.sendPackagePaymentConfirmationEmail = async ({ clientId, paymentId }) => {
+  try {
+    const payment = await prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: { client: true }
+    });
+
+    if (!payment || !payment.client) {
+      console.warn('[Email Confirmation] payment or client not found for confirmation email');
+      return;
+    }
+
+    const client = payment.client;
+    const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
+    
+    // Parse snapshot
+    let snapshot = payment.invoiceSnapshot;
+    if (typeof snapshot === 'string') {
+      try { snapshot = JSON.parse(snapshot); } catch (e) {}
+    }
+
+    if (!snapshot) {
+      console.warn('[Email Confirmation] invoiceSnapshot is missing for payment:', paymentId);
+      return;
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const loginUrl = `${frontendUrl}/#/portal/login`;
+
+    const htmlBody = `
+      <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+        <div style="background: linear-gradient(135deg, #0f0c29, #302b63); padding: 24px; text-align: center; color: #ffffff;">
+          <h2 style="margin: 0; font-size: 22px; font-weight: 800;">AAA Business Consultancy</h2>
+          <p style="margin: 6px 0 0; font-size: 14px; opacity: 0.85;">Spain Relocation & Visa Legal Services</p>
+        </div>
+
+        <div style="padding: 28px;">
+          <h3 style="color: #22c55e; margin-top: 0; font-size: 18px;">🎉 Payment Successful & Confirmed</h3>
+          <p style="color: #475569; line-height: 1.6;">Dear <b>${clientName}</b>,</p>
+          <p style="color: #475569; line-height: 1.6;">Thank you for your payment! We have successfully received your payment for the selected Spanish residency package.</p>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; margin: 20px 0;">
+            <h4 style="margin-top: 0; color: #1e293b; font-size: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">📄 Invoice Receipt Details:</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #334155; line-height: 1.8;">
+              <tr>
+                <td style="padding: 4px 0; font-weight: 600;">Invoice Reference:</td>
+                <td style="padding: 4px 0; text-align: right;">PAY-${payment.id.slice(0, 8).toUpperCase()}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; font-weight: 600;">Selected Package:</td>
+                <td style="padding: 4px 0; text-align: right;">${snapshot.packageName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; font-weight: 600;">Main Applicant Price:</td>
+                <td style="padding: 4px 0; text-align: right;">€${Number(snapshot.basePrice).toFixed(2)}</td>
+              </tr>
+              ${snapshot.additionalApplicants > 0 ? `
+              <tr>
+                <td style="padding: 4px 0; font-weight: 600;">Additional Applicants:</td>
+                <td style="padding: 4px 0; text-align: right;">${snapshot.additionalApplicants} × €${Number(snapshot.additionalApplicantPrice).toFixed(2)} (+€${Number(snapshot.additionalApplicantTotal).toFixed(2)})</td>
+              </tr>
+              ` : ''}
+              ${snapshot.creditApplied > 0 ? `
+              <tr>
+                <td style="padding: 4px 0; font-weight: 600; color: #22c55e;">Professional Assessment Credit:</td>
+                <td style="padding: 4px 0; text-align: right; color: #22c55e;">-€${Number(snapshot.creditApplied).toFixed(2)}</td>
+              </tr>
+              ` : ''}
+              <tr style="border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 6px 0; font-weight: bold;">Subtotal:</td>
+                <td style="padding: 6px 0; text-align: right; font-weight: bold;">€${Number(snapshot.subtotal).toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; font-weight: 600;">VAT (${snapshot.vatRate}%):</td>
+                <td style="padding: 4px 0; text-align: right;">€${Number(snapshot.vatAmount).toFixed(2)}</td>
+              </tr>
+              <tr style="font-size: 16px; border-top: 2px solid #1e293b;">
+                <td style="padding: 8px 0; font-weight: bold; color: #1e293b;">Total Amount Paid:</td>
+                <td style="padding: 8px 0; text-align: right; font-weight: bold; color: #2563eb;">€${Number(snapshot.total).toFixed(2)}</td>
+              </tr>
+            </table>
+
+            <div style="text-align: center; margin-top: 24px;">
+              <a href="${loginUrl}" style="display: inline-block; padding: 12px 26px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 14px;">💻 Log In to Client Portal</a>
+            </div>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+          <p style="font-size: 12px; color: #64748b; line-height: 1.5;">
+            Your official invoice receipt is now available directly in your client portal under the document upload section. If you have any questions or require relocation support, please contact your assigned visa coordinator.
+          </p>
+        </div>
+
+        <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px; text-align: center; color: #94a3b8; font-size: 12px;">
+          © 2026 AAA Business Consultancy · All rights reserved
+        </div>
+      </div>
+    `;
+
+    return exports.sendEmail({
+      to: client.email,
+      subject: `Payment Confirmed — ${snapshot.packageName} — AAA Business Consultancy 🎉`,
+      html: htmlBody
+    });
+  } catch (error) {
+    console.error('[Email Confirmation Error] Failed to prepare/send package confirmation email:', error.message);
+  }
 };
 
 
