@@ -58,6 +58,17 @@ const createConsultation = async (req, res) => {
   try {
     const { leadId, meetingDate, meetingTime, durationMinutes, assignedConsultantId, notes } = req.body;
     
+    // Same-Day Booking Restriction
+    if (meetingDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (meetingDate <= todayStr) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking date must be at least the next calendar day.'
+        });
+      }
+    }
+
     let meetingLink = 'https://zoom.us/j/' + Math.floor(100000000 + Math.random() * 900000000);
     
     if (zoomService.isConfigured) {
@@ -797,6 +808,17 @@ async function publicRescheduleConsultation(req, res) {
       return res.status(400).json({ success: false, message: 'Consultation ID, date, and timeSlot are required.' });
     }
 
+    // Same-Day Booking Restriction
+    if (date) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (date <= todayStr) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking date must be at least the next calendar day.'
+        });
+      }
+    }
+
     const consultation = await prisma.consultation.findUnique({
       where: { id: consultationId },
       include: { lead: true }
@@ -900,6 +922,30 @@ async function publicCancelConsultation(req, res) {
       return res.status(404).json({ success: false, message: 'Consultation not found.' });
     }
 
+    // Meeting Cancellation Restriction (within 1 hour)
+    if (consultation.date && consultation.timeSlot) {
+      try {
+        const timePart = consultation.timeSlot.split('-')[0].trim();
+        if (timePart.includes(':')) {
+          const [hours, minutes] = timePart.split(':').map(Number);
+          const [year, month, day] = consultation.date.split('-').map(Number);
+          const meetingTime = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
+          
+          const diffMs = meetingTime.getTime() - Date.now();
+          const diffHours = diffMs / (1000 * 60 * 60);
+          
+          if (diffHours <= 1) {
+            return res.status(400).json({
+              success: false,
+              message: 'Cancellation is not allowed within 1 hour of the scheduled meeting time.'
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error validating cancellation window:', err);
+      }
+    }
+
     const updatedConsultation = await prisma.consultation.update({
       where: { id: consultationId },
       data: { status: 'Cancelled' }
@@ -966,6 +1012,39 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
   }
 }
 
+async function getPublicConsultationDetails(req, res) {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Consultation ID is required.' });
+    }
+
+    const consultation = await prisma.consultation.findUnique({
+      where: { id },
+      include: { lead: true }
+    });
+
+    if (!consultation) {
+      return res.status(404).json({ success: false, message: 'Consultation not found.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: consultation.id,
+        date: consultation.date,
+        timeSlot: consultation.timeSlot,
+        status: consultation.status,
+        clientName: consultation.lead ? `${consultation.lead.firstName} ${consultation.lead.lastName}` : 'Client'
+      }
+    });
+  } catch (error) {
+    console.error('Error in getPublicConsultationDetails:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve consultation details.' });
+  }
+}
+
 module.exports = {
   getConsultations,
   createConsultation,
@@ -974,6 +1053,7 @@ module.exports = {
   createConsultationForLead,
   reassignConsultant,
   publicRescheduleConsultation,
-  publicCancelConsultation
+  publicCancelConsultation,
+  getPublicConsultationDetails
 };
 
