@@ -548,8 +548,8 @@ async function getTranslationRate(sourceLanguage) {
         ? JSON.parse(settings.swornTranslationRates)
         : settings.swornTranslationRates;
 
-      if (lang.includes('arabic') && rates.arabicToSpanish) return parseFloat(rates.arabicToSpanish);
       if (lang.includes('urdu') && rates.urduToSpanish) return parseFloat(rates.urduToSpanish);
+      if (lang.includes('arabic') && rates.arabicToSpanish) return parseFloat(rates.arabicToSpanish);
       if (lang.includes('english') && rates.englishToSpanish) return parseFloat(rates.englishToSpanish);
     }
   } catch (e) {
@@ -557,11 +557,11 @@ async function getTranslationRate(sourceLanguage) {
   }
 
   // Fallback defaults
-  if (lang.includes('arabic')) {
-    return 0.25;
-  }
   if (lang.includes('urdu')) {
     return 0.40;
+  }
+  if (lang.includes('arabic')) {
+    return 0.25;
   }
   // Default (English)
   return 0.15;
