@@ -2,6 +2,8 @@ const prisma = require('../config/db');
 const stripe = process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('your_stripe') 
   ? require('stripe')(process.env.STRIPE_SECRET_KEY) 
   : null;
+const packagesConfig = require('../config/packages');
+const paymentService = require('../services/paymentService');
 
 const getPayments = async (req, res) => {
   try {
@@ -924,6 +926,218 @@ const getCommissionHistory = async (req, res) => {
   }
 };
 
+const getClientPackages = async (req, res) => {
+  try {
+    const clientId = req.user.id;
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const activeCredit = await prisma.payment.findFirst({
+      where: {
+        clientId: clientId,
+        packageType: 'OPTION_A',
+        status: 'Paid',
+        assessmentCreditUsed: false,
+        paidAt: { gte: fourteenDaysAgo },
+        OR: [
+          { creditReservedForPaymentId: null },
+          { creditReservedUntil: { lt: new Date() } }
+        ]
+      }
+    });
+
+    res.json({
+      success: true,
+      packages: packagesConfig,
+      credit: {
+        hasCredit: !!activeCredit,
+        creditAmount: activeCredit ? 250 : 0,
+        expiresAt: activeCredit ? new Date(activeCredit.paidAt.getTime() + 14 * 24 * 60 * 60 * 1000) : null
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching packages config:', error);
+    res.status(500).json({ message: 'Server error fetching packages configuration' });
+  }
+};
+
+const createPackageCheckout = async (req, res) => {
+  let createdPaymentId = null;
+  let reservedAssessmentId = null;
+  const clientId = req.user.id;
+
+  try {
+    const { packageId, additionalApplicants } = req.body;
+    if (!packageId || additionalApplicants === undefined) {
+      return res.status(400).json({ message: 'Package selection and applicant count are required.' });
+    }
+
+    const count = parseInt(additionalApplicants, 10);
+    if (isNaN(count) || count < 0) {
+      return res.status(400).json({ message: 'Invalid additional applicants count.' });
+    }
+
+    // STEP 1: DB Transaction - calculate, create pending payment, and reserve credit atomically
+    const { payment, invoice } = await prisma.$transaction(async (tx) => {
+      // Recalculate everything on backend
+      const invoice = await paymentService.calculatePackageInvoice(clientId, packageId, count);
+
+      // Verify the Option A payment is still lockable if credit was applied
+      if (invoice.assessmentPaymentId) {
+        const assessment = await tx.payment.findUnique({
+          where: { id: invoice.assessmentPaymentId }
+        });
+
+        if (!assessment || assessment.status !== 'Paid' || assessment.assessmentCreditUsed) {
+          throw new Error('Option A credit is no longer eligible or has already been used.');
+        }
+
+        // Lock if reserved is empty OR expired
+        if (assessment.creditReservedForPaymentId && assessment.creditReservedUntil && assessment.creditReservedUntil >= new Date()) {
+          throw new Error('Option A credit is currently reserved by another pending checkout.');
+        }
+      }
+
+      // Create the pending Payment record
+      // dueDate is kept for schema compatibility (14 days from creation)
+      const newPayment = await tx.payment.create({
+        data: {
+          clientId,
+          amount: invoice.total,
+          packageType: packageId,
+          additionalApplicants: count,
+          status: 'Pending',
+          paymentMethod: 'STRIPE',
+          dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          invoiceSnapshot: invoice
+        }
+      });
+
+      // Atomically set the reservation details on Option A payment
+      if (invoice.assessmentPaymentId) {
+        await tx.payment.update({
+          where: { id: invoice.assessmentPaymentId },
+          data: {
+            creditReservedForPaymentId: newPayment.id,
+            creditReservedUntil: new Date(Date.now() + 60 * 60 * 1000) // 1 hour reservation config
+          }
+        });
+      }
+
+      return { payment: newPayment, invoice };
+    });
+
+    createdPaymentId = payment.id;
+    reservedAssessmentId = invoice.assessmentPaymentId;
+
+    // STEP 2: Decoupled Stripe API Call (Outside Transaction)
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    let paymentUrl = `${frontendUrl}/#/portal/documents/${clientId}`;
+
+    if (stripe) {
+      const stripeAmount = Math.round(invoice.total * 100); // convert EUR to integer cents
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'eur',
+            product_data: {
+              name: invoice.packageName,
+              description: `Residency package checkout for Client ID: ${clientId}`
+            },
+            unit_amount: stripeAmount
+          },
+          quantity: 1
+        }],
+        mode: 'payment',
+        success_url: `${frontendUrl}/#/public/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/#/portal/documents/${clientId}?cancelled=true`,
+        client_reference_id: payment.id,
+        metadata: {
+          clientId,
+          paymentId: payment.id,
+          packageId,
+          additionalApplicants: count,
+          assessmentPaymentId: invoice.assessmentPaymentId || '',
+          type: 'package_payment'
+        }
+      });
+
+      if (session && session.url) {
+        paymentUrl = session.url;
+
+        // STEP 3: DB Update - Save Stripe session ID
+        await prisma.payment.update({
+          where: { id: payment.id },
+          data: { gatewayId: session.id }
+        });
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      payment,
+      stripeUrl: paymentUrl
+    });
+
+  } catch (error) {
+    console.error('Error initiating package checkout:', error.message);
+
+    // STEP 4: Failure Recovery - Release reservation and mark payment failed
+    if (createdPaymentId) {
+      try {
+        await prisma.payment.update({
+          where: { id: createdPaymentId },
+          data: { status: 'Failed' }
+        });
+
+        if (reservedAssessmentId) {
+          await prisma.payment.update({
+            where: { id: reservedAssessmentId },
+            data: {
+              creditReservedForPaymentId: null,
+              creditReservedUntil: null
+            }
+          });
+        }
+      } catch (recoveryErr) {
+        console.error('Error during payment checkout failure recovery:', recoveryErr.message);
+      }
+    }
+
+    res.status(500).json({ message: error.message || 'Server error initiating package checkout' });
+  }
+};
+
+const getPaymentBySessionId = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const clientId = req.user.id;
+
+    if (!sessionId) {
+      return res.status(400).json({ message: 'Session ID is required.' });
+    }
+
+    const payment = await prisma.payment.findFirst({
+      where: { gatewayId: sessionId }
+    });
+
+    if (!payment) {
+      return res.status(404).json({ message: 'Payment record not found.' });
+    }
+
+    // Security: Enforce Client Ownership check
+    if (payment.clientId !== clientId) {
+      return res.status(403).json({ message: 'Access Denied: You do not own this payment record.' });
+    }
+
+    res.json({
+      success: true,
+      payment
+    });
+  } catch (error) {
+    console.error('Error fetching payment by session:', error);
+    res.status(500).json({ message: 'Server error fetching payment details.' });
+  }
+};
 
 module.exports = { 
   getPayments, 
@@ -937,5 +1151,8 @@ module.exports = {
   getCommissionsReport,
   createStripeCheckoutSession,
   verifyStripeCheckoutSession,
-  getCommissionHistory
+  getCommissionHistory,
+  getClientPackages,
+  createPackageCheckout,
+  getPaymentBySessionId
 };

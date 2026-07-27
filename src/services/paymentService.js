@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { paymentDripQueue } = require('../queues/queueSetup');
+const packagesConfig = require('../config/packages');
 
 // Secure Payment State Machine Transition
 const processPaymentEvent = async (event) => {
@@ -50,6 +51,32 @@ const processPaymentEvent = async (event) => {
           ? (clientWithAgent.assignedTo.commissionRate || 0) 
           : 0;
 
+        const isPackagePayment = session.metadata?.type === 'package_payment';
+        const assessmentPaymentId = session.metadata?.assessmentPaymentId || (payment.invoiceSnapshot ? payment.invoiceSnapshot.assessmentPaymentId : null);
+
+        // If it's a package payment that used assessment credit, atomically mark it as used and clear reservation
+        if (isPackagePayment && assessmentPaymentId) {
+          const assessmentPayment = await tx.payment.findUnique({
+            where: { id: assessmentPaymentId }
+          });
+          if (!assessmentPayment || assessmentPayment.status !== 'Paid' || assessmentPayment.assessmentCreditUsed) {
+            throw new Error('Option A credit is no longer eligible or has already been used.');
+          }
+
+          await tx.payment.update({
+            where: { id: assessmentPaymentId },
+            data: {
+              assessmentCreditUsed: true,
+              creditReservedForPaymentId: null,
+              creditReservedUntil: null
+            }
+          });
+          console.log(`[Stripe Webhook] Marked Assessment Credit ${assessmentPaymentId} as USED.`);
+        }
+
+        // Set paidAt to Stripe session created time or Date.now()
+        const paidAtDate = session.created ? new Date(session.created * 1000) : new Date();
+
         await tx.payment.update({
           where: { id: paymentId },
           data: {
@@ -57,7 +84,8 @@ const processPaymentEvent = async (event) => {
             transactionId: transactionId,
             paymentMethod: 'Stripe',
             totalPaid: totalPaid,
-            commissionRate: snapshotRate
+            commissionRate: snapshotRate,
+            paidAt: paidAtDate
           }
         });
 
@@ -84,12 +112,14 @@ const processPaymentEvent = async (event) => {
           const isTranslation = (payment.client.serviceType || '').includes('Translation') || (payment.client.serviceId || '').includes('translation');
           const packageId = session.metadata?.packageId;
           const isNoShowAssessment = session.metadata?.type === 'no_show_case_assessment' || packageId === 'option_a' || packageId === 'Option A';
+          const additionalApplicantsCount = session.metadata?.additionalApplicants ? parseInt(session.metadata.additionalApplicants, 10) : (payment.additionalApplicants || 0);
 
           const updatedClient = await tx.client.update({
             where: { id: payment.clientId },
             data: {
               documentUploadAllowed: !isNoShowAssessment, // Keep locked if it's only €250 case assessment
               packageId: packageId || undefined,
+              additionalApplicants: isNoShowAssessment ? 0 : additionalApplicantsCount,
               status: isNoShowAssessment 
                 ? 'Partially Paid' 
                 : (isTranslation ? 'Documents Under Review' : 'Payment Received'),
@@ -98,6 +128,20 @@ const processPaymentEvent = async (event) => {
                 : (isTranslation ? 'Not Started' : 'Document Preparation')
             }
           });
+
+          // Update associated Lead status to 'Payment Received' if it exists and this is not just a No-Show Assessment
+          if (!isNoShowAssessment) {
+            const lead = await tx.lead.findFirst({
+              where: { clientId: payment.clientId }
+            });
+            if (lead) {
+              await tx.lead.update({
+                where: { id: lead.id },
+                data: { status: 'Payment Received' }
+              });
+              console.log(`[Stripe Webhook] Updated associated Lead ${lead.id} status to Payment Received.`);
+            }
+          }
 
           // Send Checklist Email only if they paid for full package
           if (!isNoShowAssessment) {
@@ -123,6 +167,20 @@ const processPaymentEvent = async (event) => {
             console.log(`[Auto-WhatsApp Payment Webhook] Sent payment success & portal credentials to client ${updatedClient.phone}`);
           } catch (waErr) {
             console.error('[Auto-WhatsApp Payment Webhook] Failed to send WhatsApp notification:', waErr.message);
+          }
+
+          // Send package payment email if it is a package selection checkout
+          if (isPackagePayment) {
+            try {
+              const { sendPackagePaymentConfirmationEmail } = require('./emailService');
+              await sendPackagePaymentConfirmationEmail({
+                clientId: updatedClient.id,
+                paymentId: payment.id
+              });
+              console.log(`[Email Webhook] Sent package payment success email to client ${updatedClient.email}`);
+            } catch (emailErr) {
+              console.error('[Email Webhook] Failed to send package payment confirmation email:', emailErr.message);
+            }
           }
         }
         
@@ -209,8 +267,9 @@ module.exports = {
       where: {
         clientId: clientId,
         status: 'Paid',
-        amount: 262.50, // The €250 + 5% VAT payment
-        createdAt: {
+        packageType: 'OPTION_A',
+        assessmentCreditUsed: false,
+        paidAt: {
           gte: fourteenDaysAgo
         }
       }
@@ -231,5 +290,75 @@ module.exports = {
       price: basePrice,
       creditApplied: 0
     };
+  },
+
+  calculatePackageInvoice: async (clientId, packageId, additionalApplicants) => {
+    const packageConfig = packagesConfig[packageId];
+    if (!packageConfig) {
+      throw new Error(`Invalid package selected: ${packageId}`);
+    }
+
+    const count = parseInt(additionalApplicants, 10);
+    if (isNaN(count) || count < 0) {
+      throw new Error(`Invalid additional applicants count: ${additionalApplicants}`);
+    }
+
+    if (packageId === 'OPTION_A' && count !== 0) {
+      throw new Error('Professional Case Assessment cannot have additional applicants');
+    }
+
+    const basePrice = packageConfig.basePrice;
+    const additionalApplicantPrice = packageConfig.additionalApplicantPrice;
+    const additionalApplicantTotal = parseFloat((count * additionalApplicantPrice).toFixed(2));
+    const packageTotal = parseFloat((basePrice + additionalApplicantTotal).toFixed(2));
+
+    let creditApplied = 0;
+    let assessmentPaymentId = null;
+
+    if (packageConfig.creditEligible) {
+      const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      const activeCredit = await prisma.payment.findFirst({
+        where: {
+          clientId: clientId,
+          packageType: 'OPTION_A',
+          status: 'Paid',
+          assessmentCreditUsed: false,
+          paidAt: { gte: fourteenDaysAgo },
+          OR: [
+            { creditReservedForPaymentId: null },
+            { creditReservedUntil: { lt: new Date() } }
+          ]
+        }
+      });
+
+      if (activeCredit) {
+        creditApplied = 250.00;
+        assessmentPaymentId = activeCredit.id;
+      }
+    }
+
+    const subtotal = parseFloat((packageTotal - creditApplied).toFixed(2));
+    const vatRate = packageConfig.vatRate; // 5%
+    const vatAmount = parseFloat((subtotal * (vatRate / 100)).toFixed(2));
+    const total = parseFloat((subtotal + vatAmount).toFixed(2));
+
+    const invoiceSnapshot = {
+      packageId,
+      packageName: packageConfig.name,
+      basePrice,
+      additionalApplicants: count,
+      additionalApplicantPrice,
+      additionalApplicantTotal,
+      packageTotal,
+      creditApplied,
+      assessmentPaymentId,
+      subtotal,
+      vatRate,
+      vatAmount,
+      total,
+      currency: 'EUR'
+    };
+
+    return invoiceSnapshot;
   }
 };
