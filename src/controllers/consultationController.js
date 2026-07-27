@@ -234,7 +234,6 @@ const updateOutcome = async (req, res) => {
           });
           console.log(`[Auto-Completed] Scheduled €250 assessment drips for lead ${updatedLead.id}`);
         }
-      }
     }
 
     // Trigger automated post-consultation Google Review WhatsApp messages (Immediate + 3d + 7d drips)
