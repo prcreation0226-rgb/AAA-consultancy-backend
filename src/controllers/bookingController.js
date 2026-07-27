@@ -86,7 +86,7 @@ exports.createEligibilityBooking = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused'];
+    const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused', 'Meeting Completed', 'Meeting Cancelled'];
     
     if (latestLead && !inactiveStatuses.includes(latestLead.status)) {
       return res.status(409).json({
@@ -228,7 +228,7 @@ exports.createEligibilityBooking = async (req, res) => {
       lead = await prisma.lead.create({
         data: {
           firstName, lastName, email: email.toLowerCase(), phone, nationality, countryOfResidence,
-          preferredLanguage, serviceType, applicantsCount, status: 'Assessment Booked',
+          preferredLanguage, serviceType, applicantsCount, status: 'Meeting Scheduled',
           clientId: client.id,
           assignedToId: bestConsultantId,
           preferableArea: preferableArea || null,
@@ -242,6 +242,7 @@ exports.createEligibilityBooking = async (req, res) => {
       lead = await prisma.lead.update({
         where: { id: lead.id },
         data: {
+          status: 'Meeting Scheduled',
           assignedToId: lead.assignedToId || bestConsultantId,
           preferableArea: preferableArea || undefined,
           budget: budget || undefined,

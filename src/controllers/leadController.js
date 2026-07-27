@@ -109,7 +109,7 @@ const createLead = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused'];
+    const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused', 'Meeting Completed', 'Meeting Cancelled'];
     
     if (latestLead && !inactiveStatuses.includes(latestLead.status)) {
       return res.status(409).json({
