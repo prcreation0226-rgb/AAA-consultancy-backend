@@ -171,6 +171,13 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
         }
       ],
       discount: Number(discount) || 0,
+      payment_options: {
+        payment_gateways: [
+          {
+            gateway_name: 'stripe'
+          }
+        ]
+      },
       notes: 'Thank you for choosing AAA Business Consultancy!',
       terms: 'Payment is due upon receipt.'
     };
