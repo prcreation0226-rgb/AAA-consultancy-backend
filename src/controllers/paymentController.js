@@ -7,7 +7,8 @@ const paymentService = require('../services/paymentService');
 
 const getPayments = async (req, res) => {
   try {
-    const whereClause = req.user.role === 'client' ? { clientId: req.user.id } : {};
+    const isClient = req.user && req.user.role === 'client';
+    const whereClause = isClient ? { clientId: req.user.id } : {};
 
     const payments = await prisma.payment.findMany({
       where: whereClause,
@@ -24,7 +25,8 @@ const getPayments = async (req, res) => {
     
     res.json(mapped);
   } catch (error) {
-    res.status(500).json({ message: 'Server error fetching payments' });
+    console.error('[getPayments Error]:', error.message);
+    res.status(500).json({ message: 'Server error fetching payments', error: error.message });
   }
 };
 
