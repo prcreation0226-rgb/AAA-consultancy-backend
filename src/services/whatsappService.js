@@ -54,6 +54,16 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
 
   const twilioTo = `whatsapp:${cleanTo}`;
 
+  // Twilio Content Template SIDs — maps template names to approved WhatsApp template SIDs
+  const TEMPLATE_CONTENT_SIDS = {
+    payment_reminder_2h: 'HX02a8475f06ded5fb55382c41dcc12e03',
+    payment_reminder_24h: 'HX58d9dc8fcb2379bc8fd07c62f5d6f08c',
+    payment_reminder_48h: 'HXdf389214c0d680e13b1ac350963136ae',
+    google_review: 'HX8ded76e53776ddfd06f90c990f656107',
+    aaa_meeting_reminder_24h: 'HX2f47579af995ae8f89e0995030cd7d75',
+    aaa_meeting_reminder_1h: 'HX745752fa78cb0a8a2675e376fe385330'
+  };
+
   if (isConfigured) {
     try {
       const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
@@ -79,14 +89,15 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
           consultation_no_show_cancelled: 'Hello {{1}}, your Free Eligibility Assessment has been cancelled because you did not join within 10 minutes of the scheduled time. Due to high demand, missed appointments cannot be rescheduled.',
           payment_pending_reminder: 'Hi {{1}}, this is a reminder that payment is pending for Invoice #{{2}}.',
           payment_drip_discount: 'Hello {{1}}, use discount code CEO24H to complete your payment for Invoice #{{2}} with a special discount! Valid for 24 hours only.',
-          google_review: 'Hello {{1}},\n\nWe hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!'
+          google_review: 'Hello {{1}},\n\nWe hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!',
+          payment_reminder_2h: 'Hello {{1}},\n\nWe noticed that you started setting up your Spain Visa / Relocation application but haven\'t completed the payment yet.\n\nTo secure your assigned immigration specialist and begin processing today, please complete your payment:\n\n🔗 Payment Link: {{2}}\n\nIf you have any questions, please reply directly. We are here to help!\n\nBest regards,\nAAA Business Consultancy Team',
+          payment_reminder_24h: 'Hello {{1}},\n\nThis is a gentle reminder that your relocation package invoice is still pending. It has been 24 hours since your account initialization.\n\nTo avoid losing your slot and priority file review, please finalize your payment using the link below:\n\n🔗 Complete Payment: {{2}}\n\nOur team is ready to begin your visa submission steps as soon as payment is confirmed.\n\nBest regards,\nAAA Business Consultancy Team',
+          payment_reminder_48h: 'Hello {{1}},\n\nWe would like to remind you that your invoice has been pending for 2 days.\n\nIf you are ready to relocate or secure your Spanish visa/residency, please complete the final steps of your application fee payment:\n\n🔗 Final Payment Link: {{2}}\n\nBest regards,\nAAA Business Consultancy Team'
         };
         templateText = fallbacks[templateName] || `Template: ${templateName}`;
       }
 
       // 3. Extract parameter values from 'components' structure
-      // Meta API passed variables inside components, e.g.:
-      // [{ type: 'body', parameters: [{ type: 'text', text: 'Value1' }, ...] }]
       const bodyComponents = components.find(c => c.type === 'body')?.parameters || [];
       
       // 4. Interpolate variables (replace {{1}} with param 1, {{2}} with param 2, etc.)
@@ -98,26 +109,144 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
       });
 
       // 5. Send message via Twilio API
-      const message = await client.messages.create({
-        body: resolvedBody,
-        from: TWILIO_WHATSAPP_FROM,
-        to: twilioTo
-      });
+      let deliveryStatus = 'SENT';
+      let failureReason = null;
+      let msgSid = null;
+      
+      try {
+        const contentSid = TEMPLATE_CONTENT_SIDS[templateName];
+        
+        if (contentSid) {
+          // Use official Twilio Content Template API (contentSid + contentVariables)
+          // This is required for outbound messages outside the 24-hour WhatsApp window
+          const contentVars = {};
+          bodyComponents.forEach((param, index) => {
+            contentVars[String(index + 1)] = param.text || '';
+          });
 
-      console.log(`Twilio WhatsApp message sent successfully using template "${templateName}" to ${twilioTo}. SID: ${message.sid}`);
-      return { success: true, messageId: message.sid, dryRun: false };
+          const message = await client.messages.create({
+            from: TWILIO_WHATSAPP_FROM,
+            to: twilioTo,
+            contentSid: contentSid,
+            contentVariables: JSON.stringify(contentVars)
+          });
+          msgSid = message.sid;
+          console.log(`[WhatsApp] ✅ Sent template "${templateName}" via Content SID ${contentSid} to ${twilioTo}. SID: ${message.sid}`);
+        } else {
+          // Fallback: send as plain body text (for templates without a registered Content SID)
+          const message = await client.messages.create({
+            body: resolvedBody,
+            from: TWILIO_WHATSAPP_FROM,
+            to: twilioTo
+          });
+          msgSid = message.sid;
+          console.log(`[WhatsApp] ✅ Sent template "${templateName}" via body text to ${twilioTo}. SID: ${message.sid}`);
+        }
+      } catch (twilioErr) {
+        console.error(`[WhatsApp] ❌ Failed to send "${templateName}" to ${twilioTo}:`, twilioErr.message);
+        deliveryStatus = 'FAILED';
+        failureReason = twilioErr.message;
+      }
+
+      // Log in CommunicationLog
+      try {
+        const numberPart = cleanTo.replace('+', '');
+        const clientRecord = await prisma.client.findFirst({
+          where: { phone: { contains: numberPart } }
+        });
+        
+        await prisma.communicationLog.create({
+          data: {
+            clientId: clientRecord ? clientRecord.id : null,
+            phone: cleanTo,
+            name: clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client',
+            channel: 'WHATSAPP',
+            direction: 'OUTBOUND',
+            externalProviderId: templateName,
+            content: resolvedBody,
+            deliveryStatus: deliveryStatus,
+            failureReason: failureReason
+          }
+        });
+      } catch (logErr) {
+        console.warn(`Could not log template "${templateName}" to CommunicationLog:`, logErr.message);
+      }
+
+      if (deliveryStatus === 'FAILED') {
+        throw new Error(failureReason);
+      }
+      return { success: true, messageId: msgSid, dryRun: false };
     } catch (error) {
-      console.error(`Failed to send Twilio WhatsApp message to ${twilioTo}:`, error.message);
+      console.error(`[WhatsApp] Failed in sendWhatsAppMessage wrapper for ${twilioTo}:`, error.message);
       throw new Error(`Twilio API Error: ${error.message}`);
     }
   } else {
     // Sandbox / Dry-Run Mode
+    const contentSid = TEMPLATE_CONTENT_SIDS[templateName];
     console.log('------------------------------------------------------------');
     console.log(`[TWILIO WHATSAPP DRY-RUN]`);
     console.log(`To:       ${twilioTo}`);
     console.log(`Template: ${templateName}`);
+    console.log(`ContentSID: ${contentSid || 'N/A (body fallback)'}`);
     console.log(`Components: ${JSON.stringify(components, null, 2)}`);
     console.log('------------------------------------------------------------');
+
+    try {
+      let templateText = null;
+      try {
+        const template = await prisma.template.findUnique({
+          where: { id: templateName }
+        });
+        if (template && template.body) {
+          templateText = template.body;
+        }
+      } catch (_) {}
+
+      if (!templateText) {
+        const fallbacks = {
+          automated_first_response: 'Thank you for contacting AAA Business Consultancy regarding Spain Visa & Residency Services. To Book Your Free Eligibility Assessment & Verification Please Contact Us on Whatsapp: https://wa.me/971509554142?text=I%20want%20to%20book%20an%20assessment%20from%20TikTok',
+          consultation_scheduled_confirmation: 'Hello {{1}}, your Spain Visa Consultation is scheduled on {{2}} at {{3}} (UTC). Join Zoom Meeting: {{4}}',
+          consultation_no_show_cancelled: 'Hello {{1}}, your Free Eligibility Assessment has been cancelled because you did not join within 10 minutes of the scheduled time. Due to high demand, missed appointments cannot be rescheduled.',
+          payment_pending_reminder: 'Hi {{1}}, this is a reminder that payment is pending for Invoice #{{2}}.',
+          payment_drip_discount: 'Hello {{1}}, use discount code CEO24H to complete your payment for Invoice #{{2}} with a special discount! Valid for 24 hours only.',
+          google_review: 'Hello {{1}},\n\nWe hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!',
+          payment_reminder_2h: 'Hello {{1}},\n\nWe noticed that you started setting up your Spain Visa / Relocation application but haven\'t completed the payment yet.\n\nTo secure your assigned immigration specialist and begin processing today, please complete your payment:\n\n🔗 Payment Link: {{2}}\n\nIf you have any questions, please reply directly. We are here to help!\n\nBest regards,\nAAA Business Consultancy Team',
+          payment_reminder_24h: 'Hello {{1}},\n\nThis is a gentle reminder that your relocation package invoice is still pending. It has been 24 hours since your account initialization.\n\nTo avoid losing your slot and priority file review, please finalize your payment using the link below:\n\n🔗 Complete Payment: {{2}}\n\nOur team is ready to begin your visa submission steps as soon as payment is confirmed.\n\nBest regards,\nAAA Business Consultancy Team',
+          payment_reminder_48h: 'Hello {{1}},\n\nWe would like to remind you that your invoice has been pending for 2 days.\n\nIf you are ready to relocate or secure your Spanish visa/residency, please complete the final steps of your application fee payment:\n\n🔗 Final Payment Link: {{2}}\n\nBest regards,\nAAA Business Consultancy Team'
+        };
+        templateText = fallbacks[templateName] || `Template: ${templateName}`;
+      }
+
+      const bodyComponents = components.find(c => c.type === 'body')?.parameters || [];
+      let resolvedBody = templateText;
+      bodyComponents.forEach((param, index) => {
+        const placeholder = `{{${index + 1}}}`;
+        const replacement = param.text || '';
+        resolvedBody = resolvedBody.replace(new RegExp(placeholder, 'g'), replacement);
+      });
+
+      const numberPart = cleanTo.replace('+', '');
+      const clientRecord = await prisma.client.findFirst({
+        where: { phone: { contains: numberPart } }
+      });
+
+      await prisma.communicationLog.create({
+        data: {
+          clientId: clientRecord ? clientRecord.id : null,
+          phone: cleanTo,
+          name: clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client',
+          channel: 'WHATSAPP',
+          direction: 'OUTBOUND',
+          externalProviderId: templateName,
+          content: resolvedBody,
+          deliveryStatus: 'LOGGED',
+          failureReason: 'DRY_RUN'
+        }
+      });
+    } catch (logErr) {
+      console.warn(`Could not log dry-run template "${templateName}" to CommunicationLog:`, logErr.message);
+    }
+
     return { success: true, messageId: `twilio-dryrun-${Date.now()}`, dryRun: true };
   }
 };

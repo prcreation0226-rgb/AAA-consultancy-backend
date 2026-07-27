@@ -220,9 +220,32 @@ async function sendPaymentReminder(client, type, subject, messageBody) {
       });
     }
     
-    // Send WhatsApp
+    // Send WhatsApp Template
     if (client.phone) {
-      await sendCustomWhatsApp(client.phone, `🔔 *${subject}*\n\nDear ${client.firstName},\n\n${messageBody}`);
+      const { sendWhatsAppMessage } = require('./whatsappService');
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const checkoutLink = `${frontendUrl}/#/portal/documents/${client.id}`;
+      
+      let templateName = 'payment_reminder_2h';
+      if (type === '24h') {
+        templateName = 'payment_reminder_24h';
+      } else if (type === '2d') {
+        templateName = 'payment_reminder_48h';
+      }
+
+      await sendWhatsAppMessage({
+        to: client.phone,
+        templateName,
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: client.firstName || 'Client' },
+              { type: 'text', text: checkoutLink }
+            ]
+          }
+        ]
+      });
     }
   } catch (err) {
     console.error(`Failed to send ${type} reminder:`, err.message);
