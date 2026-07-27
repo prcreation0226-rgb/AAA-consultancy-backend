@@ -204,26 +204,71 @@ const processPaymentEvent = async (event) => {
 
 module.exports = {
   processPaymentEvent,
-  createNoShowCheckoutSession: async (clientId) => {
+  createNoShowAssessmentPayment: async (clientId, consultationId) => {
     const client = await prisma.client.findUnique({
       where: { id: clientId }
     });
 
     if (!client) throw new Error(`Client ${clientId} not found`);
 
+    // Check for existing No-Show payment for this client
+    const existingPayment = await prisma.payment.findFirst({
+      where: {
+        clientId: client.id,
+        paymentPurpose: 'NO_SHOW_ASSESSMENT',
+        status: { in: ['Pending', 'Paid'] }
+      }
+    });
+
+    if (existingPayment) {
+      if (existingPayment.status === 'Paid') return null; // No duplicate payments needed
+      if (existingPayment.status === 'Pending') return existingPayment; // Return existing
+    }
+
+    const packageConfig = packagesConfig['OPTION_A'];
+    const basePrice = packageConfig.basePrice;
+    const vatRate = packageConfig.vatRate;
+    const vatAmount = parseFloat((basePrice * (vatRate / 100)).toFixed(2));
+    const total = parseFloat((basePrice + vatAmount).toFixed(2));
+
+    const invoiceSnapshot = {
+      packageId: 'OPTION_A',
+      packageName: packageConfig.name,
+      basePrice,
+      additionalApplicants: 0,
+      additionalApplicantPrice: 0,
+      additionalApplicantTotal: 0,
+      packageTotal: basePrice,
+      creditApplied: 0,
+      assessmentPaymentId: null,
+      subtotal: basePrice,
+      vatRate,
+      vatAmount,
+      total,
+      currency: 'EUR',
+      paymentPurpose: 'NO_SHOW_ASSESSMENT',
+      consultationId
+    };
+
     // Create database payment entry
     const payment = await prisma.payment.create({
       data: {
         clientId: client.id,
-        amount: 262.50, // €250 + 5% VAT
+        amount: total,
         status: 'Pending',
-        paymentMethod: 'Stripe',
+        paymentMethod: 'STRIPE',
+        packageType: 'OPTION_A',
+        paymentPurpose: 'NO_SHOW_ASSESSMENT',
+        invoiceSnapshot,
         dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
       }
     });
 
     const stripeSecret = process.env.STRIPE_SECRET_KEY || 'sk_test_mock';
     const stripe = require('stripe')(stripeSecret);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    const stripeAmount = Math.round(total * 100);
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -231,10 +276,10 @@ module.exports = {
         price_data: {
           currency: 'eur',
           product_data: {
-            name: 'Professional Case Assessment',
-            description: 'Includes One-to-One Case Review & Eligibility Evaluation. Deductible within 14 days. (5% VAT Included)',
+            name: packageConfig.name,
+            description: 'No-Show Fee for Free Spain Visa Eligibility Assessment',
           },
-          unit_amount: 26250, // €262.50 in cents
+          unit_amount: stripeAmount,
         },
         quantity: 1,
       }],
@@ -242,22 +287,25 @@ module.exports = {
       consent_collection: {
         terms_of_service: 'required',
       },
-      success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/booking`,
+      success_url: `${frontendUrl}/#/public/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/#/portal/login?paymentId=${payment.id}`,
+      client_reference_id: payment.id,
       metadata: {
         clientId: client.id,
         paymentId: payment.id,
-        type: 'no_show_case_assessment'
+        packageId: 'OPTION_A',
+        type: 'no_show_case_assessment',
+        paymentPurpose: 'NO_SHOW_ASSESSMENT'
       }
     });
 
     // Update payment gateway ID
-    await prisma.payment.update({
+    const updatedPayment = await prisma.payment.update({
       where: { id: payment.id },
       data: { gatewayId: session.id }
     });
 
-    return session.url;
+    return { payment: updatedPayment, url: session.url };
   },
 
   checkAndApplyDeduction: async (clientId, basePrice) => {

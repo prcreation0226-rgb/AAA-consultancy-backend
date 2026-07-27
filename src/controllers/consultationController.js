@@ -321,20 +321,23 @@ const updateOutcome = async (req, res) => {
         const { sendCustomWhatsApp } = require('../services/chatbotService');
         const paymentService = require('../services/paymentService');
         const clientName = `${updatedLead.firstName} ${updatedLead.lastName}`;
-        
-        let paymentLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/documents/${updatedLead.clientId || ''}`;
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        let paymentLink = `${frontendUrl}/#/portal/documents/${updatedLead.clientId || ''}`;
+
         if (updatedLead.clientId) {
           try {
-            const checkoutUrl = await paymentService.createNoShowCheckoutSession(updatedLead.clientId);
-            if (checkoutUrl) {
-              paymentLink = checkoutUrl;
+            const noShowResult = await paymentService.createNoShowAssessmentPayment(updatedLead.clientId, consultation.id);
+            if (noShowResult && noShowResult.url) {
+              paymentLink = noShowResult.url;
+            } else if (noShowResult && noShowResult.payment) {
+              paymentLink = `${frontendUrl}/#/portal/login?redirect=no-show-payment&paymentId=${noShowResult.payment.id}`;
             }
           } catch (stripeErr) {
-            console.error('[No Show] Failed to create Stripe checkout session, falling back to portal:', stripeErr.message);
+            console.error('[No Show] Failed to create No Show Assessment Payment, falling back to portal:', stripeErr.message);
           }
         }
         
-        const noShowMsg = `Hello *${clientName}*,\n\nYour Free Eligibility Assessment has been automatically cancelled because you did not join the meeting within 10 minutes of the scheduled start time.\n\nDue to our no-show policy, we are unable to reschedule another Free Eligibility Assessment. You are welcome to review our services, packages, requirements, and application process by visiting the link below:\n\nServices & Packages: https://aaabusinessconsultancy.com/services-and-packages/\n\nIf you decide to proceed, we offer professional case assessment which is only *€250* (plus 5% VAT) including dedicated One-to-One Case Review. You can checkout here:\n🔗 ${paymentLink}`;
+        const noShowMsg = `Hello *${clientName}*,\n\nYour Free Eligibility Assessment has been automatically cancelled because you did not join the meeting within 10 minutes of the scheduled start time.\n\nDue to our no-show policy, we are unable to reschedule another Free Eligibility Assessment. You are welcome to review our services, packages, requirements, and application process by visiting the link below:\n\nServices & Packages: https://aaabusinessconsultancy.com/services-and-packages/\n\nIf you decide to proceed, we offer professional case assessment which is only *€250* (plus 5% VAT) including dedicated One-to-One Case Review. You can securely checkout here:\n🔗 ${paymentLink}`;
         
         sendCustomWhatsApp(updatedLead.phone, noShowMsg).catch(err => console.error('[BG-WA] No Show WA failed:', err.message));
         
@@ -346,7 +349,7 @@ const updateOutcome = async (req, res) => {
             <p>Dear ${updatedLead.firstName},</p>
             <p>Your Free Eligibility Assessment has been automatically cancelled because you did not join the meeting within 10 minutes of the scheduled start time.</p>
             <p>Due to our no-show policy, we are unable to reschedule another Free Eligibility Assessment. You are welcome to review our services, packages, requirements, and application process by visiting <a href="https://aaabusinessconsultancy.com/services-and-packages/">Services & Packages</a>.</p>
-            <p>If you decide to proceed, we offer professional case assessment which is only <strong>€250</strong> (plus 5% VAT) including a dedicated One-to-One Case Review. You can checkout using this link: <a href="${paymentLink}">${paymentLink}</a></p>
+            <p>If you decide to proceed, we offer professional case assessment which is only <strong>€250</strong> (plus 5% VAT) including a dedicated One-to-One Case Review. You can securely checkout using this link: <a href="${paymentLink}">${paymentLink}</a></p>
             <p>Thank you for your understanding.</p>
           `
         }).catch(err => console.error('[BG-Email] No Show email failed:', err.message));

@@ -200,7 +200,7 @@ exports.handleStripeWebhook = async (req, res) => {
   res.send();
 
   const session = event.data.object;
-  if (event.type === 'checkout.session.completed' && session?.metadata?.type === 'no_show_case_assessment') {
+  if (event.type === 'checkout.session.completed' && (session?.metadata?.type === 'no_show_case_assessment' || session?.metadata?.paymentPurpose === 'NO_SHOW_ASSESSMENT')) {
     const clientId = session.metadata.clientId;
     const paymentId = session.metadata.paymentId;
     
