@@ -53,6 +53,17 @@ const createLead = async (req, res) => {
       targetLanguage,
       wordCount
     } = req.body;
+
+    // Same-Day Booking Restriction
+    if (meetingPreferredDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (meetingPreferredDate <= todayStr) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking date must be at least the next calendar day.'
+        });
+      }
+    }
     
     // Normalize phone number to check for existing lead (last 10 digits to match with or without country code)
     const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
@@ -424,6 +435,17 @@ async function updateMeetingPreference(req, res) {
       serviceType,
       serviceId
     } = req.body;
+
+    // Same-Day Booking Restriction
+    if (meetingPreferredDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (meetingPreferredDate <= todayStr) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking date must be at least the next calendar day.'
+        });
+      }
+    }
 
     const lead = await prisma.lead.update({
       where: { id },

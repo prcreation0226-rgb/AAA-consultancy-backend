@@ -29,6 +29,17 @@ exports.createEligibilityBooking = async (req, res) => {
       wordCount,
     } = req.body;
 
+    // Same-Day Booking Restriction
+    if (date) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (date <= todayStr) {
+        return res.status(400).json({
+          success: false,
+          message: 'Booking date must be at least the next calendar day.'
+        });
+      }
+    }
+
     // 1. Anti-Fraud & Identity Normalization
     const normalizedPhone = phone.replace(/[\s\-\+]/g, ''); // strip spaces, dashes, country code prefix (naively for now)
 
