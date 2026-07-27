@@ -108,6 +108,13 @@ const createConsultation = async (req, res) => {
       }
     });
 
+    if (leadId) {
+      await prisma.lead.update({
+        where: { id: leadId },
+        data: { status: 'Meeting Scheduled' }
+      }).catch(e => console.warn('Could not update lead status on createConsultation:', e.message));
+    }
+
     // Trigger email, whatsapp, and reminder schedule in the background
     sendConsultationNotifications(consultation).catch(err => console.error('[NOTIFICATIONS] Async error:', err));
 
@@ -155,19 +162,18 @@ const updateOutcome = async (req, res) => {
         }
       }
 
-      let newLeadStatus = undefined;
+      let newLeadStatus = 'Meeting Completed';
       if (isEligible) {
         newLeadStatus = 'Eligible';
       } else if (isNotEligible) {
         newLeadStatus = 'Not Eligible';
       }
 
-      if (newLeadStatus) {
-        const updatedLead = await prisma.lead.update({
-          where: { id: consultation.leadId },
-          data: { status: newLeadStatus }
-        });
-        console.log(`[Outcome Status Trigger] Lead ${consultation.leadId} status updated to: ${newLeadStatus}`);
+      const updatedLead = await prisma.lead.update({
+        where: { id: consultation.leadId },
+        data: { status: newLeadStatus }
+      });
+      console.log(`[Outcome Status Trigger] Lead ${consultation.leadId} status updated to: ${newLeadStatus}`);
 
         // If Eligible, auto-send appropriate WhatsApp message based on service type
         if (newLeadStatus === 'Eligible' && updatedLead.clientId) {
@@ -228,7 +234,6 @@ const updateOutcome = async (req, res) => {
           });
           console.log(`[Auto-Completed] Scheduled €250 assessment drips for lead ${updatedLead.id}`);
         }
-      }
     }
 
     // Trigger automated post-consultation Google Review WhatsApp messages (Immediate + 3d + 7d drips)
@@ -355,7 +360,7 @@ const updateOutcome = async (req, res) => {
     if (consultation.leadId && status === 'Cancelled') {
       const updatedLead = await prisma.lead.update({
         where: { id: consultation.leadId },
-        data: { status: 'Cancelled' }
+        data: { status: 'Meeting Cancelled' }
       });
 
       // Send Rebook link (fire-and-forget — non-blocking)
@@ -487,6 +492,12 @@ const respondToConsultation = async (req, res) => {
     }
 
     if (action === 'accept') {
+      if (consultation.lead?.id) {
+        await prisma.lead.update({
+          where: { id: consultation.lead.id },
+          data: { status: 'Meeting Scheduled' }
+        }).catch(err => console.error('[respondToConsultation] Lead status update error:', err.message));
+      }
       sendConsultationNotifications(consultation).catch(err => console.error('[NOTIFICATIONS] Async error:', err));
     }
 
@@ -837,6 +848,13 @@ async function publicRescheduleConsultation(req, res) {
       }
     });
 
+    if (consultation.leadId) {
+      await prisma.lead.update({
+        where: { id: consultation.leadId },
+        data: { status: 'Meeting Scheduled' }
+      }).catch(e => console.warn('Could not update lead status on reschedule:', e.message));
+    }
+
     const lead = consultation.lead;
     const clientName = lead ? `${lead.firstName} ${lead.lastName}` : 'Client';
     const email = lead ? lead.email : null;
@@ -954,7 +972,7 @@ async function publicCancelConsultation(req, res) {
     if (consultation.leadId) {
       await prisma.lead.update({
         where: { id: consultation.leadId },
-        data: { status: 'Cancelled' }
+        data: { status: 'Meeting Cancelled' }
       }).catch(e => console.warn('Could not update lead status:', e.message));
     }
 

@@ -144,6 +144,9 @@ const updateCustomizationSettings = async (req, res) => {
 
 let CURRENT_LEAD_STAGES = [
   { id: 'stage_new_lead', name: 'New Lead', type: 'lead', color: '#2196F3', emoji: '🆕' },
+  { id: 'stage_meeting_scheduled', name: 'Meeting Scheduled', type: 'lead', color: '#3F51B5', emoji: '📅' },
+  { id: 'stage_meeting_completed', name: 'Meeting Completed', type: 'lead', color: '#4CAF50', emoji: '✅' },
+  { id: 'stage_meeting_cancelled', name: 'Meeting Cancelled', type: 'lead', color: '#F44336', emoji: '❌' },
   { id: 'stage_hot_lead', name: 'Hot Lead', type: 'lead', color: '#FF9800', emoji: '🔥' },
   { id: 'stage_processing', name: 'Processing', type: 'lead', color: '#3F51B5', emoji: '⚙️' },
   { id: 'stage_under_consultation', name: 'Under Consultation', type: 'lead', color: '#9C27B0', emoji: '📅' },

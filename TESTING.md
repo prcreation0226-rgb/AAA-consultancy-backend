@@ -13,7 +13,7 @@ The background queues (BullMQ) require a running Redis instance.
 ## 2. Testing Webhooks & Lead Generation
 ### Meta Webhook
 1. Open a terminal or Postman.
-2. Send a `POST` request to `https://aaa-consultancy-production.up.railway.app/api/v1/webhooks/meta`.
+2. Send a `POST` request to `https://aaa-consultancy-backend-production.up.railway.app/api/v1/webhooks/meta`.
 3. **Payload (JSON):**
 ```json
 {
@@ -58,7 +58,7 @@ The background queues (BullMQ) require a running Redis instance.
 ---
 
 ## 5. Testing the Payment State Machine (Stripe)
-1. Send a simulated Stripe Webhook via Postman to `POST https://aaa-consultancy-production.up.railway.app/api/v1/webhooks/stripe`.
+1. Send a simulated Stripe Webhook via Postman to `POST https://aaa-consultancy-backend-production.up.railway.app/api/v1/webhooks/stripe`.
 2. **Payload (JSON):**
 ```json
 {
@@ -81,7 +81,7 @@ The background queues (BullMQ) require a running Redis instance.
 
 ## 6. Testing AI Summarization & Redis Caching
 1. Ensure the Client you created earlier has a few `CommunicationLog` entries in the database.
-2. Send a `POST` request to `https://aaa-consultancy-production.up.railway.app/api/v1/ai/summarize-client`.
+2. Send a `POST` request to `https://aaa-consultancy-backend-production.up.railway.app/api/v1/ai/summarize-client`.
 3. **Payload (JSON):**
 ```json
 {
