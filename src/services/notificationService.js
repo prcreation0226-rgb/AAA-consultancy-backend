@@ -104,8 +104,10 @@ const notifyClient = async ({ event, clientId, consultationId, data = {} }) => {
         }
         
         if (email) {
-          const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId || ''}`;
-          const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId || ''}`;
+          const { generateBookingToken } = require('../controllers/consultationController');
+          const bToken = consultationId ? generateBookingToken(consultationId) : '';
+          const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${bToken}&consultationId=${consultationId || ''}`;
+          const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&token=${bToken}&consultationId=${consultationId || ''}`;
           
           emailPromise = emailService.sendAppointmentConfirmationEmail({
             to: email,
@@ -138,8 +140,10 @@ const notifyClient = async ({ event, clientId, consultationId, data = {} }) => {
         }
         
         if (email) {
-          const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId || ''}`;
-          const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId || ''}`;
+          const { generateBookingToken } = require('../controllers/consultationController');
+          const bToken = consultationId ? generateBookingToken(consultationId) : '';
+          const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${bToken}&consultationId=${consultationId || ''}`;
+          const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&token=${bToken}&consultationId=${consultationId || ''}`;
           emailPromise = emailService.sendMeetingRescheduledEmail({
             to: email,
             firstName,

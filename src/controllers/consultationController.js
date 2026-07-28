@@ -835,14 +835,133 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 }
 
 /**
+ * Token Helpers & Timezone Calculations
+ */
+function generateBookingToken(consultationId) {
+  try {
+    const jwt = require('jsonwebtoken');
+    const secret = process.env.JWT_SECRET || 'aaa_super_secret_jwt_key_2026_consultancy';
+    return jwt.sign({ consultationId, purpose: 'reschedule_cancel' }, secret, { expiresIn: '30d' });
+  } catch (err) {
+    return consultationId;
+  }
+}
+
+function resolveConsultationId(tokenOrId) {
+  if (!tokenOrId) return null;
+  try {
+    const jwt = require('jsonwebtoken');
+    const secret = process.env.JWT_SECRET || 'aaa_super_secret_jwt_key_2026_consultancy';
+    const decoded = jwt.verify(tokenOrId, secret);
+    if (decoded && decoded.consultationId) {
+      return decoded.consultationId;
+    }
+  } catch (err) {
+    // If not a JWT, fallback to raw ID string
+  }
+  return tokenOrId;
+}
+
+function calculateRemainingHours(dateStr, timeSlotStr) {
+  if (!dateStr || !timeSlotStr) return 999;
+  try {
+    let timePart = timeSlotStr.split('-')[0].trim();
+    let hours = 10, minutes = 0;
+
+    if (timePart.toLowerCase().includes('pm') || timePart.toLowerCase().includes('am')) {
+      const match = timePart.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (match) {
+        hours = parseInt(match[1], 10);
+        minutes = parseInt(match[2], 10);
+        const ampm = match[3].toUpperCase();
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+      }
+    } else if (timePart.includes(':')) {
+      const parts = timePart.split(':').map(Number);
+      hours = parts[0];
+      minutes = parts[1] || 0;
+    }
+
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const meetingTime = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
+    const now = new Date();
+
+    const diffMs = meetingTime.getTime() - now.getTime();
+    return diffMs / (1000 * 60 * 60);
+  } catch (err) {
+    console.error('Error calculating remaining hours:', err);
+    return 999;
+  }
+}
+
+/**
+ * Public Get Consultation Details for Reschedule / Cancel View
+ */
+async function getPublicConsultationDetails(req, res) {
+  try {
+    const rawId = req.params.id || req.params.token || req.query.token;
+    const id = resolveConsultationId(rawId);
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Consultation token or ID is required.' });
+    }
+
+    const consultation = await prisma.consultation.findUnique({
+      where: { id },
+      include: { lead: true }
+    });
+
+    if (!consultation) {
+      return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
+    }
+
+    const lead = consultation.lead || {};
+    const remainingHours = calculateRemainingHours(consultation.date, consultation.timeSlot);
+    const canCancel = consultation.status !== 'Cancelled' && consultation.status !== 'Completed' && remainingHours > 1.0;
+    const canReschedule = consultation.status !== 'Cancelled' && consultation.status !== 'Completed';
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        bookingId: consultation.id,
+        consultationId: consultation.id,
+        clientId: lead.clientId || lead.id || consultation.id,
+        name: lead.firstName ? `${lead.firstName} ${lead.lastName}` : 'Client',
+        firstName: lead.firstName || '',
+        lastName: lead.lastName || '',
+        email: lead.email || '',
+        phone: lead.phone || '',
+        nationality: lead.nationality || '',
+        countryOfResidence: lead.countryOfResidence || '',
+        service: lead.serviceType || 'Spain Visa Consultation',
+        package: (lead.qualificationData && lead.qualificationData.package) || 'Standard',
+        currentDate: consultation.date,
+        currentTime: consultation.timeSlot,
+        meetingLink: consultation.meetingLink || 'https://zoom.us',
+        status: consultation.status,
+        canReschedule,
+        canCancel,
+        remainingHours
+      }
+    });
+  } catch (error) {
+    console.error('Error in getPublicConsultationDetails:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve consultation details.' });
+  }
+}
+
+/**
  * Public Reschedule Consultation
  */
 async function publicRescheduleConsultation(req, res) {
   try {
-    const { consultationId, date, timeSlot } = req.body;
+    const rawId = req.params.token || req.body.token || req.body.consultationId;
+    const consultationId = resolveConsultationId(rawId);
+    const { date, timeSlot } = req.body;
 
     if (!consultationId || !date || !timeSlot) {
-      return res.status(400).json({ success: false, message: 'Consultation ID, date, and timeSlot are required.' });
+      return res.status(400).json({ success: false, message: 'Consultation token/ID, new date, and timeSlot are required.' });
     }
 
     // Same-Day Booking Restriction
@@ -862,9 +981,43 @@ async function publicRescheduleConsultation(req, res) {
     });
 
     if (!consultation) {
-      return res.status(404).json({ success: false, message: 'Consultation not found.' });
+      return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
     }
 
+    if (consultation.status === 'Cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'This meeting has already been cancelled and cannot be rescheduled.'
+      });
+    }
+
+    if (consultation.status === 'Completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'This meeting has already been completed and cannot be rescheduled.'
+      });
+    }
+
+    // Concurrency / Availability Check: prevent double booking on same consultant
+    if (consultation.consultantId) {
+      const existingConflict = await prisma.consultation.findFirst({
+        where: {
+          consultantId: consultation.consultantId,
+          date,
+          timeSlot,
+          status: 'Scheduled',
+          id: { not: consultationId }
+        }
+      });
+      if (existingConflict) {
+        return res.status(400).json({
+          success: false,
+          message: 'This time slot is no longer available. Please select another time.'
+        });
+      }
+    }
+
+    // Atomic update of EXISTING consultation record ONLY
     const updatedConsultation = await prisma.consultation.update({
       where: { id: consultationId },
       data: {
@@ -887,12 +1040,13 @@ async function publicRescheduleConsultation(req, res) {
     const phone = lead ? lead.phone : null;
     const link = updatedConsultation.meetingLink || 'https://zoom.us';
 
+    const token = generateBookingToken(consultationId);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId}`;
-    const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId}`;
+    const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${token}&consultationId=${consultationId}`;
+    const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&token=${token}&consultationId=${consultationId}`;
     const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
-    // Send notifications
+    // Send WhatsApp & Email Notifications
     if (phone) {
       try {
         const { sendCustomWhatsApp } = require('../services/chatbotService');
@@ -903,8 +1057,8 @@ Dear *${clientName}*,
 Your Spain Visa Eligibility Assessment has been successfully rescheduled.
 
 📅 *New Date:* ${date}
-⏰ *New Time:* ${timeSlot} (UTC)
-🔗 *Zoom Join Link:* ${link}
+⏰ *New Time:* ${timeSlot} (GST)
+🔗 *Meeting Join Link:* ${link}
 
 ─────────────
 👇 *Quick Action Links:*
@@ -937,8 +1091,14 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 
     return res.status(200).json({
       success: true,
-      message: 'Consultation rescheduled successfully',
-      data: { consultation: updatedConsultation }
+      message: 'Meeting rescheduled successfully',
+      data: {
+        bookingId: updatedConsultation.id,
+        date: updatedConsultation.date,
+        time: updatedConsultation.timeSlot,
+        meetingLink: updatedConsultation.meetingLink,
+        consultation: updatedConsultation
+      }
     });
   } catch (error) {
     console.error('Error in publicRescheduleConsultation:', error);
@@ -947,14 +1107,15 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 }
 
 /**
- * Public Cancel Consultation
+ * Public Cancel Consultation (With strict 1-hour restriction)
  */
 async function publicCancelConsultation(req, res) {
   try {
-    const { consultationId } = req.body;
+    const rawId = req.params.token || req.body.token || req.body.consultationId;
+    const consultationId = resolveConsultationId(rawId);
 
     if (!consultationId) {
-      return res.status(400).json({ success: false, message: 'Consultation ID is required.' });
+      return res.status(400).json({ success: false, message: 'Consultation token/ID is required.' });
     }
 
     const consultation = await prisma.consultation.findUnique({
@@ -963,31 +1124,20 @@ async function publicCancelConsultation(req, res) {
     });
 
     if (!consultation) {
-      return res.status(404).json({ success: false, message: 'Consultation not found.' });
+      return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
+    }
+
+    if (consultation.status === 'Cancelled') {
+      return res.status(400).json({ success: false, message: 'This meeting has already been cancelled.' });
     }
 
     // Meeting Cancellation Restriction (within 1 hour)
-    if (consultation.date && consultation.timeSlot) {
-      try {
-        const timePart = consultation.timeSlot.split('-')[0].trim();
-        if (timePart.includes(':')) {
-          const [hours, minutes] = timePart.split(':').map(Number);
-          const [year, month, day] = consultation.date.split('-').map(Number);
-          const meetingTime = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
-          
-          const diffMs = meetingTime.getTime() - Date.now();
-          const diffHours = diffMs / (1000 * 60 * 60);
-          
-          if (diffHours <= 1) {
-            return res.status(400).json({
-              success: false,
-              message: 'Cancellation is not allowed within 1 hour of the scheduled meeting time.'
-            });
-          }
-        }
-      } catch (err) {
-        console.error('Error validating cancellation window:', err);
-      }
+    const remainingHours = calculateRemainingHours(consultation.date, consultation.timeSlot);
+    if (remainingHours <= 1.0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Meeting cannot be cancelled within 1 hour of the scheduled meeting time.'
+      });
     }
 
     const updatedConsultation = await prisma.consultation.update({
@@ -1014,7 +1164,7 @@ async function publicCancelConsultation(req, res) {
 
 Dear *${clientName}*,
 
-Your Spain Visa Eligibility Assessment scheduled for ${consultation.date} at ${consultation.timeSlot} (UTC) has been cancelled as requested.
+Your Spain Visa Eligibility Assessment scheduled for ${consultation.date} at ${consultation.timeSlot} (GST) has been cancelled as requested.
 
 If you ever wish to re-book, feel free to visit our booking page anytime:
 ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
@@ -1035,7 +1185,7 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
             <div style="font-family: Arial, sans-serif; padding: 20px;">
               <h3>Appointment Cancellation Confirmed</h3>
               <p>Dear ${lead ? lead.firstName : 'Client'},</p>
-              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${consultation.date}</b> at <b>${consultation.timeSlot} (UTC)</b> has been cancelled.</p>
+              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${consultation.date}</b> at <b>${consultation.timeSlot} (GST)</b> has been cancelled.</p>
               <p>You can book a new session anytime at <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form">AAA Business Consultancy</a>.</p>
             </div>
           `
@@ -1056,39 +1206,6 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
   }
 }
 
-async function getPublicConsultationDetails(req, res) {
-  try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({ success: false, message: 'Consultation ID is required.' });
-    }
-
-    const consultation = await prisma.consultation.findUnique({
-      where: { id },
-      include: { lead: true }
-    });
-
-    if (!consultation) {
-      return res.status(404).json({ success: false, message: 'Consultation not found.' });
-    }
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        id: consultation.id,
-        date: consultation.date,
-        timeSlot: consultation.timeSlot,
-        status: consultation.status,
-        clientName: consultation.lead ? `${consultation.lead.firstName} ${consultation.lead.lastName}` : 'Client'
-      }
-    });
-  } catch (error) {
-    console.error('Error in getPublicConsultationDetails:', error);
-    return res.status(500).json({ success: false, message: 'Failed to retrieve consultation details.' });
-  }
-}
-
 module.exports = {
   getConsultations,
   createConsultation,
@@ -1098,6 +1215,8 @@ module.exports = {
   reassignConsultant,
   publicRescheduleConsultation,
   publicCancelConsultation,
-  getPublicConsultationDetails
+  getPublicConsultationDetails,
+  generateBookingToken,
+  resolveConsultationId
 };
 
