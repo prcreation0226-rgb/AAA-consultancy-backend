@@ -90,8 +90,8 @@ const notifyClient = async ({ event, clientId, consultationId, data = {} }) => {
         {
           const { generateBookingToken } = require('../controllers/consultationController');
           const bToken = consultationId ? generateBookingToken(consultationId) : '';
-          const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${bToken}&consultationId=${consultationId || ''}`;
-          const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&token=${bToken}&consultationId=${consultationId || ''}`;
+          const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId || ''}`;
+          const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId || ''}`;
           const displayDate = safeDate && safeDate.includes('-') ? safeDate.split('-').reverse().join('/') : safeDate;
 
           if (phone) {
