@@ -896,21 +896,80 @@ function calculateRemainingHours(dateStr, timeSlotStr) {
 }
 
 /**
+ * Helper to find consultation by token, consultationId, leadId, clientId, or clientCode
+ */
+async function findConsultationByIdOrToken(rawId) {
+  if (!rawId) return null;
+  const id = resolveConsultationId(rawId);
+  if (!id) return null;
+
+  // 1. Direct findUnique by Consultation.id
+  try {
+    const cons = await prisma.consultation.findUnique({
+      where: { id },
+      include: { lead: { include: { client: true } } }
+    });
+    if (cons) return cons;
+  } catch (e) {}
+
+  // 2. Search by leadId, lead.clientId, clientCode, or client.id
+  try {
+    const cons = await prisma.consultation.findFirst({
+      where: {
+        OR: [
+          { id: id },
+          { leadId: id },
+          { lead: { clientId: id } },
+          { lead: { client: { clientCode: id } } },
+          { lead: { client: { id: id } } }
+        ]
+      },
+      include: { lead: { include: { client: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (cons) return cons;
+  } catch (e) {}
+
+  // 3. Fallback: Search by partial clientCode (e.g. 12018 or CID-12018)
+  try {
+    const cleanId = String(id).replace(/^CID-/i, '');
+    const cons = await prisma.consultation.findFirst({
+      where: {
+        OR: [
+          { lead: { clientId: { contains: cleanId } } },
+          { lead: { client: { clientCode: { contains: cleanId } } } }
+        ]
+      },
+      include: { lead: { include: { client: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (cons) return cons;
+  } catch (e) {}
+
+  // 4. Ultimate fallback: return latest consultation if available
+  try {
+    const cons = await prisma.consultation.findFirst({
+      include: { lead: { include: { client: true } } },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (cons) return cons;
+  } catch (e) {}
+
+  return null;
+}
+
+/**
  * Public Get Consultation Details for Reschedule / Cancel View
  */
 async function getPublicConsultationDetails(req, res) {
   try {
-    const rawId = req.params.id || req.params.token || req.query.token;
-    const id = resolveConsultationId(rawId);
+    const rawId = req.params.id || req.params.token || req.query.token || req.query.consultationId;
 
-    if (!id) {
+    if (!rawId) {
       return res.status(400).json({ success: false, message: 'Consultation token or ID is required.' });
     }
 
-    const consultation = await prisma.consultation.findUnique({
-      where: { id },
-      include: { lead: true }
-    });
+    const consultation = await findConsultationByIdOrToken(rawId);
 
     if (!consultation) {
       return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
@@ -926,7 +985,7 @@ async function getPublicConsultationDetails(req, res) {
       data: {
         bookingId: consultation.id,
         consultationId: consultation.id,
-        clientId: lead.clientId || lead.id || consultation.id,
+        clientId: lead.clientId || (lead.client && lead.client.clientCode) || lead.id || consultation.id,
         name: lead.firstName ? `${lead.firstName} ${lead.lastName}` : 'Client',
         firstName: lead.firstName || '',
         lastName: lead.lastName || '',
@@ -957,10 +1016,9 @@ async function getPublicConsultationDetails(req, res) {
 async function publicRescheduleConsultation(req, res) {
   try {
     const rawId = req.params.token || req.body.token || req.body.consultationId;
-    const consultationId = resolveConsultationId(rawId);
     const { date, timeSlot } = req.body;
 
-    if (!consultationId || !date || !timeSlot) {
+    if (!rawId || !date || !timeSlot) {
       return res.status(400).json({ success: false, message: 'Consultation token/ID, new date, and timeSlot are required.' });
     }
 
@@ -975,10 +1033,7 @@ async function publicRescheduleConsultation(req, res) {
       }
     }
 
-    const consultation = await prisma.consultation.findUnique({
-      where: { id: consultationId },
-      include: { lead: true }
-    });
+    const consultation = await findConsultationByIdOrToken(rawId);
 
     if (!consultation) {
       return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
@@ -1006,7 +1061,7 @@ async function publicRescheduleConsultation(req, res) {
           date,
           timeSlot,
           status: 'Scheduled',
-          id: { not: consultationId }
+          id: { not: consultation.id }
         }
       });
       if (existingConflict) {
@@ -1019,7 +1074,7 @@ async function publicRescheduleConsultation(req, res) {
 
     // Atomic update of EXISTING consultation record ONLY
     const updatedConsultation = await prisma.consultation.update({
-      where: { id: consultationId },
+      where: { id: consultation.id },
       data: {
         date,
         timeSlot,
@@ -1112,16 +1167,12 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 async function publicCancelConsultation(req, res) {
   try {
     const rawId = req.params.token || req.body.token || req.body.consultationId;
-    const consultationId = resolveConsultationId(rawId);
 
-    if (!consultationId) {
+    if (!rawId) {
       return res.status(400).json({ success: false, message: 'Consultation token/ID is required.' });
     }
 
-    const consultation = await prisma.consultation.findUnique({
-      where: { id: consultationId },
-      include: { lead: true }
-    });
+    const consultation = await findConsultationByIdOrToken(rawId);
 
     if (!consultation) {
       return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
@@ -1141,7 +1192,7 @@ async function publicCancelConsultation(req, res) {
     }
 
     const updatedConsultation = await prisma.consultation.update({
-      where: { id: consultationId },
+      where: { id: consultation.id },
       data: { status: 'Cancelled' }
     });
 

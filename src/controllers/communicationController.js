@@ -51,18 +51,21 @@ const getCommunications = async (req, res) => {
     });
 
     // Map consultations into common communication format
-    const meetingLogs = consultations.map(c => ({
-      id: c.id,
-      clientId: targetClientId,
-      channel: 'MEETING',
-      direction: 'OUTBOUND',
-      content: `Meeting: ${c.type || 'Eligibility Assessment'} | Date: ${c.date} ${c.timeSlot} | Consultant: ${c.consultant?.fullName || 'Unassigned'}${c.recordingUrl ? ' | Recording: ' + c.recordingUrl : ''}${c.internalNotes ? ' | Notes: ' + c.internalNotes : ''}`,
-      deliveryStatus: c.status,
-      recordingUrl: c.recordingUrl,
-      meetingLink: c.meetingLink,
-      respondedByUser: c.consultant ? { fullName: c.consultant.fullName } : null,
-      createdAt: c.createdAt
-    }));
+    const meetingLogs = consultations.map(c => {
+      const formattedDate = c.date && c.date.includes('-') ? c.date.split('-').reverse().join('/') : c.date;
+      return {
+        id: c.id,
+        clientId: targetClientId,
+        channel: 'MEETING',
+        direction: 'OUTBOUND',
+        content: `Meeting: ${c.type || 'Eligibility Assessment'} | Date: ${formattedDate} at ${c.timeSlot} | Consultant: ${c.consultant?.fullName || 'Unassigned'}${c.recordingUrl ? ' | Recording: ' + c.recordingUrl : ''}${c.internalNotes ? ' | Notes: ' + c.internalNotes : ''}`,
+        deliveryStatus: c.status,
+        recordingUrl: c.recordingUrl,
+        meetingLink: c.meetingLink,
+        respondedByUser: c.consultant ? { fullName: c.consultant.fullName } : null,
+        createdAt: c.createdAt
+      };
+    });
 
     // Combine and sort by createdAt desc
     const combined = [...commLogs, ...meetingLogs].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
