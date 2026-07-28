@@ -29,6 +29,18 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
   // Log incoming message to Database
   await logCommunication(cleanPhone, displayContent, "INBOUND", name, messageId);
 
+  // 0. TESTING MODE WHITELIST CHECK
+  // If TESTING_MODE is true, only allow numbers specified in ALLOWED_TEST_NUMBERS
+  const isTestingMode = process.env.TESTING_MODE === 'true';
+  if (isTestingMode) {
+    const allowedRaw = process.env.ALLOWED_TEST_NUMBERS || '';
+    const allowedNumbers = allowedRaw.split(',').map(n => n.trim().replace(/[^\d+]/g, ''));
+    if (!allowedNumbers.includes(cleanPhone)) {
+      console.log(`[TESTING MODE] Ignoring message from non-test number: ${cleanPhone}`);
+      return; // Stop chatbot from responding
+    }
+  }
+
   // 1. Check if Live Agent Mode is active for this user
   const agentModeKey = `chatbot:agent_mode:${cleanPhone}`;
   const isAgentMode = await redis.get(agentModeKey);
