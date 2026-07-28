@@ -618,6 +618,15 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       console.log(`[BOOKING] Updated consultation (ID: ${consultation.id}) with status: ${consultationStatus}`);
     }
 
+    // Clean up any stale duplicate Pending Acceptance cards for this lead
+    await prisma.consultation.deleteMany({
+      where: {
+        leadId: lead.id,
+        id: { not: consultation.id },
+        status: 'Pending Acceptance'
+      }
+    }).catch(err => console.warn('[BOOKING] Cleanup duplicate consultation warning:', err.message));
+
     // Update Lead status to Meeting Scheduled if scheduled
     if (consultationStatus === 'Scheduled') {
       await prisma.lead.update({
