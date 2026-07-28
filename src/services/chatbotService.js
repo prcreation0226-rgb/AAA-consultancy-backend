@@ -13,7 +13,7 @@ function isWhitelistedPhone(phone) {
 
   // By default (or when TESTING_MODE=true), Sandbox/Testing mode is ACTIVE
   const envNumbers = (process.env.ALLOWED_TEST_NUMBERS || process.env.TEST_PHONES || '').split(',');
-  const defaultTestNumbers = ['+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
+  const defaultTestNumbers = ['+918770145658', '+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
 
   const allAllowed = [...envNumbers, ...defaultTestNumbers]
     .map(n => n.trim().replace(/[^\d]/g, ''))
@@ -150,13 +150,23 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
       await sendCustomWhatsApp(cleanPhone, instructionMsg);
 
       userSession.stage = 'BOOKING_LINK_SENT';
+      userSession.reminderSent = false;
       await redis.set(sessionKey, JSON.stringify(userSession), 'EX', SESSION_TIMEOUT);
       return;
     } else {
-      // 3b. Follow-up Message before Form Submission: Send ONLY Form Reminder
-      const reminderMsg = `To book your Free 20-Minute Eligibility Assessment & Verification, please click the link below to select your preferred date and time:\n\n${bookingLink}`;
-      await sendCustomWhatsApp(cleanPhone, reminderMsg);
-      return;
+      // 3b. Second Message: Send Dedicated Professional Reminder EXACTLY ONCE
+      if (!userSession.reminderSent) {
+        const reminderMsg = `📋 *Eligibility Assessment Required*\n\nDear Client, to help our team review your profile and assist you further, kindly complete your initial assessment form first:\n\n👉 ${bookingLink}\n\n_Once submitted, our dedicated consultant will immediately reach out to you._`;
+        await sendCustomWhatsApp(cleanPhone, reminderMsg);
+
+        userSession.reminderSent = true;
+        await redis.set(sessionKey, JSON.stringify(userSession), 'EX', SESSION_TIMEOUT);
+        return;
+      } else {
+        // 3c. Third & Subsequent Messages: STAY SILENT (No auto-reply until form is submitted)
+        console.log(`[CHATBOT] Reminder already sent to ${cleanPhone}. Staying silent until form is submitted.`);
+        return;
+      }
     }
   }
 
