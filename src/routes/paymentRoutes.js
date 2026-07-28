@@ -21,7 +21,7 @@ const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddlewar
 const router = express.Router();
 
 router.route('/')
-  .get(authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'operations', 'consultant', 'marketing']), getPayments);
+  .get(authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'operations', 'consultant', 'marketing', 'agent', 'case_manager', 'client']), getPayments);
 
 router.post('/generate-link', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'operations', 'consultant']), generatePaymentLink);
 router.patch('/:id/status', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance']), updatePaymentStatus);
@@ -34,7 +34,7 @@ router.post('/package-checkout', authMiddleware, createPackageCheckout);
 router.get('/session/:sessionId', authMiddleware, getPaymentBySessionId);
 
 // Refunds
-router.get('/refunds', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'finance', 'consultant']), getRefundRequests);
+router.get('/refunds', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'finance', 'consultant', 'agent', 'case_manager', 'client']), getRefundRequests);
 router.post('/refunds', authMiddleware, createRefundRequest);
 router.patch('/refunds/:id/status', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'finance']), updateRefundStatus);
 

@@ -337,11 +337,17 @@ model VisaService {
 }
 
 model RelocationPackage {
-  id                   String   @id @default(uuid())
-  name                 String
-  description          String   @db.Text
-  price                Float
-  includes             Json?    // Array of strings
+  id                       String   @id @default(uuid())
+  code                     String?  @unique
+  name                     String
+  description              String   @db.Text
+  price                    Float
+  additionalApplicantPrice Float?   @default(500)
+  isRecommended            Boolean  @default(false)
+  active                   Boolean  @default(true)
+  includes                 Json?    // Array of strings
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @default(now()) @updatedAt
 
   @@map("relocation_packages")
 }
