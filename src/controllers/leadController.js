@@ -682,8 +682,8 @@ async function syncLeadConsultation(leadId, reqApp = null) {
         const existingLog = await prisma.communicationLog.findFirst({
           where: {
             clientId: client.id,
-            type: 'WHATSAPP',
-            templateName: 'MEETING_BOOKED'
+            channel: 'WHATSAPP',
+            externalProviderId: 'meeting_booked'
           }
         });
 
