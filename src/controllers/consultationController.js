@@ -457,7 +457,7 @@ const respondToConsultation = async (req, res) => {
     }
 
     let meetingLink = existingConsultation.meetingLink;
-    if (action === 'accept') {
+    if (action === 'accept' && !meetingLink) {
       // Always generate a fresh Zoom meeting link when agent accepts
       if (zoomService.isConfigured) {
         try {
