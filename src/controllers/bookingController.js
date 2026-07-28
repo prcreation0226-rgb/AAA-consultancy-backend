@@ -264,6 +264,9 @@ exports.createEligibilityBooking = async (req, res) => {
       });
     }
 
+    console.log(`[BOOKING] Booking submission received for: ${firstName} ${lastName} (${email})`);
+    console.log(`[BOOKING] Consultant assigned: ${bestConsultantId}`);
+
     // 6. Create Application Cycle
     const appCycle = await prisma.applicationCycle.create({
       data: {
@@ -273,48 +276,85 @@ exports.createEligibilityBooking = async (req, res) => {
       }
     });
 
-    let meetingLink = null;
-    let consultationStatus = 'Scheduled'; // Standardize to scheduled on fallback/mock as well
+    // Idempotency check: Reuse existing consultation or meetingLink if available
+    let existingConsultation = await prisma.consultation.findFirst({
+      where: { leadId: lead.id }
+    });
 
-    if (zoomService.isConfigured) {
-      try {
-        let startTimeISO = new Date().toISOString();
-        const timeStr = timeSlot && timeSlot.includes(':') ? timeSlot : '10:00';
-        const dateObj = new Date(`${date}T${timeStr}`);
-        if (!isNaN(dateObj.getTime())) {
-          startTimeISO = dateObj.toISOString();
+    let meetingLink = existingConsultation?.meetingLink || null;
+    let zoomFailed = false;
+
+    if (!meetingLink) {
+      console.log(`[ZOOM] Creating meeting for ${firstName} ${lastName} on ${date} at ${timeSlot}`);
+      if (zoomService.isConfigured) {
+        try {
+          let startTimeISO = new Date().toISOString();
+          const timeStr = timeSlot && timeSlot.includes(':') ? timeSlot : '10:00';
+          const dateObj = new Date(`${date}T${timeStr}`);
+          if (!isNaN(dateObj.getTime())) {
+            startTimeISO = dateObj.toISOString();
+          }
+
+          const zoomMeeting = await zoomService.createZoomMeeting({
+            topic: `Eligibility Assessment for ${firstName} ${lastName}`,
+            startTime: startTimeISO,
+            durationMinutes: 20
+          });
+
+          if (zoomMeeting && zoomMeeting.joinUrl) {
+            meetingLink = zoomMeeting.joinUrl;
+            console.log(`[ZOOM] Meeting created successfully: ${meetingLink}`);
+          }
+        } catch (zoomErr) {
+          console.error('[ZOOM] Meeting creation failed:', zoomErr.message);
+          zoomFailed = true;
         }
+      }
 
-        const zoomMeeting = await zoomService.createZoomMeeting({
-          topic: `Eligibility Assessment for ${firstName} ${lastName}`,
-          startTime: startTimeISO,
-          durationMinutes: 20
-        });
-
-        if (zoomMeeting) {
-          meetingLink = zoomMeeting.joinUrl;
-        }
-      } catch (zoomErr) {
-        console.error('Failed to create Zoom meeting for booking, using fallback link:', zoomErr.message);
+      if (!meetingLink && !zoomFailed) {
+        console.log('[ZOOM] Zoom service not configured. Generating mock meeting link.');
         meetingLink = `https://zoom.us/j/${Math.floor(Math.random() * 9000000000 + 1000000000)}`;
       }
     } else {
-      console.log('[Zoom Service Mock Mode] Generating mock Zoom meeting link.');
-      meetingLink = `https://zoom.us/j/${Math.floor(Math.random() * 9000000000 + 1000000000)}`;
+      console.log(`[ZOOM] Reusing existing meetingLink: ${meetingLink}`);
     }
 
-    // 7. Create Booking (Consultation)
-    const consultation = await prisma.consultation.create({
-      data: {
-        date,
-        timeSlot,
-        status: consultationStatus,
-        leadId: lead.id,
-        meetingLink,
-        consultantId: bestConsultantId,
-        type: (serviceType || '').toLowerCase().includes('property') ? 'property_guidance' : 'eligibility'
-      }
-    });
+    const consultationStatus = (zoomFailed && !meetingLink) ? 'Pending Zoom' : 'Scheduled';
+
+    // 7. Create or Update Booking (Consultation)
+    let consultation;
+    if (!existingConsultation) {
+      consultation = await prisma.consultation.create({
+        data: {
+          date,
+          timeSlot,
+          status: consultationStatus,
+          leadId: lead.id,
+          meetingLink,
+          consultantId: bestConsultantId,
+          type: (serviceType || '').toLowerCase().includes('property') ? 'property_guidance' : 'eligibility'
+        }
+      });
+    } else {
+      consultation = await prisma.consultation.update({
+        where: { id: existingConsultation.id },
+        data: {
+          date,
+          timeSlot,
+          status: consultationStatus,
+          meetingLink: meetingLink || existingConsultation.meetingLink,
+          consultantId: bestConsultantId
+        }
+      });
+    }
+
+    if (consultationStatus === 'Scheduled') {
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: { status: 'Meeting Scheduled' }
+      }).catch(err => console.error('[BOOKING] Failed to update lead status:', err.message));
+      console.log(`[BOOKING] Consultation marked Scheduled for Lead ID: ${lead.id}`);
+    }
 
     // 7. Create CRM Notification Record & Broadcast Real-Time Socket Event
     try {
@@ -339,9 +379,10 @@ exports.createEligibilityBooking = async (req, res) => {
           client,
           lead
         });
+        console.log(`[SOCKET] new_booking emitted for Consultation ID: ${consultation.id}`);
       }
     } catch (ioErr) {
-      console.warn('[CRM Notification] Socket.io broadcast warning:', ioErr.message);
+      console.warn('[SOCKET] Broadcast warning:', ioErr.message);
     }
 
     // Trigger In-App Notifications for all staff
