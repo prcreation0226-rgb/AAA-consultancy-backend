@@ -9,6 +9,8 @@ const {
   getVisaServices,
   updateVisaServices,
   getPackages,
+  createPackage,
+  deletePackage,
   updatePackages,
   getEmailTemplates,
   updateEmailTemplates,
@@ -37,7 +39,11 @@ router.route('/services')
 
 router.route('/packages')
   .get(authMiddleware, getPackages)
+  .post(authMiddleware, createPackage)
   .put(authMiddleware, updatePackages);
+
+router.route('/packages/:id')
+  .delete(authMiddleware, deletePackage);
 
 router.route('/templates/email')
   .get(authMiddleware, getEmailTemplates)

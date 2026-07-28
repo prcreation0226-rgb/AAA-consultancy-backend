@@ -291,42 +291,100 @@ const updateVisaServices = async (req, res) => {
 
 const getPackages = async (req, res) => {
   try {
-    const packages = await prisma.relocationPackage.findMany();
+    const packages = await prisma.relocationPackage.findMany({
+      orderBy: { createdAt: 'asc' }
+    });
     res.json(packages);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
+const createPackage = async (req, res) => {
+  try {
+    const { code, name, description, price, additionalApplicantPrice, isRecommended, includes, active } = req.body;
+    
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ message: 'Package name is required.' });
+    }
+
+    const pkgCode = code || `pkg_${Date.now().toString().slice(-6)}`;
+    const pkgPrice = Number(price) || 0;
+    const pkgAddPrice = Number(additionalApplicantPrice) || 500;
+
+    const newPackage = await prisma.relocationPackage.create({
+      data: {
+        code: pkgCode,
+        name: name.trim(),
+        description: description || '',
+        price: pkgPrice,
+        additionalApplicantPrice: pkgAddPrice,
+        isRecommended: !!isRecommended,
+        active: active !== undefined ? !!active : true,
+        includes: Array.isArray(includes) ? includes : []
+      }
+    });
+
+    return res.status(201).json(newPackage);
+  } catch (error) {
+    console.error('Error creating package:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+const deletePackage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ message: 'Package ID is required.' });
+    }
+
+    const existing = await prisma.relocationPackage.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ message: 'Package not found.' });
+    }
+
+    await prisma.relocationPackage.delete({ where: { id } });
+    return res.json({ success: true, message: 'Package deleted successfully.' });
+  } catch (error) {
+    console.error('Error deleting package:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 const updatePackages = async (req, res) => {
   try {
-    const packages = req.body;
+    const packages = Array.isArray(req.body) ? req.body : [req.body];
     for (const p of packages) {
-      if (p.id && !p.id.startsWith('pkg_')) {
+      const payloadData = {
+        name: p.name ? p.name.trim() : 'Package',
+        code: p.code || p.id,
+        description: p.description || '',
+        price: Number(p.price) || 0,
+        additionalApplicantPrice: Number(p.additionalApplicantPrice) || 500,
+        isRecommended: !!p.isRecommended,
+        active: p.active !== undefined ? !!p.active : true,
+        includes: Array.isArray(p.includes) ? p.includes : []
+      };
+
+      if (p.id && !p.id.startsWith('pkg_opt_') && !p.id.startsWith('opt_')) {
         const exists = await prisma.relocationPackage.findUnique({ where: { id: p.id } });
         if (exists) {
           await prisma.relocationPackage.update({
             where: { id: p.id },
-            data: {
-              name: p.name,
-              description: p.description,
-              price: p.price,
-              includes: p.includes
-            }
+            data: payloadData
           });
+          continue;
         }
-      } else {
-        await prisma.relocationPackage.create({
-          data: {
-            name: p.name,
-            description: p.description,
-            price: p.price,
-            includes: p.includes
-          }
-        });
       }
+
+      await prisma.relocationPackage.create({
+        data: payloadData
+      });
     }
-    const allPkgs = await prisma.relocationPackage.findMany();
+    const allPkgs = await prisma.relocationPackage.findMany({
+      orderBy: { createdAt: 'asc' }
+    });
     res.json(allPkgs);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -421,6 +479,8 @@ module.exports = {
   getVisaServices,
   updateVisaServices,
   getPackages,
+  createPackage,
+  deletePackage,
   updatePackages,
   getEmailTemplates,
   updateEmailTemplates,

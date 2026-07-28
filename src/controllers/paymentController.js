@@ -258,7 +258,9 @@ const updatePaymentStatus = async (req, res) => {
 };
 const getRefundRequests = async (req, res) => {
   try {
+    const whereClause = req.user.role === 'client' ? { clientId: req.user.id } : {};
     const refunds = await prisma.refundRequest.findMany({
+      where: whereClause,
       include: { 
         client: { 
           select: { 
