@@ -127,7 +127,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       bodyComponents.forEach((param, index) => {
         const placeholder = `{{${index + 1}}}`;
         const replacement = param.text || '';
-        resolvedBody = resolvedBody.replace(new RegExp(placeholder, 'g'), replacement);
+        resolvedBody = resolvedBody.replaceAll(placeholder, replacement);
       });
 
       // 5. Send message via Twilio API
@@ -244,7 +244,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       bodyComponents.forEach((param, index) => {
         const placeholder = `{{${index + 1}}}`;
         const replacement = param.text || '';
-        resolvedBody = resolvedBody.replace(new RegExp(placeholder, 'g'), replacement);
+        resolvedBody = resolvedBody.replaceAll(placeholder, replacement);
       });
 
       const numberPart = cleanTo.replace('+', '');
