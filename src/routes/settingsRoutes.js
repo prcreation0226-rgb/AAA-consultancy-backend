@@ -30,7 +30,7 @@ router.route('/lead-stages')
   .put(authMiddleware, updateLeadStages);
 
 router.route('/company')
-  .get(authMiddleware, getCompanySettings)
+  .get(getCompanySettings)
   .put(authMiddleware, updateCompanySettings);
 
 router.route('/services')
