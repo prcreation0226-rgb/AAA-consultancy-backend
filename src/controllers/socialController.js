@@ -46,7 +46,7 @@ exports.getConversations = async (req, res) => {
   try {
     // 1. Fetch all clients and leads once to map phones safely without strict substring boundaries
     const allClients = await prisma.client.findMany({
-      select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true, leadId: true }
+      select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true }
     });
     const allLeads = await prisma.lead.findMany({
       select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true, clientId: true }
