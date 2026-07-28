@@ -17,6 +17,15 @@ const bookingLimiter = rateLimit({
 router.post('/eligibility', bookingLimiter, bookingController.createEligibilityBooking);
 router.get('/prefill', bookingController.verifyPrefillToken);
 
+// Reschedule Endpoints
+router.get('/reschedule/:token', bookingController.getRescheduleDetails);
+router.patch('/reschedule/:token', bookingController.rescheduleBooking);
+router.post('/reschedule/:token', bookingController.rescheduleBooking);
+
+// Cancel Endpoints
+router.post('/cancel/:token', bookingController.cancelBooking);
+router.patch('/cancel/:token', bookingController.cancelBooking);
+
 // Translation Upload
 router.post('/translation/upload', upload.single('document'), bookingController.uploadTranslationDocument);
 

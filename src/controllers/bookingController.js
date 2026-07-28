@@ -427,9 +427,11 @@ exports.createEligibilityBooking = async (req, res) => {
 
         console.log(`[NOTIFICATIONS] Dispatching booking confirmation for Lead: ${clientName} (${phone} / ${email})`);
 
+        const { generateBookingToken } = require('./consultationController');
+        const token = generateBookingToken(consultation.id);
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
-        const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultation.id}`;
+        const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${token}&consultationId=${consultation.id}`;
+        const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&token=${token}&consultationId=${consultation.id}`;
         const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
         // 1 & 2. Send WhatsApp Message and Branded Email via centralized service
@@ -927,3 +929,10 @@ exports.verifyPrefillToken = async (req, res) => {
     return res.status(500).json({ success: false, error: 'Internal Server Error' });
   }
 };
+
+const consultationController = require('./consultationController');
+
+exports.getRescheduleDetails = consultationController.getPublicConsultationDetails;
+exports.rescheduleBooking = consultationController.publicRescheduleConsultation;
+exports.cancelBooking = consultationController.publicCancelConsultation;
+
