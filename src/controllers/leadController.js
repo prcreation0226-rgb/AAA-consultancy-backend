@@ -273,6 +273,9 @@ const updateLeadStatus = async (req, res) => {
 
 const deleteLead = async (req, res) => {
   try {
+    if (req.user && req.user.role !== 'super_admin') {
+      return res.status(403).json({ message: 'Only Super Admin has permission to delete leads.' });
+    }
     const { id } = req.params;
 
     // Delete associated consultations first to avoid foreign key constraint violations
