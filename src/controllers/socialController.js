@@ -44,12 +44,20 @@ const parseMessageContent = (content) => {
  */
 exports.getConversations = async (req, res) => {
   try {
-    // 1. Fetch all communication logs ordered by newest first
+    // 1. Fetch all clients and leads once to map phones safely without strict substring boundaries
+    const allClients = await prisma.client.findMany({
+      select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true, leadId: true }
+    });
+    const allLeads = await prisma.lead.findMany({
+      select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true, clientId: true }
+    });
+
+    // 2. Fetch all communication logs ordered by newest first
     const logs = await prisma.communicationLog.findMany({
       orderBy: { createdAt: 'desc' }
     });
 
-    // 2. Group by unique phone numbers to get the latest message
+    // 3. Group by unique phone numbers to get the latest message
     const conversationsMap = {};
     const uniquePhones = [];
 
@@ -62,21 +70,26 @@ exports.getConversations = async (req, res) => {
       }
     }
 
-    // 3. Enrich each conversation with Lead/Client details, messages history, and unread count
+    // 4. Enrich each conversation with Lead/Client details, messages history, and unread count
     const conversations = [];
 
     for (const cleanPh of uniquePhones) {
       const latestLog = conversationsMap[cleanPh];
-      const numberPart = cleanPh.replace('+', '');
+      const numberPart = cleanPh.replace(/\D/g, ''); // extract digits only
 
-      // Check if Client exists
-      const client = await prisma.client.findFirst({
-        where: { phone: { contains: numberPart } }
-      });
+      // Safe matching: strip all non-digits from db phones to compare accurately
+      const client = allClients.find(c => c.phone && c.phone.replace(/\D/g, '').includes(numberPart));
+      const lead = allLeads.find(l => l.phone && l.phone.replace(/\D/g, '').includes(numberPart));
 
-      // Check if Lead exists
-      const lead = await prisma.lead.findFirst({
-        where: { phone: { contains: numberPart } }
+      // Fetch message history for this phone
+      const messagesLogs = await prisma.communicationLog.findMany({
+        where: { phone: cleanPh },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          respondedByUser: {
+            select: { id: true, fullName: true, role: true, avatar: true }
+          }
+        }
       });
 
       // Determine Name and Status
@@ -98,24 +111,19 @@ exports.getConversations = async (req, res) => {
         name = `${lead.firstName} ${lead.lastName}`.trim();
         status = lead.status || 'New Lead';
         email = lead.email;
-      } else if (latestLog.name && !isApplicantPlaceholder(latestLog.name)) {
-        name = latestLog.name.trim();
+      } else {
+        // Fallback to the latest INBOUND message name to avoid grabbing "Agent"
+        const latestInboundLog = messagesLogs.slice().reverse().find(m => m.direction === 'INBOUND');
+        if (latestInboundLog && latestInboundLog.name && !isApplicantPlaceholder(latestInboundLog.name)) {
+          name = latestInboundLog.name.trim();
+        } else if (latestLog.name && !isApplicantPlaceholder(latestLog.name) && latestLog.direction !== 'OUTBOUND') {
+          name = latestLog.name.trim();
+        }
       }
 
       if (isApplicantPlaceholder(name)) {
         name = cleanPh;
       }
-
-      // Fetch message history for this phone
-      const messagesLogs = await prisma.communicationLog.findMany({
-        where: { phone: cleanPh },
-        orderBy: { createdAt: 'asc' },
-        include: {
-          respondedByUser: {
-            select: { id: true, fullName: true, role: true, avatar: true }
-          }
-        }
-      });
 
       const messages = messagesLogs.map(m => {
         const parsed = parseMessageContent(m.content);
