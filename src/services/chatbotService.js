@@ -13,7 +13,7 @@ function isWhitelistedPhone(phone) {
 
   // By default (or when TESTING_MODE=true), Sandbox/Testing mode is ACTIVE
   const envNumbers = (process.env.ALLOWED_TEST_NUMBERS || process.env.TEST_PHONES || '').split(',');
-  const defaultTestNumbers = ['+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
+  const defaultTestNumbers = ['+918770145658', '+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
 
   const allAllowed = [...envNumbers, ...defaultTestNumbers]
     .map(n => n.trim().replace(/[^\d]/g, ''))
