@@ -89,6 +89,23 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
       // 2. Default fallback values for CRM system templates
       if (!templateText) {
         const fallbacks = {
+          meeting_booked: `✈️ *Spain Visa Consultation Confirmed!*
+
+Dear *{{1}}*,
+
+Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
+
+📅 *Date:* {{2}}
+⏰ *Time:* {{3}} (GST)
+🔗 *Meeting Join Link:* {{4}}
+
+─────────────
+👇 *Quick Action Links:*
+• 🔄 *Reschedule Booking:* {{5}}
+• ❌ *Cancel Booking:* {{6}}
+• 📦 *View Visa Packages:* https://aaabusinessconsultancy.com/services-and-packages/
+
+_Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`,
           automated_first_response: 'Thank you for contacting AAA Business Consultancy regarding Spain Visa & Residency Services. To Book Your Free Eligibility Assessment & Verification Please Contact Us on Whatsapp: https://wa.me/971509554142?text=I%20want%20to%20book%20an%20assessment%20from%20TikTok',
           consultation_scheduled_confirmation: 'Hello {{1}}, your Spain Visa Consultation is scheduled on {{2}} at {{3}} (UTC). Join Zoom Meeting: {{4}}',
           consultation_no_show_cancelled: 'Hello {{1}}, your Free Eligibility Assessment has been cancelled because you did not join within 10 minutes of the scheduled time. Due to high demand, missed appointments cannot be rescheduled.',

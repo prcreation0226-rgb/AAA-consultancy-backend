@@ -205,9 +205,19 @@ const createLead = async (req, res) => {
         reqApp: req.app
       }).catch(err => console.error('[Lead Notification Error]:', err.message));
 
-    // Auto-create consultation — runs in background, does NOT block response
-    res.status(201).json(lead);
-    syncLeadConsultation(lead.id, req.app).catch(err => console.error('[BG] syncLeadConsultation failed:', err.message));
+    // Synchronously create consultation and Zoom link so instant link is returned immediately
+    let consultation = null;
+    try {
+      consultation = await syncLeadConsultation(lead.id, req.app);
+    } catch (syncErr) {
+      console.error('[SYNC] Error in syncLeadConsultation:', syncErr.message);
+    }
+
+    res.status(201).json({
+      ...lead,
+      consultation,
+      meetingLink: consultation?.meetingLink
+    });
   } catch (error) {
     console.error('Error in createLead:', error);
     res.status(500).json({ message: 'Server error creating lead', error: error.message });
@@ -716,8 +726,10 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       }
     }
 
+    return consultation;
   } catch (error) {
     console.error('Error in syncLeadConsultation:', error);
+    return null;
   }
 }
 

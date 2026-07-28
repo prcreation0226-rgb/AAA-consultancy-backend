@@ -87,38 +87,43 @@ const notifyClient = async ({ event, clientId, consultationId, data = {} }) => {
         break;
 
       case 'MEETING_BOOKED':
-        if (phone) {
-          waPromise = sendWhatsAppMessage({
-            to: phone,
-            templateName: 'meeting_booked',
-            components: [
-              { type: 'body', parameters: [
-                { type: 'text', text: fullName },
-                { type: 'text', text: safeDate },
-                { type: 'text', text: safeTime },
-                { type: 'text', text: link }
-              ]}
-            ]
-          }).then(res => logDelivery(clientId, phone, fullName, 'WHATSAPP', 'MEETING_BOOKED', res))
-            .catch(err => logDelivery(clientId, phone, fullName, 'WHATSAPP', 'MEETING_BOOKED', { success: false, error: err.message }));
-        }
-        
-        if (email) {
+        {
           const { generateBookingToken } = require('../controllers/consultationController');
           const bToken = consultationId ? generateBookingToken(consultationId) : '';
           const rescheduleLink = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${bToken}&consultationId=${consultationId || ''}`;
           const cancelLink = `${frontendUrl}/#/public/lead-form?cancel=true&token=${bToken}&consultationId=${consultationId || ''}`;
-          
-          emailPromise = emailService.sendAppointmentConfirmationEmail({
-            to: email,
-            firstName,
-            date: safeDate,
-            time: safeTime,
-            link,
-            rescheduleLink,
-            cancelLink
-          }).then(res => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_BOOKED', { success: true }))
-            .catch(err => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_BOOKED', { success: false, error: err.message }));
+          const displayDate = safeDate && safeDate.includes('-') ? safeDate.split('-').reverse().join('/') : safeDate;
+
+          if (phone) {
+            waPromise = sendWhatsAppMessage({
+              to: phone,
+              templateName: 'meeting_booked',
+              components: [
+                { type: 'body', parameters: [
+                  { type: 'text', text: fullName },
+                  { type: 'text', text: displayDate },
+                  { type: 'text', text: safeTime },
+                  { type: 'text', text: link },
+                  { type: 'text', text: rescheduleLink },
+                  { type: 'text', text: cancelLink }
+                ]}
+              ]
+            }).then(res => logDelivery(clientId, phone, fullName, 'WHATSAPP', 'MEETING_BOOKED', res))
+              .catch(err => logDelivery(clientId, phone, fullName, 'WHATSAPP', 'MEETING_BOOKED', { success: false, error: err.message }));
+          }
+
+          if (email) {
+            emailPromise = emailService.sendAppointmentConfirmationEmail({
+              to: email,
+              firstName,
+              date: displayDate,
+              time: safeTime,
+              link,
+              rescheduleLink,
+              cancelLink
+            }).then(res => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_BOOKED', { success: true }))
+              .catch(err => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_BOOKED', { success: false, error: err.message }));
+          }
         }
         break;
         
