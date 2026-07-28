@@ -5,6 +5,26 @@ const axios = require('axios');
 
 const SESSION_TIMEOUT = 3600; // 1 hour session validity
 
+function isWhitelistedPhone(phone) {
+  // If TESTING_MODE is explicitly set to 'false', chatbot is in PRODUCTION MODE (responds to everyone)
+  if (process.env.TESTING_MODE === 'false' || process.env.TEST_MODE === 'false') {
+    return true;
+  }
+
+  // By default (or when TESTING_MODE=true), Sandbox/Testing mode is ACTIVE
+  const envNumbers = (process.env.ALLOWED_TEST_NUMBERS || process.env.TEST_PHONES || '').split(',');
+  const defaultTestNumbers = ['+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
+
+  const allAllowed = [...envNumbers, ...defaultTestNumbers]
+    .map(n => n.trim().replace(/[^\d]/g, ''))
+    .filter(Boolean);
+
+  const incomingDigits = (phone || '').replace(/[^\d]/g, '');
+  if (!incomingDigits) return false;
+
+  return allAllowed.some(allowed => incomingDigits.endsWith(allowed) || allowed.endsWith(incomingDigits));
+}
+
 /**
  * Handles incoming client WhatsApp messages, parses their intent, and sends chatbot replies.
  * 
@@ -30,15 +50,9 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
   await logCommunication(cleanPhone, displayContent, "INBOUND", name, messageId);
 
   // 0. TESTING MODE WHITELIST CHECK
-  // If TESTING_MODE is true, only allow numbers specified in ALLOWED_TEST_NUMBERS
-  const isTestingMode = process.env.TESTING_MODE === 'true';
-  if (isTestingMode) {
-    const allowedRaw = process.env.ALLOWED_TEST_NUMBERS || '';
-    const allowedNumbers = allowedRaw.split(',').map(n => n.trim().replace(/[^\d+]/g, ''));
-    if (!allowedNumbers.includes(cleanPhone)) {
-      console.log(`[TESTING MODE] Ignoring message from non-test number: ${cleanPhone}`);
-      return; // Stop chatbot from responding
-    }
+  if (!isWhitelistedPhone(cleanPhone)) {
+    console.log(`[TESTING MODE] Ignoring auto-reply for non-whitelisted number: ${cleanPhone}`);
+    return; // Stop chatbot from responding
   }
 
   // 1. Check if Live Agent Mode is active for this user
@@ -257,15 +271,10 @@ async function sendCustomWhatsApp(phone, messageBody) {
     cleanPhone = '+' + cleanPhone;
   }
 
-  // Sandbox Mode Whitelist Filter (Defaults to INACTIVE in production unless explicitly set)
-  const isTestMode = process.env.TEST_MODE === 'true'; // FIX: Defaults to false
-  if (isTestMode) {
-    const whitelistStr = process.env.TEST_PHONES || '+917047687998,+971524350123,+971524360123,+971566952566';
-    const testPhones = whitelistStr.split(',').map(p => p.trim());
-    if (!testPhones.includes(cleanPhone)) {
-      console.log(`[TEST MODE] Blocked automated outbound WhatsApp message to ${cleanPhone} (not whitelisted)`);
-      return; // Drop the message completely
-    }
+  // Sandbox Mode Whitelist Filter
+  if (!isWhitelistedPhone(cleanPhone)) {
+    console.log(`[TEST MODE] Blocked automated outbound WhatsApp message to ${cleanPhone} (not whitelisted)`);
+    return; // Drop the message completely
   }
 
   const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
