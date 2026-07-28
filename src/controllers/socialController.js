@@ -132,6 +132,7 @@ exports.getConversations = async (req, res) => {
           sender: m.direction === 'INBOUND' ? 'customer' : (m.direction === 'SYSTEM' ? 'system' : 'agent'),
           text: parsed.text,
           mediaUrl: parsed.mediaUrl,
+          rawTimestamp: m.createdAt,
           timestamp: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           respondedBy: m.respondedByUser ? {
             id: m.respondedByUser.id,
