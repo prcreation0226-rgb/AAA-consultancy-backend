@@ -211,29 +211,27 @@ const updateOutcome = async (req, res) => {
       });
       console.log(`[Outcome Status Trigger] Lead ${consultation.leadId} status updated to: ${newLeadStatus}`);
 
-        // If Eligible, auto-convert Lead to Client if not already converted and send WhatsApp credentials + package options
+        // If Eligible, auto-convert Lead to Client and send WhatsApp credentials + package options
         if (newLeadStatus === 'Eligible') {
-          let clientRecord = null;
-          if (updatedLead.clientId) {
-            clientRecord = await prisma.client.findUnique({
-              where: { id: updatedLead.clientId }
-            });
-          }
+          try {
+            let clientRecord = null;
+            if (updatedLead.clientId) {
+              clientRecord = await prisma.client.findUnique({
+                where: { id: updatedLead.clientId }
+              });
+            }
 
-          // Auto-convert Lead to Client if client profile does not exist yet
-          if (!clientRecord) {
-            try {
-              const bcrypt = require('bcrypt');
-              const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
-              let plainPassword = '';
-              for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+            const bcrypt = require('bcrypt');
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
+            let plainPassword = '';
+            for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
 
-              const salt = await bcrypt.genSalt(10);
-              const hashedPassword = await bcrypt.hash(plainPassword, salt);
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(plainPassword, salt);
 
-              const clientCount = await prisma.client.count();
-              const clientCode = `CID ${12001 + clientCount}`;
+            const unifiedClientCode = updatedLead.clientCode || clientRecord?.clientCode || `CID-${12001 + (await prisma.client.count())}`;
 
+            if (!clientRecord) {
               clientRecord = await prisma.client.create({
                 data: {
                   firstName: updatedLead.firstName,
@@ -243,7 +241,7 @@ const updateOutcome = async (req, res) => {
                   nationality: updatedLead.nationality,
                   countryOfResidence: updatedLead.countryOfResidence,
                   preferredLanguage: updatedLead.preferredLanguage || 'English',
-                  clientCode,
+                  clientCode: unifiedClientCode,
                   serviceType: updatedLead.serviceType || 'spain_visa',
                   assignedToId: updatedLead.assignedToId,
                   assignedAt: updatedLead.assignedToId ? new Date() : undefined,
@@ -260,49 +258,63 @@ const updateOutcome = async (req, res) => {
                 where: { id: updatedLead.id },
                 data: { clientId: clientRecord.id }
               });
-              console.log(`[Auto-Convert] Converted Lead ${updatedLead.id} to Client ${clientRecord.id} (${clientCode})`);
-
-              // Dispatch Credentials Email
-              try {
-                const { sendEmail } = require('../services/emailService');
-                const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-                const portalUrl = `${frontendUrl}/#/portal/login`;
-                sendEmail({
-                  to: clientRecord.email,
-                  subject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
-                  html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #2d3748;">
-                      <h2 style="color: #4f46e5;">Welcome to AAA Business Consultancy! 🎉</h2>
-                      <p>Dear <strong>${clientRecord.firstName} ${clientRecord.lastName}</strong>,</p>
-                      <p>Congratulations! Based on your consultation assessment, you are <strong>ELIGIBLE</strong> for your Spain Visa / Residency package.</p>
-                      <div style="background: #f7fafc; border-left: 4px solid #4f46e5; padding: 16px; margin: 20px 0;">
-                        <h4 style="margin: 0 0 8px; color: #4f46e5;">Your Portal Credentials</h4>
-                        <p><strong>Portal URL:</strong> <a href="${portalUrl}">${portalUrl}</a></p>
-                        <p><strong>Username:</strong> ${clientRecord.email}</p>
-                        <p><strong>Temporary Password:</strong> <code style="background: #edf2f7; padding: 2px 6px; color: #e11d48;">${plainPassword}</code></p>
-                      </div>
-                      <p>Please log in to select your preferred package and complete your application.</p>
-                    </div>
-                  `
-                }).catch(err => console.error('[Auto-Convert Email Error]:', err.message));
-              } catch (emailErr) {
-                console.error('[Auto-Convert Email Exception]:', emailErr.message);
-              }
-
-              // Dispatch Single Clean WhatsApp Credentials Message
-              if (clientRecord.phone) {
-                try {
-                  const { sendCustomWhatsApp } = require('../services/chatbotService');
-                  const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
-                  const credsMsg = `Hello *${clientRecord.firstName} ${clientRecord.lastName}*, welcome to AAA Business Consultancy! 🇪🇸\n\nYour Spain Relocation profile has been initialized. 🎉\n\n🔑 *Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\n📦 *Service Packages:*\nYou can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.\n\nThank you for choosing AAA Business Consultancy!`;
-                  sendCustomWhatsApp(clientRecord.phone, credsMsg).catch(err => console.error('[Auto-Convert WA Creds Error]:', err.message));
-                } catch (waCredErr) {
-                  console.error('[Auto-Convert WA Creds Exception]:', waCredErr.message);
+              console.log(`[Auto-Convert] Converted Lead ${updatedLead.id} to Client ${clientRecord.id} (${unifiedClientCode})`);
+            } else {
+              // Update existing client record with temp password & active status
+              clientRecord = await prisma.client.update({
+                where: { id: clientRecord.id },
+                data: {
+                  status: 'Waiting for Payment',
+                  password: hashedPassword,
+                  isTemporaryPassword: true,
+                  clientCode: unifiedClientCode
                 }
-              }
-            } catch (autoConvErr) {
-              console.error('[Auto-Convert Error]:', autoConvErr.message);
+              });
+              console.log(`[Auto-Convert] Updated existing Client ${clientRecord.id} with new temp credentials for Eligible outcome`);
             }
+
+            const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+            const portalUrl = `${frontendUrl}/#/portal/login`;
+
+            // Dispatch Credentials Email
+            try {
+              const { sendEmail } = require('../services/emailService');
+              sendEmail({
+                to: clientRecord.email,
+                subject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #2d3748;">
+                    <h2 style="color: #4f46e5;">Welcome to AAA Business Consultancy! 🎉</h2>
+                    <p>Dear <strong>${clientRecord.firstName} ${clientRecord.lastName}</strong>,</p>
+                    <p>Congratulations! Based on your consultation assessment, you are <strong>ELIGIBLE</strong> for your Spain Visa / Residency package.</p>
+                    <div style="background: #f7fafc; border-left: 4px solid #4f46e5; padding: 16px; margin: 20px 0;">
+                      <h4 style="margin: 0 0 8px; color: #4f46e5;">Your Portal Credentials</h4>
+                      <p><strong>Portal URL:</strong> <a href="${portalUrl}">${portalUrl}</a></p>
+                      <p><strong>Username:</strong> ${clientRecord.email}</p>
+                      <p><strong>Temporary Password:</strong> <code style="background: #edf2f7; padding: 2px 6px; color: #e11d48;">${plainPassword}</code></p>
+                    </div>
+                    <p>Please log in to select your preferred package and complete your application.</p>
+                  </div>
+                `
+              }).catch(err => console.error('[Auto-Convert Email Error]:', err.message));
+            } catch (emailErr) {
+              console.error('[Auto-Convert Email Exception]:', emailErr.message);
+            }
+
+            // Dispatch Single Clean WhatsApp Credentials Message
+            if (clientRecord.phone) {
+              try {
+                const { sendCustomWhatsApp } = require('../services/chatbotService');
+                const credsMsg = `Hello *${clientRecord.firstName} ${clientRecord.lastName}*, welcome to AAA Business Consultancy! 🇪🇸\n\nYour Spain Relocation profile has been initialized. 🎉\n\n🔑 *Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\n📦 *Service Packages:*\nYou can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.\n\nThank you for choosing AAA Business Consultancy!`;
+                
+                await sendCustomWhatsApp(clientRecord.phone, credsMsg).catch(err => console.error('[Auto-Convert WA Creds Error]:', err.message));
+                console.log(`[Auto-Convert WA Creds Sent] Dispatched WhatsApp credentials message to ${clientRecord.phone}`);
+              } catch (waCredErr) {
+                console.error('[Auto-Convert WA Creds Exception]:', waCredErr.message);
+              }
+            }
+          } catch (autoConvErr) {
+            console.error('[Auto-Convert Error]:', autoConvErr.message);
           }
         }
 
