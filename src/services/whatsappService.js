@@ -603,5 +603,95 @@ Thank you for your support!`;
   }
 };
 
+/**
+ * Sends automated WhatsApp Payment Success Receipt to client upon successful payment.
+ * Includes Permanent CID (CID-12001), Amount, Service Package, Transaction ID, and Portal Link.
+ */
+exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, transactionId, generatedPassword }) => {
+  try {
+    const phone = client?.phone;
+    if (!phone) {
+      console.warn('[Payment Success WA] Missing client phone number. Skipping.');
+      return;
+    }
+
+    // Deduplication check via CommunicationLog to prevent duplicate receipt dispatch
+    if (paymentId) {
+      try {
+        const existingLog = await prisma.communicationLog.findFirst({
+          where: {
+            externalProviderId: `PAYMENT_SUCCESS_${paymentId}`
+          }
+        });
+        if (existingLog) {
+          console.log(`[Payment Success WA] Receipt already sent for Payment ID ${paymentId}. Skipping duplicate.`);
+          return;
+        }
+      } catch (dedupErr) {
+        console.warn('[Payment Success WA] Deduplication check warning:', dedupErr.message);
+      }
+    }
+
+    const { sendCustomWhatsApp } = require('./chatbotService');
+    const dayjs = require('dayjs');
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const portalUrl = `${frontendUrl}/#/portal/login`;
+    const clientName = `${client.firstName} ${client.lastName}`.trim();
+    const clientCode = client.clientCode || `CID-12001`;
+    const formattedAmount = Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formattedDate = dayjs().format('DD/MM/YYYY hh:mm A');
+    const displayService = serviceType || client.serviceType || 'Spain Visa / Residency Service';
+    const displayTx = transactionId || paymentId || 'CONFIRMED';
+
+    let credsSection = '';
+    if (generatedPassword) {
+      credsSection = `\n🔑 *Portal Login Credentials:*\n👤 *Username:* ${client.email}\n🔑 *Temp Password:* ${generatedPassword}\n`;
+    }
+
+    const messageBody = `🎉 *Payment Confirmed - AAA Business Consultancy*
+
+Dear *${clientName}*,
+
+Thank you! We have successfully received your payment. Here are your transaction details:
+
+📋 *Receipt Summary:*
+• 👤 *Client ID:* ${clientCode}
+• 💳 *Amount Paid:* €${formattedAmount}
+• 📦 *Package / Service:* ${displayService}
+• 🔖 *Transaction ID:* ${displayTx}
+• 📅 *Date:* ${formattedDate}
+${credsSection}
+🚀 *Next Steps:*
+Your Client Portal is active. Log in to upload your required documents and track your application progress:
+🔗 *Client Portal:* ${portalUrl}
+
+Thank you for choosing AAA Business Consultancy! 🇪🇸`;
+
+    await sendCustomWhatsApp(phone, messageBody).catch(err => console.error('[Payment Success WA Error]:', err.message));
+
+    // Record deduplication marker in CommunicationLog
+    try {
+      await prisma.communicationLog.create({
+        data: {
+          clientId: client.id,
+          phone: phone,
+          name: clientName,
+          channel: 'WHATSAPP',
+          direction: 'OUTBOUND',
+          externalProviderId: paymentId ? `PAYMENT_SUCCESS_${paymentId}` : 'PAYMENT_SUCCESS',
+          content: messageBody,
+          deliveryStatus: 'SENT'
+        }
+      });
+    } catch (logErr) {
+      console.warn('[Payment Success WA Log Warning]:', logErr.message);
+    }
+
+    console.log(`[Payment Success WA Sent] Dispatched payment success receipt to ${phone} for CID: ${clientCode}`);
+  } catch (err) {
+    console.error('[Payment Success WA Exception]:', err.message);
+  }
+};
+
 
 

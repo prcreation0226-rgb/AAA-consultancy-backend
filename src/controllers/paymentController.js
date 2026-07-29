@@ -237,13 +237,15 @@ const updatePaymentStatus = async (req, res) => {
 
           // 2. Dispatch WhatsApp payment receipt
           if (clientObj.phone) {
-            const { sendCustomWhatsApp } = require('../services/chatbotService');
-            const portalLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
-            const clientName = `${clientObj.firstName} ${clientObj.lastName}`;
-            const amountPaid = payment.amount - (payment.discount || 0);
-
-            sendCustomWhatsApp(clientObj.phone, `🎉 *Payment Received & Confirmed!*\n\nDear *${clientName}*,\n\nWe have successfully received your payment of *€${amountPaid.toLocaleString()}* for your Spain Relocation Package.\n\nYour Client Portal is now fully active for document uploads and progression tracking:\n🔗 ${portalLink}\n\nThank you for choosing AAA Business Consultancy!`).catch(err => console.error('[BG-WA] Payment receipt WA failed:', err.message));
-              console.log(`[Auto-WhatsApp Payment Receipt] Dispatched receipt to ${clientObj.phone}`);
+            const { sendPaymentSuccessWhatsApp } = require('../services/whatsappService');
+            sendPaymentSuccessWhatsApp({
+              client: clientObj,
+              paymentId: updatedPayment.id,
+              amount: updatedPayment.totalPaid || (payment.amount - (payment.discount || 0)),
+              serviceType: clientObj.serviceType,
+              transactionId: transactionId || updatedPayment.transactionId
+            }).catch(err => console.error('[BG-WA] Payment receipt WA failed:', err.message));
+            console.log(`[Auto-WhatsApp Payment Receipt] Dispatched receipt to ${clientObj.phone}`);
           }
         }
       } catch (err) {
