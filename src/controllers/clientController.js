@@ -134,18 +134,8 @@ const createClient = async (req, res) => {
       credentialsGenerated = true;
 
       // Auto-generate human-readable clientCode: CID 12002, 12003...
-      let clientCode = null;
-      if (leadId) {
-        const lead = await prisma.lead.findUnique({ where: { id: leadId } });
-        if (lead && lead.clientCode) {
-          clientCode = lead.clientCode;
-        }
-      }
-      
-      if (!clientCode) {
-        const clientCount = await prisma.client.count();
-        clientCode = `CID ${12001 + clientCount}`;
-      }
+      const clientCount = await prisma.client.count();
+      const clientCode = `CID ${12001 + clientCount}`;
 
       client = await prisma.client.create({
         data: {
