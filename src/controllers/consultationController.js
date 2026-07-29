@@ -208,11 +208,100 @@ const updateOutcome = async (req, res) => {
       });
       console.log(`[Outcome Status Trigger] Lead ${consultation.leadId} status updated to: ${newLeadStatus}`);
 
-        // If Eligible, auto-send appropriate WhatsApp message based on service type
-        if (newLeadStatus === 'Eligible' && updatedLead.clientId) {
-          const clientRecord = await prisma.client.findUnique({
-            where: { id: updatedLead.clientId }
-          });
+        // If Eligible, auto-convert Lead to Client if not already converted and send WhatsApp credentials + package options
+        if (newLeadStatus === 'Eligible') {
+          let clientRecord = null;
+          if (updatedLead.clientId) {
+            clientRecord = await prisma.client.findUnique({
+              where: { id: updatedLead.clientId }
+            });
+          }
+
+          // Auto-convert Lead to Client if client profile does not exist yet
+          if (!clientRecord) {
+            try {
+              const bcrypt = require('bcrypt');
+              const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
+              let plainPassword = '';
+              for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+
+              const salt = await bcrypt.genSalt(10);
+              const hashedPassword = await bcrypt.hash(plainPassword, salt);
+
+              const clientCount = await prisma.client.count();
+              const clientCode = `CID ${12001 + clientCount}`;
+
+              clientRecord = await prisma.client.create({
+                data: {
+                  firstName: updatedLead.firstName,
+                  lastName: updatedLead.lastName,
+                  email: updatedLead.email.toLowerCase(),
+                  phone: updatedLead.phone,
+                  nationality: updatedLead.nationality,
+                  countryOfResidence: updatedLead.countryOfResidence,
+                  preferredLanguage: updatedLead.preferredLanguage || 'English',
+                  clientCode,
+                  serviceType: updatedLead.serviceType || 'spain_visa',
+                  assignedToId: updatedLead.assignedToId,
+                  assignedAt: updatedLead.assignedToId ? new Date() : undefined,
+                  applicantsCount: String(updatedLead.applicantsCount || 'Main Only'),
+                  dependentsDetails: updatedLead.dependentsDetails || undefined,
+                  status: 'Waiting for Payment',
+                  password: hashedPassword,
+                  isTemporaryPassword: true
+                }
+              });
+
+              // Link Lead to newly created Client
+              await prisma.lead.update({
+                where: { id: updatedLead.id },
+                data: { clientId: clientRecord.id }
+              });
+              console.log(`[Auto-Convert] Converted Lead ${updatedLead.id} to Client ${clientRecord.id} (${clientCode})`);
+
+              // Dispatch Credentials Email
+              try {
+                const { sendEmail } = require('../services/emailService');
+                const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+                const portalUrl = `${frontendUrl}/#/portal/login`;
+                sendEmail({
+                  to: clientRecord.email,
+                  subject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
+                  html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #2d3748;">
+                      <h2 style="color: #4f46e5;">Welcome to AAA Business Consultancy! 🎉</h2>
+                      <p>Dear <strong>${clientRecord.firstName} ${clientRecord.lastName}</strong>,</p>
+                      <p>Congratulations! Based on your consultation assessment, you are <strong>ELIGIBLE</strong> for your Spain Visa / Residency package.</p>
+                      <div style="background: #f7fafc; border-left: 4px solid #4f46e5; padding: 16px; margin: 20px 0;">
+                        <h4 style="margin: 0 0 8px; color: #4f46e5;">Your Portal Credentials</h4>
+                        <p><strong>Portal URL:</strong> <a href="${portalUrl}">${portalUrl}</a></p>
+                        <p><strong>Username:</strong> ${clientRecord.email}</p>
+                        <p><strong>Temporary Password:</strong> <code style="background: #edf2f7; padding: 2px 6px; color: #e11d48;">${plainPassword}</code></p>
+                      </div>
+                      <p>Please log in to select your preferred package and complete your application.</p>
+                    </div>
+                  `
+                }).catch(err => console.error('[Auto-Convert Email Error]:', err.message));
+              } catch (emailErr) {
+                console.error('[Auto-Convert Email Exception]:', emailErr.message);
+              }
+
+              // Dispatch WhatsApp Credentials
+              if (clientRecord.phone) {
+                try {
+                  const { sendCustomWhatsApp } = require('../services/chatbotService');
+                  const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
+                  const credsMsg = `🎉 *Congratulations ${clientRecord.firstName}!* You are *ELIGIBLE* to proceed with your Spain Visa & Relocation.\n\n🔑 *Your Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\nPlease log in to view and select your service package.`;
+                  sendCustomWhatsApp(clientRecord.phone, credsMsg).catch(err => console.error('[Auto-Convert WA Creds Error]:', err.message));
+                } catch (waCredErr) {
+                  console.error('[Auto-Convert WA Creds Exception]:', waCredErr.message);
+                }
+              }
+            } catch (autoConvErr) {
+              console.error('[Auto-Convert Error]:', autoConvErr.message);
+            }
+          }
+
           if (clientRecord && clientRecord.phone) {
             try {
               const { sendCustomWhatsApp } = require('../services/chatbotService');

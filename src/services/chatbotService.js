@@ -6,12 +6,11 @@ const axios = require('axios');
 const SESSION_TIMEOUT = 3600; // 1 hour session validity
 
 function isWhitelistedPhone(phone) {
-  // If TESTING_MODE is explicitly set to 'false', chatbot is in PRODUCTION MODE (responds to everyone)
-  if (process.env.TESTING_MODE === 'false' || process.env.TEST_MODE === 'false') {
+  // Enable phone whitelist restriction ONLY if TEST_MODE or TESTING_MODE is explicitly set to 'true'
+  if (process.env.TESTING_MODE !== 'true' && process.env.TEST_MODE !== 'true') {
     return true;
   }
 
-  // By default (or when TESTING_MODE=true), Sandbox/Testing mode is ACTIVE
   const envNumbers = (process.env.ALLOWED_TEST_NUMBERS || process.env.TEST_PHONES || '').split(',');
   const defaultTestNumbers = ['+918770145658', '+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
 
