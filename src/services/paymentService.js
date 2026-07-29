@@ -358,7 +358,27 @@ module.exports = {
   },
 
   calculatePackageInvoice: async (clientId, packageId, additionalApplicants) => {
-    const packageConfig = packagesConfig[packageId];
+    let packageConfig = packagesConfig[packageId];
+    
+    if (!packageConfig) {
+      // Try fetching from database for dynamic packages
+      const dbPackage = await prisma.relocationPackage.findUnique({
+        where: { code: packageId }
+      });
+      if (dbPackage) {
+        packageConfig = {
+          id: dbPackage.code,
+          name: dbPackage.name,
+          basePrice: dbPackage.price,
+          additionalApplicantPrice: dbPackage.additionalApplicantPrice,
+          vatRate: 5,
+          refundable: true,
+          refundPercent: 50,
+          creditEligible: true
+        };
+      }
+    }
+
     if (!packageConfig) {
       throw new Error(`Invalid package selected: ${packageId}`);
     }
