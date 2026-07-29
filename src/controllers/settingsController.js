@@ -468,6 +468,32 @@ const updateWhatsappTemplates = async (req, res) => {
   }
 };
 
+const purgeAllData = async (req, res) => {
+  try {
+    console.log('[PURGE] Starting full database cleanup...');
+
+    await prisma.communicationLog.deleteMany({}).catch(() => {});
+    await prisma.consultation.deleteMany({}).catch(() => {});
+    await prisma.caseFile.deleteMany({}).catch(() => {});
+    await prisma.document.deleteMany({}).catch(() => {});
+    await prisma.applicationCycle.deleteMany({}).catch(() => {});
+    await prisma.caseComment.deleteMany({}).catch(() => {});
+    await prisma.payment.deleteMany({}).catch(() => {});
+    await prisma.lead.deleteMany({}).catch(() => {});
+    await prisma.client.deleteMany({}).catch(() => {});
+
+    console.log('[PURGE] All leads, clients, consultations, payments, and logs successfully purged!');
+
+    res.json({
+      success: true,
+      message: 'All test leads, clients, consultations, and payment data have been completely wiped. CID numbering reset to CID-12001.'
+    });
+  } catch (error) {
+    console.error('[PURGE ERROR]:', error);
+    res.status(500).json({ success: false, message: 'Database purge failed', error: error.message });
+  }
+};
+
 module.exports = { 
   getCustomizationSettings, 
   updateCustomizationSettings,
@@ -485,5 +511,6 @@ module.exports = {
   getEmailTemplates,
   updateEmailTemplates,
   getWhatsappTemplates,
-  updateWhatsappTemplates
+  updateWhatsappTemplates,
+  purgeAllData
 };

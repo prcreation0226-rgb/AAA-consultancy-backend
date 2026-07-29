@@ -163,9 +163,28 @@ const createLead = async (req, res) => {
       assignedToId = consultants.length > 0 ? consultants[0].id : null;
     }
 
+    // Generate permanent unified CID for the lead (e.g. CID-12001)
+    let suffix = 0;
+    let isUnique = false;
+    let generatedClientCode = '';
+    while (!isUnique) {
+      const totalLeads = await prisma.lead.count();
+      const totalClients = await prisma.client.count();
+      generatedClientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
+
+      const existingLead = await prisma.lead.findFirst({ where: { clientCode: generatedClientCode } });
+      const existingClient = await prisma.client.findFirst({ where: { clientCode: generatedClientCode } });
+      if (!existingLead && !existingClient) {
+        isUnique = true;
+      } else {
+        suffix++;
+      }
+    }
+
     // Create new lead
     lead = await prisma.lead.create({
         data: {
+          clientCode: generatedClientCode,
           firstName: firstName || '',
           lastName: lastName || '',
           email: safeEmail || email || '',

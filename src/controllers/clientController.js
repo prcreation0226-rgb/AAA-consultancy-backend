@@ -133,9 +133,31 @@ const createClient = async (req, res) => {
       const hashedPassword = await bcrypt.hash(plainPassword, salt);
       credentialsGenerated = true;
 
-      // Auto-generate human-readable clientCode: CID 12002, 12003...
-      const clientCount = await prisma.client.count();
-      const clientCode = `CID ${12001 + clientCount}`;
+      // Preserve permanent CID from lead if available
+      let clientCode = '';
+      if (leadId) {
+        const leadObj = await prisma.lead.findUnique({
+          where: { id: leadId },
+          select: { clientCode: true }
+        });
+        if (leadObj && leadObj.clientCode) {
+          clientCode = leadObj.clientCode;
+        }
+      }
+
+      if (!clientCode) {
+        let suffix = 0;
+        let isUnique = false;
+        while (!isUnique) {
+          const totalLeads = await prisma.lead.count();
+          const totalClients = await prisma.client.count();
+          clientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
+          const checkClient = await prisma.client.findFirst({ where: { clientCode } });
+          const checkLead = await prisma.lead.findFirst({ where: { clientCode } });
+          if (!checkClient && !checkLead) isUnique = true;
+          else suffix++;
+        }
+      }
 
       client = await prisma.client.create({
         data: {
