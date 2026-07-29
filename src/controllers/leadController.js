@@ -74,6 +74,7 @@ const createLead = async (req, res) => {
       }
     }
     
+    const safeEmail = email ? email.trim().toLowerCase() : '';
     // Normalize phone number to check for existing lead (last 10 digits to match with or without country code)
     const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
     const matchDigits = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
@@ -83,7 +84,7 @@ const createLead = async (req, res) => {
       where: {
         isBlocked: true,
         OR: [
-          { email: email.toLowerCase() },
+          ...(safeEmail ? [{ email: safeEmail }] : []),
           ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
         ]
       }
@@ -100,7 +101,7 @@ const createLead = async (req, res) => {
     const blacklisted = await prisma.blacklistedClient.findFirst({
       where: {
         OR: [
-          { email: email.toLowerCase() },
+          ...(safeEmail ? [{ email: safeEmail }] : []),
           ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
         ]
       }
@@ -122,7 +123,7 @@ const createLead = async (req, res) => {
     const latestLead = await prisma.lead.findFirst({
       where: {
         OR: [
-          { email: email.toLowerCase() },
+          ...(safeEmail ? [{ email: safeEmail }] : []),
           ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
         ]
       },
@@ -160,40 +161,19 @@ const createLead = async (req, res) => {
       assignedToId = consultants.length > 0 ? consultants[0].id : null;
     }
 
-    // Generate a permanent CID for the new lead
-    let suffix = 0;
-    let isUnique = false;
-    let generatedClientCode = '';
-    while (!isUnique) {
-      const totalLeads = await prisma.lead.count();
-      generatedClientCode = `CID-${12001 + totalLeads + suffix}`;
-      const existingLead = await prisma.lead.findUnique({ where: { clientCode: generatedClientCode } });
-      if (!existingLead) {
-        const existingClient = await prisma.client.findFirst({ where: { clientCode: generatedClientCode } });
-        if (!existingClient) {
-          isUnique = true;
-        } else {
-          suffix++;
-        }
-      } else {
-        suffix++;
-      }
-    }
-
     // Create new lead
     lead = await prisma.lead.create({
         data: {
-          clientCode: generatedClientCode,
-          firstName,
-          lastName,
-          email,
-          phone,
-          source,
+          firstName: firstName || '',
+          lastName: lastName || '',
+          email: safeEmail || email || '',
+          phone: phone || '',
+          source: source || 'Website',
           campaignId,
           serviceType: serviceType || serviceId,
           nationality,
           countryOfResidence: countryOfResidence || null,
-          preferredLanguage,
+          preferredLanguage: preferredLanguage || 'English',
           applicantsCount: applicantsCount ? String(applicantsCount) : undefined,
           dependentsDetails: dependentsDetails || undefined,
           meetingPreferredDate,
