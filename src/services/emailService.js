@@ -66,13 +66,20 @@ exports.sendEmail = async ({ to, subject, html, text }) => {
     }
   } else if (transporter) {
     try {
-      const info = await transporter.sendMail({
+      const sendPromise = transporter.sendMail({
         from: SMTP_FROM,
         to,
         subject,
         text: text || html.replace(/<[^>]*>/g, ''), // Basic HTML strip for fallback text
         html
       });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('SMTP sendMail timed out after 10s')), 10000)
+      );
+
+      const info = await Promise.race([sendPromise, timeoutPromise]);
+
       console.log(`Email sent successfully via SMTP to ${to}. Message ID: ${info.messageId}`);
       return { success: true, messageId: info.messageId, dryRun: false };
     } catch (error) {

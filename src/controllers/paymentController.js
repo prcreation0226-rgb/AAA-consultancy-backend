@@ -892,13 +892,14 @@ const verifyStripeCheckoutSession = async (req, res) => {
             }
           });
 
-          // Send Checklist Email
+          // Send Checklist Email (Non-blocking)
           try {
             const { sendVisaChecklist } = require('../services/emailService');
-            await sendVisaChecklist(client.email, `${client.firstName} ${client.lastName}`, client.serviceType);
-            console.log(`[Auto-Checklist] Sent checklist to client ${client.email} for ${client.serviceType}`);
+            sendVisaChecklist(client.email, `${client.firstName} ${client.lastName}`, client.serviceType)
+              .then(() => console.log(`[Auto-Checklist] Sent checklist to client ${client.email} for ${client.serviceType}`))
+              .catch(emailErr => console.error('[Auto-Checklist] Failed to send checklist email:', emailErr.message));
           } catch (emailErr) {
-            console.error('[Auto-Checklist] Failed to send checklist email:', emailErr.message);
+            console.error('[Auto-Checklist] Error invoking checklist email:', emailErr.message);
           }
         }
       }
