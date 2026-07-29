@@ -1175,10 +1175,13 @@ async function publicRescheduleConsultation(req, res) {
     const phone = lead ? lead.phone : null;
     const link = updatedConsultation.meetingLink || 'https://zoom.us';
 
+    const dayjs = require('dayjs');
+    const formattedDate = date ? (date.includes('-') ? dayjs(date).format('DD/MM/YYYY') : date) : date;
+
     const token = generateBookingToken(consultationId);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${token}&consultationId=${consultationId}`;
-    const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&token=${token}&consultationId=${consultationId}`;
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId}`;
+    const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId}`;
     const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
     // Send WhatsApp & Email Notifications
@@ -1189,10 +1192,10 @@ async function publicRescheduleConsultation(req, res) {
 
 Dear *${clientName}*,
 
-Your Spain Visa Eligibility Assessment has been successfully rescheduled.
+Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
-📅 *New Date:* ${date}
-⏰ *New Time:* ${timeSlot} (GST)
+📅 *Date:* ${formattedDate}
+⏰ *Time:* ${timeSlot} (GST)
 🔗 *Meeting Join Link:* ${link}
 
 ─────────────
@@ -1202,7 +1205,9 @@ Your Spain Visa Eligibility Assessment has been successfully rescheduled.
 • 📦 *View Visa Packages:* ${packagesUrl}
 
 _Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
-        await sendCustomWhatsApp(phone, waMsg);
+
+        sendCustomWhatsApp(phone, waMsg).catch(waErr => console.error('Reschedule WhatsApp error:', waErr.message));
+        console.log(`[Reschedule WA Sent] Dispatched WhatsApp reschedule message to ${phone}`);
       } catch (waErr) {
         console.error('Reschedule WhatsApp error:', waErr.message);
       }
