@@ -1169,11 +1169,24 @@ async function publicRescheduleConsultation(req, res) {
       }).catch(e => console.warn('Could not update lead status on reschedule:', e.message));
     }
 
-    const lead = consultation.lead;
-    const clientName = lead ? `${lead.firstName} ${lead.lastName}` : 'Client';
-    const email = lead ? lead.email : null;
-    const phone = lead ? lead.phone : null;
-    const link = updatedConsultation.meetingLink || 'https://zoom.us';
+    let lead = consultation.lead;
+    if (!lead && consultation.leadId) {
+      lead = await prisma.lead.findUnique({
+        where: { id: consultation.leadId },
+        include: { client: true }
+      }).catch(() => null);
+    }
+    let client = lead?.client;
+    if (!client && consultation.clientId) {
+      client = await prisma.client.findUnique({
+        where: { id: consultation.clientId }
+      }).catch(() => null);
+    }
+
+    const clientName = lead ? `${lead.firstName} ${lead.lastName}` : (client ? `${client.firstName} ${client.lastName}` : 'Client');
+    const email = lead?.email || client?.email || null;
+    const phone = lead?.phone || client?.phone || null;
+    const link = updatedConsultation.meetingLink || consultation.meetingLink || 'https://zoom.us';
 
     const dayjs = require('dayjs');
     const formattedDate = date ? (date.includes('-') ? dayjs(date).format('DD/MM/YYYY') : date) : date;
