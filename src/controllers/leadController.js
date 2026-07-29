@@ -252,10 +252,25 @@ const assignLead = async (req, res) => {
       where: { id: leadId },
       data: { assignedToId: agentId, assignedAt: new Date() }
     });
-    await syncLeadConsultation(lead.id);
+
+    // Update consultant on any existing consultation directly in DB
+    await prisma.consultation.updateMany({
+      where: { leadId },
+      data: { consultantId: agentId }
+    }).catch(err => console.warn('[assignLead] Consultation update warning:', err.message));
+
+    // Also update associated client assignedToId if exists
+    if (lead.clientId) {
+      await prisma.client.update({
+        where: { id: lead.clientId },
+        data: { assignedToId: agentId, assignedAt: new Date() }
+      }).catch(err => console.warn('[assignLead] Client update warning:', err.message));
+    }
+
     res.json(lead);
   } catch (error) {
-    res.status(500).json({ message: 'Server error assigning lead' });
+    console.error('Error assigning lead:', error);
+    res.status(500).json({ message: 'Server error assigning lead', error: error.message });
   }
 };
 
@@ -345,10 +360,6 @@ const getLeadById = async (req, res) => {
       return res.status(404).json({ message: 'Lead not found' });
     }
 
-    if (lead.assignedToId) {
-      await syncLeadConsultation(lead.id).catch(err => console.error('[getLeadById] Sync Error:', err.message));
-    }
-
     const autoCode = lead.clientCode || lead.client?.clientCode || `CID-${12001}`;
     const mapped = {
       ...lead,
@@ -421,7 +432,12 @@ const updateLead = async (req, res) => {
       }
     });
 
-    await syncLeadConsultation(lead.id);
+    if (assignedConsultantId) {
+      await prisma.consultation.updateMany({
+        where: { leadId: lead.id },
+        data: { consultantId: assignedConsultantId }
+      }).catch(err => console.warn('[updateLead] Consultation update warning:', err.message));
+    }
 
     const mapped = {
       ...lead,

@@ -49,7 +49,11 @@ app.use(cors({
 }));
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // Setup Basic Route

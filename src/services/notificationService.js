@@ -189,6 +189,7 @@ const logDelivery = async (clientId, recipient, name, channel, eventType, result
         name: name,
         channel: channel,
         direction: 'OUTBOUND',
+        externalProviderId: eventType === 'MEETING_BOOKED' ? 'meeting_booked' : (eventType ? eventType.toLowerCase() : null),
         deliveryStatus: isSuccess ? 'SENT' : 'FAILED',
         failureReason: isSuccess ? null : (result.error || 'Unknown Provider Error'),
         content: content

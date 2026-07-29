@@ -186,13 +186,16 @@ exports.handleStripeWebhook = async (req, res) => {
 
   let event;
   try {
-    if (endpointSecret) {
-      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    if (endpointSecret && sig) {
+      const stripeSecret = process.env.STRIPE_SECRET_KEY || 'sk_test_mock';
+      const stripe = require('stripe')(stripeSecret);
+      const payloadBuffer = req.rawBody || (Buffer.isBuffer(req.body) ? req.body : JSON.stringify(req.body));
+      event = stripe.webhooks.constructEvent(payloadBuffer, sig, endpointSecret);
     } else {
-      event = req.body;
+      event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     }
   } catch (err) {
+    console.error('[Stripe Webhook Signature Error]:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -680,7 +683,7 @@ exports.handleZohoWebhook = async (req, res) => {
           });
 
           if (paymentRecord.clientId) {
-            await prisma.client.update({
+            const updatedClient = await prisma.client.update({
               where: { id: paymentRecord.clientId },
               data: {
                 status: 'Payment Received',
@@ -688,6 +691,32 @@ exports.handleZohoWebhook = async (req, res) => {
                 documentUploadAllowed: true
               }
             });
+
+            // Sync associated Lead status
+            const lead = await prisma.lead.findFirst({
+              where: { clientId: paymentRecord.clientId }
+            });
+            if (lead) {
+              await prisma.lead.update({
+                where: { id: lead.id },
+                data: { status: 'Payment Received' }
+              });
+            }
+
+            // Real-time Socket.io Broadcast to Staff Rooms
+            const io = req.app.get('io');
+            if (io) {
+              const notificationData = {
+                type: 'payment_received',
+                clientId: updatedClient.id,
+                clientName: `${updatedClient.firstName} ${updatedClient.lastName}`,
+                amount: paymentRecord.amount,
+                gateway: 'Zoho Invoice',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              };
+              io.to('role:admin').to('role:operations').to('role:super_admin').emit('payment_received', notificationData);
+            }
+
             console.log(`[Zoho Webhook] Payment ${paymentRecord.id} for client ${paymentRecord.clientId} updated to Paid.`);
           }
         }
