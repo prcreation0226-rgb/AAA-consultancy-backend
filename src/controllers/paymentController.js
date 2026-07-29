@@ -46,7 +46,7 @@ const generatePaymentLink = async (req, res) => {
       }
     });
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
     let paymentUrl = `${frontendUrl}/#/portal/documents/${clientId}`;
 
     // 1. Stripe Live Checkout Session Generator
@@ -750,7 +750,7 @@ const createStripeCheckoutSession = async (req, res) => {
       });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
     const safePackageId = (packageId || 'custom').toString().toUpperCase();
     const safeAmount = Number(amount) || enforcedAmount || 0;
 
@@ -1036,7 +1036,8 @@ const createPackageCheckout = async (req, res) => {
     reservedAssessmentId = invoice.assessmentPaymentId;
 
     // STEP 2: Decoupled Stripe API Call (Outside Transaction)
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // Use req.headers.origin to ensure we return to the exact frontend that initiated the request
+    const frontendUrl = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
     let paymentUrl = `${frontendUrl}/#/portal/documents/${clientId}`;
 
     if (stripe) {
