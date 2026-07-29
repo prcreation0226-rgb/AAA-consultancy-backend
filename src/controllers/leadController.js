@@ -687,39 +687,13 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       console.log(`[BOOKING] Consultation marked Scheduled for Lead ID: ${lead.id}`);
     }
 
-    // 2. Immediate Idempotent WhatsApp & Email Confirmation
+    // 2. Immediate Idempotent WhatsApp Confirmation for Lead
     if (consultationStatus === 'Scheduled' && meetingLink) {
       try {
-        // Ensure Client record exists for notifyClient
-        let client = await prisma.client.findUnique({
-          where: { email: lead.email.toLowerCase() }
-        });
-        if (!client) {
-          client = await prisma.client.create({
-            data: {
-              firstName: lead.firstName,
-              lastName: lead.lastName,
-              email: lead.email.toLowerCase(),
-              phone: lead.phone,
-              nationality: lead.nationality || null,
-              countryOfResidence: lead.countryOfResidence || null,
-              preferredLanguage: lead.preferredLanguage || 'English',
-              serviceType: lead.serviceType || 'visa',
-              applicantsCount: lead.applicantsCount || 'Main Only',
-              assignedToId: lead.assignedToId,
-              status: 'Waiting for Assessment'
-            }
-          });
-          await prisma.lead.update({
-            where: { id: lead.id },
-            data: { clientId: client.id }
-          });
-        }
-
-        // Idempotency check on WhatsApp notification per consultation to prevent duplicates while guaranteeing delivery
+        // Idempotency check on WhatsApp notification per consultation
         const existingLog = await prisma.communicationLog.findFirst({
           where: {
-            clientId: client.id,
+            phone: lead.phone,
             channel: 'WHATSAPP',
             externalProviderId: consultation.id
           }
@@ -728,27 +702,31 @@ async function syncLeadConsultation(leadId, reqApp = null) {
         if (!existingLog) {
           console.log(`[WHATSAPP] Dispatching booking confirmation in background for Lead: ${lead.firstName} ${lead.lastName} (${lead.phone})`);
           
-          // Asynchronously dispatch WhatsApp & Email in background so API responds instantly
+          // Asynchronously dispatch WhatsApp in background so API responds instantly
           (async () => {
             try {
-              const { notifyClient } = require('../services/notificationService');
               const { sendCustomWhatsApp } = require('../services/chatbotService');
 
-              try {
-                await notifyClient({
-                  event: 'MEETING_BOOKED',
-                  clientId: client.id,
-                  consultationId: consultation.id,
-                  data: {
-                    date: meetingDate,
-                    time: meetingTime,
-                    link: meetingLink
-                  }
-                });
-                console.log(`[WHATSAPP/EMAIL] Async confirmation sent via notifyClient for Consultation ID: ${consultation.id}`);
-              } catch (notifErr) {
-                console.warn('[WHATSAPP notifyClient warning]:', notifErr.message);
-              }
+              // Direct WhatsApp dispatch containing the exact Zoom link
+              const clientName = `${lead.firstName} ${lead.lastName}`.trim();
+              const messageBody = `✈️ *Spain Visa Consultation Confirmed!*\n\nDear *${clientName}*,\n\nYour Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉\n\n📅 *Date:* ${meetingDate}\n⏰ *Time:* ${meetingTime} (GST)\n🔗 *Zoom Meeting Link:* ${meetingLink}\n\n_Note: Please join within 10 minutes of your appointment time._`;
+
+              await sendCustomWhatsApp(lead.phone, messageBody).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
+
+              // Log consultation-specific idempotency marker
+              await prisma.communicationLog.create({
+                data: {
+                  phone: lead.phone,
+                  name: clientName,
+                  channel: 'WHATSAPP',
+                  direction: 'OUTBOUND',
+                  externalProviderId: consultation.id,
+                  deliveryStatus: 'SENT',
+                  content: messageBody
+                }
+              }).catch(err => console.warn('[WHATSAPP Log Warning]:', err.message));
+
+              console.log(`[WHATSAPP] Async confirmation sent for Consultation ID: ${consultation.id}`);
             } catch (asyncErr) {
               console.error('[WHATSAPP Async Dispatch Error]:', asyncErr.message);
             }
