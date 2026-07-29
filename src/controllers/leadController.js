@@ -707,9 +707,32 @@ async function syncLeadConsultation(leadId, reqApp = null) {
             try {
               const { sendCustomWhatsApp } = require('../services/chatbotService');
 
-              // Direct WhatsApp dispatch containing the exact Zoom link
+              const dayjs = require('dayjs');
+              const formattedDate = meetingDate ? (meetingDate.includes('-') ? dayjs(meetingDate).format('DD/MM/YYYY') : meetingDate) : meetingDate;
+
+              const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+              const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
+              const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultation.id}`;
+              const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
+
               const clientName = `${lead.firstName} ${lead.lastName}`.trim();
-              const messageBody = `✈️ *Spain Visa Consultation Confirmed!*\n\nDear *${clientName}*,\n\nYour Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉\n\n📅 *Date:* ${meetingDate}\n⏰ *Time:* ${meetingTime} (GST)\n🔗 *Zoom Meeting Link:* ${meetingLink}\n\n_Note: Please join within 10 minutes of your appointment time._`;
+              const messageBody = `✈️ *Spain Visa Consultation Confirmed!*
+
+Dear *${clientName}*,
+
+Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
+
+📅 *Date:* ${formattedDate}
+⏰ *Time:* ${meetingTime} (GST)
+🔗 *Meeting Join Link:* ${meetingLink}
+
+─────────────
+👇 *Quick Action Links:*
+• 🔄 *Reschedule Booking:* ${rescheduleUrl}
+• ❌ *Cancel Booking:* ${cancelUrl}
+• 📦 *View Visa Packages:* ${packagesUrl}
+
+_Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
 
               await sendCustomWhatsApp(lead.phone, messageBody).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
 
