@@ -15,7 +15,7 @@ const getLeads = async (req, res) => {
     });
     // Map to frontend expectation
     const mapped = leads.map((l, idx) => {
-      const autoCode = l.client?.clientCode || `CID-${12001 + (leads.length - 1 - idx)}`;
+      const autoCode = l.clientCode || l.client?.clientCode || `CID-${12001 + (leads.length - 1 - idx)}`;
       return {
         ...l,
         createdDate: l.createdAt,
@@ -160,9 +160,30 @@ const createLead = async (req, res) => {
       assignedToId = consultants.length > 0 ? consultants[0].id : null;
     }
 
+    // Generate a permanent CID for the new lead
+    let suffix = 0;
+    let isUnique = false;
+    let generatedClientCode = '';
+    while (!isUnique) {
+      const totalLeads = await prisma.lead.count();
+      generatedClientCode = `CID-${12001 + totalLeads + suffix}`;
+      const existingLead = await prisma.lead.findUnique({ where: { clientCode: generatedClientCode } });
+      if (!existingLead) {
+        const existingClient = await prisma.client.findFirst({ where: { clientCode: generatedClientCode } });
+        if (!existingClient) {
+          isUnique = true;
+        } else {
+          suffix++;
+        }
+      } else {
+        suffix++;
+      }
+    }
+
     // Create new lead
     lead = await prisma.lead.create({
         data: {
+          clientCode: generatedClientCode,
           firstName,
           lastName,
           email,
@@ -328,7 +349,7 @@ const getLeadById = async (req, res) => {
       await syncLeadConsultation(lead.id).catch(err => console.error('[getLeadById] Sync Error:', err.message));
     }
 
-    const autoCode = lead.client?.clientCode || `CID-${12001}`;
+    const autoCode = lead.clientCode || lead.client?.clientCode || `CID-${12001}`;
     const mapped = {
       ...lead,
       name: `${lead.firstName} ${lead.lastName}`,

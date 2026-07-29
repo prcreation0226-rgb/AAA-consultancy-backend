@@ -82,6 +82,8 @@ model Lead {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  clientCode       String?  @unique // Permanent Customer ID
+
   assignedToId     String?
   assignedTo       User?    @relation("AgentLeads", fields: [assignedToId], references: [id])
   assignedAt       DateTime?
