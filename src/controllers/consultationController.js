@@ -286,12 +286,12 @@ const updateOutcome = async (req, res) => {
                 console.error('[Auto-Convert Email Exception]:', emailErr.message);
               }
 
-              // Dispatch WhatsApp Credentials
+              // Dispatch Single Clean WhatsApp Credentials Message
               if (clientRecord.phone) {
                 try {
                   const { sendCustomWhatsApp } = require('../services/chatbotService');
                   const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
-                  const credsMsg = `🎉 *Congratulations ${clientRecord.firstName}!* You are *ELIGIBLE* to proceed with your Spain Visa & Relocation.\n\n🔑 *Your Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\nPlease log in to view and select your service package.`;
+                  const credsMsg = `Hello *${clientRecord.firstName} ${clientRecord.lastName}*, welcome to AAA Business Consultancy! 🇪🇸\n\nYour Spain Relocation profile has been initialized. 🎉\n\n🔑 *Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\n📦 *Service Packages:*\nYou can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.\n\nThank you for choosing AAA Business Consultancy!`;
                   sendCustomWhatsApp(clientRecord.phone, credsMsg).catch(err => console.error('[Auto-Convert WA Creds Error]:', err.message));
                 } catch (waCredErr) {
                   console.error('[Auto-Convert WA Creds Exception]:', waCredErr.message);
@@ -299,30 +299,6 @@ const updateOutcome = async (req, res) => {
               }
             } catch (autoConvErr) {
               console.error('[Auto-Convert Error]:', autoConvErr.message);
-            }
-          }
-
-          if (clientRecord && clientRecord.phone) {
-            try {
-              const { sendCustomWhatsApp } = require('../services/chatbotService');
-              const checkoutLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login?redirect=packages`;
-              const clientName = `${clientRecord.firstName} ${clientRecord.lastName}`;
-              const serviceTypeLower = (updatedLead.serviceType || clientRecord.serviceType || '').toLowerCase();
-              const isPropertyService = serviceTypeLower.includes('property') || serviceTypeLower.includes('investment');
-
-              let msgToSend;
-              if (isPropertyService) {
-                // Property Investment — different follow-up message
-                msgToSend = `Hello *${clientName}*,\n\nThank you for attending your Free Property Investment Consultation! 🏠🇪🇸\n\nBased on our discussion, our team will now prepare a curated list of properties that match your investment criteria:\n📍 *Preferred Area:* ${updatedLead.preferableArea || clientRecord.serviceType || 'Spain'}\n💰 *Budget Range:* ${updatedLead.budget || 'As discussed'}\n\nOur property investment specialist will contact you shortly with tailored property listings and next steps.\n\nFor any questions, you can also access your client portal here:\n🔗 ${checkoutLink}`;
-              } else {
-                // Spain Visa — standard package selection message
-                msgToSend = `Hello *${clientName}*,\n\nThank you for attending your Free Spain Visa Eligibility Assessment. 🎉\n\nBased on our assessment, you are *ELIGIBLE* to proceed!\n\nPlease select your preferred Spanish residency service package to initiate the processing:\n\n*OPTION A: PROFESSIONAL CASE ASSESSMENT*\n• Price: €250\n• Non-refundable\n• If you proceed with either our Full Processing Package or Premium Package within 14 days, the €250 Professional Case Assessment fee will be deducted from your selected package price.\n\n*OPTION B: FULL PROCESSING PACKAGE – END-TO-END SERVICE*\n• Main Applicant: €3,500\n• Each Additional Applicant: €500\n• 50% refundable if the visa application is rejected, subject to the company’s terms and conditions.\n\n*OPTION C: ADMINISTRATIVE RELOCATION PACKAGE – POST-APPROVAL ASSISTANCE IN SPAIN*\n• Main Applicant: €1,750\n• Each Additional Applicant: €500\n• Non-refundable\n\n*OPTION D: PREMIUM PACKAGE – END-TO-END SERVICE + ADMINISTRATIVE RELOCATION PACKAGE*\n• Main Applicant: €4,750\n• Each Additional Applicant: €750\n• 50% refundable if the visa application is rejected, subject to the company’s terms and conditions.\n\nTo select your package and proceed with the payment, please click the secure link below:\n🔗 ${checkoutLink}`;
-              }
-
-              sendCustomWhatsApp(clientRecord.phone, msgToSend).catch(err => console.error('[BG-WA] Eligible notification failed:', err.message));
-              console.log(`[Auto-WhatsApp] Sent ${isPropertyService ? 'property follow-up' : 'package options'} to client ${clientRecord.phone}`);
-            } catch (err) {
-              console.error('[Auto-WhatsApp] Failed to send WhatsApp message:', err.message);
             }
           }
         }

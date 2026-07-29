@@ -457,14 +457,24 @@ exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serv
 
     const { sendCustomWhatsApp } = require('./chatbotService');
     const loginUrl = portalUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
-    const paymentLink = checkoutUrl || loginUrl;
     const clientName = `${client.firstName} ${client.lastName}`.trim();
-    const finalPrice = Number(netAmount || amount || 0);
 
-    const message = `Hello *${clientName}*, welcome to AAA Business Consultancy! 🇪🇸\n\nYour Spain Relocation profile has been initialized.\n\n💳 *Invoice Amount:* €${finalPrice.toLocaleString()}\n📌 *Service:* ${serviceType || 'Spain Relocation Legal Package'}\n\n1️⃣ *Pay Invoice (Official Zoho / Payment Link):*\n🔗 ${paymentLink}\n\n2️⃣ *Client Portal Login Credentials:*\n🔗 ${loginUrl}\n👤 *Username:* ${client.email}\n🔑 *Temp Password:* ${activeTempPassword}\n\nThank you for choosing AAA Business Consultancy!`;
+    const message = `Hello *${clientName}*, welcome to AAA Business Consultancy! 🇪🇸
+
+Your Spain Relocation profile has been initialized. 🎉
+
+🔑 *Client Portal Login Credentials:*
+🔗 *Login URL:* ${loginUrl}
+👤 *Username:* ${client.email}
+🔑 *Temp Password:* ${activeTempPassword}
+
+📦 *Service Packages:*
+You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.
+
+Thank you for choosing AAA Business Consultancy!`;
 
     await sendCustomWhatsApp(client.phone, message);
-    console.log(`[Invoice WhatsApp] Dispatched single invoice notification to ${client.phone}`);
+    console.log(`[Invoice WhatsApp] Dispatched single clean credentials notification to ${client.phone}`);
   } catch (err) {
     console.error('[Invoice WhatsApp] Error dispatching WhatsApp notification:', err.message);
   }
