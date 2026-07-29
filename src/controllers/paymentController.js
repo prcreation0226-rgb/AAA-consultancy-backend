@@ -969,10 +969,10 @@ const getClientPackages = async (req, res) => {
 const createPackageCheckout = async (req, res) => {
   let createdPaymentId = null;
   let reservedAssessmentId = null;
-  const clientId = req.user.id;
-
+  
   try {
-    const { packageId, additionalApplicants } = req.body;
+    const { packageId, additionalApplicants, clientId: bodyClientId } = req.body;
+    const clientId = bodyClientId || req.user.id;
     if (!packageId || additionalApplicants === undefined) {
       return res.status(400).json({ message: 'Package selection and applicant count are required.' });
     }
