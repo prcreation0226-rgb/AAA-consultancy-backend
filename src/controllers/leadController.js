@@ -119,24 +119,26 @@ const createLead = async (req, res) => {
       });
     }
     
-    // 3. Check for Duplicate Active Bookings (Status-aware based on Most Recent Lead)
-    const latestLead = await prisma.lead.findFirst({
-      where: {
-        OR: [
-          ...(safeEmail ? [{ email: safeEmail }] : []),
-          ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
-        ]
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused', 'Meeting Completed', 'Meeting Cancelled'];
-    
-    if (latestLead && !inactiveStatuses.includes(latestLead.status)) {
-      return res.status(409).json({
-        code: 'DUPLICATE_LEAD',
-        message: 'You already have an active booking or application under this email/phone.'
+    // 3. Check for Duplicate Active Bookings for Public Form Submissions
+    if (!req.user) {
+      const latestLead = await prisma.lead.findFirst({
+        where: {
+          OR: [
+            ...(safeEmail ? [{ email: safeEmail }] : []),
+            ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
+          ]
+        },
+        orderBy: { createdAt: 'desc' }
       });
+
+      const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused', 'Meeting Completed', 'Meeting Cancelled'];
+      
+      if (latestLead && !inactiveStatuses.includes(latestLead.status)) {
+        return res.status(409).json({
+          code: 'DUPLICATE_LEAD',
+          message: 'An active booking or application already exists under this email or phone number.'
+        });
+      }
     }
 
     let lead = null;
