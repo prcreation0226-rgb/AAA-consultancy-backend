@@ -143,8 +143,23 @@ const createClient = async (req, res) => {
       }
       
       if (!clientCode) {
-        const clientCount = await prisma.client.count();
-        clientCode = `CID ${12001 + clientCount}`;
+        let suffix = 0;
+        let isUnique = false;
+        while (!isUnique) {
+          const clientCount = await prisma.client.count();
+          clientCode = `CID-${12001 + clientCount + suffix}`;
+          const existingClient = await prisma.client.findFirst({ where: { clientCode } });
+          if (!existingClient) {
+            const existingLead = await prisma.lead.findUnique({ where: { clientCode } });
+            if (!existingLead) {
+              isUnique = true;
+            } else {
+              suffix++;
+            }
+          } else {
+            suffix++;
+          }
+        }
       }
 
       client = await prisma.client.create({
@@ -166,6 +181,17 @@ const createClient = async (req, res) => {
           isTemporaryPassword: true
         }
       });
+    }
+
+    if (leadId && client && client.id) {
+      try {
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { clientId: client.id }
+        });
+      } catch (err) {
+        console.warn('Failed to link lead to client:', err);
+      }
     }
 
     // Send auto welcome email with portal credentials dynamically
