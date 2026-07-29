@@ -128,12 +128,25 @@ const createConsultation = async (req, res) => {
 const updateOutcome = async (req, res) => {
   try {
     const { id } = req.params;
-    let { status, eligibility, recommendedService, recommendedPackageId, internalNotes } = req.body;
+    let { status, eligibility, outcome, notes, internalNotes, recommendedService, recommendedPackageId } = req.body;
     
-    // If frontend sends an object (outcome), stringify it for DB storage
-    if (typeof eligibility === 'object' && eligibility !== null) {
-      eligibility = JSON.stringify(eligibility);
+    // Always default status to 'Completed' when logging an outcome
+    status = status || 'Completed';
+
+    // Extract eligibility string if passed inside outcome object
+    if (!eligibility && outcome) {
+      eligibility = outcome;
     }
+
+    let eligibilityStr = '';
+    if (typeof eligibility === 'object' && eligibility !== null) {
+      eligibilityStr = eligibility.eligibility || JSON.stringify(eligibility);
+      eligibility = JSON.stringify(eligibility);
+    } else if (typeof eligibility === 'string') {
+      eligibilityStr = eligibility;
+    }
+
+    internalNotes = internalNotes || notes || '';
 
     // 1-Hour Cancellation Rule Enforcement
     if (status === 'Cancelled') {
@@ -173,26 +186,16 @@ const updateOutcome = async (req, res) => {
       data: { status, eligibility, recommendedService, recommendedPackageId, internalNotes }
     });
 
-    // Auto-update associated lead status if completed
-    if (consultation.leadId && status === 'Completed') {
+    // Auto-update associated lead status and auto-convert to client if eligible
+    if (consultation.leadId) {
       let isEligible = false;
       let isNotEligible = false;
 
-      let eligVal = eligibility || '';
-      if (typeof eligibility === 'string' && eligibility.startsWith('{')) {
-        try {
-          const parsed = JSON.parse(eligibility);
-          eligVal = parsed.eligibility || '';
-        } catch (e) {}
-      }
-
-      if (typeof eligVal === 'string') {
-        const lowerElig = eligVal.toLowerCase();
-        if (lowerElig.includes('not eligible') || lowerElig === 'not_eligible') {
-          isNotEligible = true;
-        } else if (lowerElig.includes('eligible') || lowerElig === 'eligible') {
-          isEligible = true;
-        }
+      const lowerElig = eligibilityStr.toLowerCase();
+      if (lowerElig.includes('not eligible') || lowerElig.includes('not_eligible')) {
+        isNotEligible = true;
+      } else if (lowerElig.includes('eligible')) {
+        isEligible = true;
       }
 
       let newLeadStatus = 'Meeting Completed';
