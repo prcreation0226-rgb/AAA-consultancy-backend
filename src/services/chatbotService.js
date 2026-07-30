@@ -120,7 +120,30 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
     
     await logCommunication(cleanPhone, `User requested Live Agent support. Chatbot paused for 24 hours.`, "SYSTEM");
     return;
-  }  // Check if Lead form has been submitted (Lead record exists in Database)
+  }
+
+  // Check if sender is an existing Client in Database
+  let existingClient = null;
+  try {
+    const rawDigits = cleanPhone.replace(/[^\d]/g, '');
+    const matchDigits = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
+    if (matchDigits) {
+      existingClient = await prisma.client.findFirst({
+        where: { phone: { contains: matchDigits } }
+      });
+    }
+  } catch (clientDbErr) {
+    console.warn("[CHATBOT] Error checking existing client:", clientDbErr.message);
+  }
+
+  // IF SENDER IS AN EXISTING CLIENT:
+  // Do NOT send automated greetings, lead-intake form links, or booking links!
+  if (existingClient) {
+    console.log(`[CHATBOT] Inbound message from existing client (${existingClient.firstName} ${existingClient.lastName}, ${cleanPhone}). Skipping bot intake link.`);
+    return;
+  }
+
+  // Check if Lead form has been submitted (Lead record exists in Database)
   let lead = null;
   try {
     const rawDigits = cleanPhone.replace(/[^\d]/g, '');

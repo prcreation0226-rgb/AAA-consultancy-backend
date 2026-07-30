@@ -86,6 +86,24 @@ exports.createEligibilityBooking = async (req, res) => {
       });
     }
 
+    // 2b. Check if an active Client already exists with this email or phone
+    const existingClient = await prisma.client.findFirst({
+      where: {
+        OR: [
+          { email: email.toLowerCase() },
+          { phone: { contains: normalizedPhone } }
+        ]
+      }
+    });
+
+    if (existingClient) {
+      return res.status(409).json({
+        success: false,
+        code: 'EXISTING_CLIENT',
+        message: 'An active client profile already exists under this email/phone number.'
+      });
+    }
+
     // 2c. Check for Duplicate Active Bookings (Status-aware based on Most Recent Lead)
     const latestLead = await prisma.lead.findFirst({
       where: {

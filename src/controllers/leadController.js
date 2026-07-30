@@ -118,6 +118,23 @@ const createLead = async (req, res) => {
         message: 'This profile is not eligible for further eligibility assessments due to a previous missed appointment.'
       });
     }
+
+    // 2b. Check if an active Client already exists with this email or phone
+    const existingClient = await prisma.client.findFirst({
+      where: {
+        OR: [
+          ...(safeEmail ? [{ email: safeEmail }] : []),
+          ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
+        ]
+      }
+    });
+
+    if (existingClient) {
+      return res.status(409).json({
+        code: 'EXISTING_CLIENT',
+        message: 'An active client profile already exists under this email or phone number. A new lead cannot be created.'
+      });
+    }
     
     // 3. Check for Duplicate Active Bookings for Public Form Submissions
     if (!req.user) {
