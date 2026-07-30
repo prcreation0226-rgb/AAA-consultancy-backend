@@ -1262,7 +1262,7 @@ Dear *${clientName}*,
 Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${formattedDate}
-⏰ *Time:* ${timeSlot} (GST)
+⏰ *Time:* ${timeSlot} (UAE)
 🔗 *Meeting Join Link:* ${link}
 
 ─────────────
@@ -1367,7 +1367,7 @@ async function publicCancelConsultation(req, res) {
 
 Dear *${clientName}*,
 
-Your Spain Visa Eligibility Assessment scheduled for ${consultation.date} at ${consultation.timeSlot} (GST) has been cancelled as requested.
+Your Spain Visa Eligibility Assessment scheduled for ${consultation.date} at ${consultation.timeSlot} (UAE) has been cancelled as requested.
 
 If you ever wish to re-book, feel free to visit our booking page anytime:
 ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
@@ -1388,7 +1388,7 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
             <div style="font-family: Arial, sans-serif; padding: 20px;">
               <h3>Appointment Cancellation Confirmed</h3>
               <p>Dear ${lead ? lead.firstName : 'Client'},</p>
-              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${consultation.date}</b> at <b>${consultation.timeSlot} (GST)</b> has been cancelled.</p>
+              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${consultation.date}</b> at <b>${consultation.timeSlot} (UAE)</b> has been cancelled.</p>
               <p>You can book a new session anytime at <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form">AAA Business Consultancy</a>.</p>
             </div>
           `
