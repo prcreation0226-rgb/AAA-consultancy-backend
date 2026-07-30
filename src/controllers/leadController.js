@@ -175,9 +175,32 @@ const createLead = async (req, res) => {
         assignedToId = consultants.length > 0 ? consultants[0].id : null;
       }
     } else {
-      // Normal round-robin assignment for non-property leads
-      const consultants = await prisma.user.findMany({ where: { role: 'consultant' } });
-      assignedToId = consultants.length > 0 ? consultants[0].id : null;
+      // Normal assignment for non-property leads
+      let ruleMatched = false;
+      const settings = await prisma.companySetting.findFirst();
+      if (settings && settings.routingRules && Array.isArray(settings.routingRules)) {
+        const leadNat = (nationality || '').toLowerCase();
+        const leadCountry = (countryOfResidence || '').toLowerCase();
+        
+        const rule = settings.routingRules.find(r => {
+          const ruleNat = (r.nationality || '').toLowerCase();
+          const ruleCountry = (r.country || '').toLowerCase();
+          const natMatch = ruleNat && leadNat.includes(ruleNat);
+          const countryMatch = ruleCountry && leadCountry.includes(ruleCountry);
+          return natMatch || countryMatch;
+        });
+        
+        if (rule && rule.consultantId) {
+          assignedToId = rule.consultantId;
+          ruleMatched = true;
+        }
+      }
+
+      if (!ruleMatched) {
+        // Normal round-robin assignment fallback
+        const consultants = await prisma.user.findMany({ where: { role: 'consultant' } });
+        assignedToId = consultants.length > 0 ? consultants[0].id : null;
+      }
     }
 
     // Generate permanent unified CID for the lead (e.g. CID-12001)

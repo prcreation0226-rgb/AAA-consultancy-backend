@@ -313,6 +313,7 @@ model CompanySetting {
   recordingStorage          String   @default("cloud")
   swornTranslationRates      Json?
   leadStages                Json?
+  routingRules              Json?
   
   // Master Customization Settings
   refundGuaranteePercentage Float    @default(50)
