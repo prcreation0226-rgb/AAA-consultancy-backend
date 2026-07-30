@@ -1,6 +1,7 @@
 const prisma = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../config/jwt');
 
 const getClients = async (req, res) => {
   try {
@@ -623,32 +624,23 @@ const clientLogin = async (req, res) => {
       });
     }
 
-    // Fallback: If requested identifier not found, load first active client for demo quick login
     if (!client) {
-      client = await prisma.client.findFirst({ orderBy: { createdAt: 'desc' } });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    if (!client) {
-      return res.status(401).json({ message: 'Client not found in database' });
+    if (!client.password || !password) {
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    let isMatch = false;
-    if (client.password) {
-      isMatch = await bcrypt.compare(password, client.password);
-    }
-    
-    // Fallback for Demo Quick Login testing if password is password123
-    if (!isMatch && password === 'password123') {
-      isMatch = true;
-    }
+    const isMatch = await bcrypt.compare(password, client.password);
 
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const token = jwt.sign(
-      { id: client.id, role: 'client' },
-      process.env.JWT_SECRET || 'secret123',
+      { id: client.id, role: 'client', email: client.email },
+      JWT_SECRET,
       { expiresIn: '30d' }
     );
 

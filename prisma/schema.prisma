@@ -158,6 +158,7 @@ model Consultation {
   timeSlot         String
   durationMinutes  Int      @default(20)
   meetingLink      String?
+  zoomMeetingId    String?
   recordingUrl     String?
   status           String   @default("Scheduled") // Scheduled, Completed, NO_SHOW, Cancelled
   

@@ -272,10 +272,10 @@ exports.handleStripeWebhook = async (req, res) => {
 
         // 5. Generate secure JWT token for pre-filled re-booking
         const jwt = require('jsonwebtoken');
-        const secret = process.env.JWT_SECRET || 'secret123';
+        const { JWT_SECRET } = require('../config/jwt');
         const prefillToken = jwt.sign(
           { clientId: client.id, leadId: client.lead?.id },
-          secret,
+          JWT_SECRET,
           { expiresIn: '2d' } // Link valid for 2 days
         );
 

@@ -885,10 +885,10 @@ exports.verifyPrefillToken = async (req, res) => {
     }
 
     const jwt = require('jsonwebtoken');
-    const secret = process.env.JWT_SECRET || 'secret123';
+    const { JWT_SECRET } = require('../config/jwt');
     let decoded;
     try {
-      decoded = jwt.verify(token, secret);
+      decoded = jwt.verify(token, JWT_SECRET);
     } catch (jwtErr) {
       return res.status(401).json({ success: false, message: 'Invalid or expired re-booking token' });
     }

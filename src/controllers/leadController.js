@@ -254,10 +254,10 @@ const assignLead = async (req, res) => {
       data: { assignedToId: agentId, assignedAt: new Date() }
     });
 
-    // Update consultant on any existing consultation directly in DB
+    // Update consultant on any existing active (non-cancelled) consultation directly in DB
     await prisma.consultation.updateMany({
-      where: { leadId },
-      data: { consultantId: agentId }
+      where: { leadId, status: { notIn: ['Cancelled'] } },
+      data: { consultantId: agentId, assignedAt: new Date() }
     }).catch(err => console.warn('[assignLead] Consultation update warning:', err.message));
 
     // Also update associated client assignedToId if exists

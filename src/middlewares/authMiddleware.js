@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { JWT_SECRET } = require('../config/jwt');
 
 const authMiddleware = (req, res, next) => {
   try {
@@ -8,7 +9,7 @@ const authMiddleware = (req, res, next) => {
       return res.status(401).json({ message: 'Authentication failed. No token provided.' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded; // { id, role, email }
     
     next();

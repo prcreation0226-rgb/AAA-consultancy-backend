@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/db');
+const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/jwt');
 
 const login = async (req, res) => {
   try {
@@ -35,33 +36,16 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    let isMatch = await bcrypt.compare(password, user.password);
-    
-    // Emergency recovery for default superadmin if password hash mismatched
-    if (!isMatch && user.email === 'superadmin@aaaconsultancy.com') {
-      try {
-        const salt = await bcrypt.genSalt(10);
-        const newHash = await bcrypt.hash(password, salt);
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { password: newHash }
-        });
-        isMatch = true;
-        console.log(`[Auth Recovery] Updated superadmin password hash to match login.`);
-      } catch (recErr) {
-        console.warn('[Auth Recovery Warning]:', recErr.message);
-      }
-    }
+    const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const jwtSecret = process.env.JWT_SECRET || 'aaa_super_secret_jwt_key_2026_consultancy';
     const token = jwt.sign(
       { id: user.id, role: user.role, email: user.email, name: user.fullName },
-      jwtSecret,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
     );
 
     res.json({

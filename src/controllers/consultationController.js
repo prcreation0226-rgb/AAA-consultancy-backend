@@ -69,7 +69,42 @@ const createConsultation = async (req, res) => {
       }
     }
 
+    // Check if an active (non-cancelled) consultation already exists for this lead
+    if (leadId) {
+      const activeConsultation = await prisma.consultation.findFirst({
+        where: {
+          leadId,
+          status: { notIn: ['Cancelled'] }
+        }
+      });
+
+      if (activeConsultation) {
+        const updated = await prisma.consultation.update({
+          where: { id: activeConsultation.id },
+          data: {
+            consultantId: assignedConsultantId || activeConsultation.consultantId,
+            date: meetingDate || activeConsultation.date,
+            timeSlot: meetingTime || activeConsultation.timeSlot,
+            durationMinutes: durationMinutes || activeConsultation.durationMinutes,
+            internalNotes: notes || activeConsultation.internalNotes,
+            assignedAt: new Date()
+          }
+        });
+
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: {
+            assignedToId: assignedConsultantId || activeConsultation.consultantId,
+            status: 'Meeting Scheduled'
+          }
+        }).catch(e => console.warn('Could not update lead status on createConsultation:', e.message));
+
+        return res.status(200).json(updated);
+      }
+    }
+
     let meetingLink = 'https://zoom.us/j/' + Math.floor(100000000 + Math.random() * 900000000);
+    let zoomMeetingId = null;
     
     if (zoomService.isConfigured) {
       try {
@@ -90,6 +125,7 @@ const createConsultation = async (req, res) => {
         
         if (zoomMeeting) {
           meetingLink = zoomMeeting.joinUrl;
+          zoomMeetingId = zoomMeeting.meetingId;
         }
       } catch (zoomErr) {
         console.error('Failed to create Zoom meeting, falling back to mock link:', zoomErr.message);
@@ -104,7 +140,8 @@ const createConsultation = async (req, res) => {
         durationMinutes: durationMinutes || 30,
         consultantId: assignedConsultantId,
         internalNotes: notes,
-        meetingLink
+        meetingLink,
+        zoomMeetingId
       }
     });
 
@@ -625,20 +662,35 @@ const createConsultationForLead = async (req, res) => {
   try {
     const { leadId, consultantId, meetingDate, meetingTime, durationMinutes } = req.body;
 
-    // Check if a Pending Acceptance consultation already exists for this lead
+    // Check if an active (non-cancelled) consultation already exists for this lead
     const existing = await prisma.consultation.findFirst({
-      where: { leadId, status: 'Pending Acceptance' }
+      where: { leadId, status: { notIn: ['Cancelled'] } }
     });
     if (existing) {
-      // Just reassign the existing one
+      // Reassign the existing consultation record
       const updated = await prisma.consultation.update({
         where: { id: existing.id },
-        data: { consultantId, status: 'Pending Acceptance' }
+        data: {
+          consultantId,
+          date: meetingDate || existing.date,
+          timeSlot: meetingTime || existing.timeSlot,
+          durationMinutes: durationMinutes || existing.durationMinutes,
+          assignedAt: new Date()
+        }
       });
+
+      if (leadId) {
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { assignedToId: consultantId, assignedAt: new Date() }
+        }).catch(e => console.warn('Could not update lead status on createConsultationForLead:', e.message));
+      }
+
       return res.json({ success: true, consultation: updated, reassigned: true });
     }
 
     let meetingLink = 'https://zoom.us/j/' + Math.floor(100000000 + Math.random() * 900000000);
+    let zoomMeetingId = null;
     
     if (zoomService.isConfigured) {
       try {
@@ -659,6 +711,7 @@ const createConsultationForLead = async (req, res) => {
         
         if (zoomMeeting) {
           meetingLink = zoomMeeting.joinUrl;
+          zoomMeetingId = zoomMeeting.meetingId;
         }
       } catch (zoomErr) {
         console.error('Failed to create Zoom meeting, falling back to mock link:', zoomErr.message);
@@ -673,7 +726,8 @@ const createConsultationForLead = async (req, res) => {
         timeSlot: meetingTime || 'TBD',
         durationMinutes: durationMinutes || 30,
         status: 'Pending Acceptance',
-        meetingLink
+        meetingLink,
+        zoomMeetingId
       }
     });
 
@@ -920,8 +974,8 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 function generateBookingToken(consultationId) {
   try {
     const jwt = require('jsonwebtoken');
-    const secret = process.env.JWT_SECRET || 'aaa_super_secret_jwt_key_2026_consultancy';
-    return jwt.sign({ consultationId, purpose: 'reschedule_cancel' }, secret, { expiresIn: '30d' });
+    const { JWT_SECRET } = require('../config/jwt');
+    return jwt.sign({ consultationId, purpose: 'reschedule_cancel' }, JWT_SECRET, { expiresIn: '30d' });
   } catch (err) {
     return consultationId;
   }
@@ -931,8 +985,8 @@ function resolveConsultationId(tokenOrId) {
   if (!tokenOrId) return null;
   try {
     const jwt = require('jsonwebtoken');
-    const secret = process.env.JWT_SECRET || 'aaa_super_secret_jwt_key_2026_consultancy';
-    const decoded = jwt.verify(tokenOrId, secret);
+    const { JWT_SECRET } = require('../config/jwt');
+    const decoded = jwt.verify(tokenOrId, JWT_SECRET);
     if (decoded && decoded.consultationId) {
       return decoded.consultationId;
     }

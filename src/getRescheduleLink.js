@@ -3,7 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const jwt = require('jsonwebtoken');
 
-const secret = process.env.JWT_SECRET || 'aaa_super_secret_jwt_key_2026_consultancy';
+const { JWT_SECRET } = require('./config/jwt');
 
 async function main() {
   const lead = await prisma.lead.findFirst({
@@ -34,7 +34,7 @@ async function main() {
     return;
   }
 
-  const token = jwt.sign({ consultationId: consultation.id, purpose: 'reschedule_cancel' }, secret, { expiresIn: '30d' });
+  const token = jwt.sign({ consultationId: consultation.id, purpose: 'reschedule_cancel' }, JWT_SECRET, { expiresIn: '30d' });
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const rescheduleUrlWithToken = `${frontendUrl}/#/public/lead-form?reschedule=true&token=${token}&consultationId=${consultation.id}`;
