@@ -371,6 +371,7 @@ module.exports = {
           name: dbPackage.name,
           basePrice: dbPackage.price,
           additionalApplicantPrice: dbPackage.additionalApplicantPrice,
+          isFixedPrice: dbPackage.isFixedPrice,
           vatRate: 5,
           refundable: true,
           refundPercent: 50,
@@ -394,7 +395,7 @@ module.exports = {
 
     const basePrice = packageConfig.basePrice;
     const additionalApplicantPrice = packageConfig.additionalApplicantPrice;
-    const additionalApplicantTotal = parseFloat((count * additionalApplicantPrice).toFixed(2));
+    const additionalApplicantTotal = packageConfig.isFixedPrice ? 0 : parseFloat((count * additionalApplicantPrice).toFixed(2));
     const packageTotal = parseFloat((basePrice + additionalApplicantTotal).toFixed(2));
 
     let creditApplied = 0;

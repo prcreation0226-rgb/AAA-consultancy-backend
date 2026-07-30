@@ -346,6 +346,7 @@ model RelocationPackage {
   price                    Float
   additionalApplicantPrice Float?   @default(500)
   isRecommended            Boolean  @default(false)
+  isFixedPrice             Boolean  @default(false)
   active                   Boolean  @default(true)
   includes                 Json?    // Array of strings
   createdAt                DateTime @default(now())

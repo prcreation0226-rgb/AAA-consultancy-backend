@@ -302,7 +302,7 @@ const getPackages = async (req, res) => {
 
 const createPackage = async (req, res) => {
   try {
-    const { code, name, description, price, additionalApplicantPrice, isRecommended, includes, active } = req.body;
+    const { code, name, description, price, additionalApplicantPrice, isRecommended, isFixedPrice, includes, active } = req.body;
     
     if (!name || name.trim() === '') {
       return res.status(400).json({ message: 'Package name is required.' });
@@ -320,6 +320,7 @@ const createPackage = async (req, res) => {
         price: pkgPrice,
         additionalApplicantPrice: pkgAddPrice,
         isRecommended: !!isRecommended,
+        isFixedPrice: !!isFixedPrice,
         active: active !== undefined ? !!active : true,
         includes: Array.isArray(includes) ? includes : []
       }
@@ -363,6 +364,7 @@ const updatePackages = async (req, res) => {
         price: Number(p.price) || 0,
         additionalApplicantPrice: Number(p.additionalApplicantPrice) || 500,
         isRecommended: !!p.isRecommended,
+        isFixedPrice: !!p.isFixedPrice,
         active: p.active !== undefined ? !!p.active : true,
         includes: Array.isArray(p.includes) ? p.includes : []
       };
