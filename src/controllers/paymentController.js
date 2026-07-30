@@ -261,25 +261,55 @@ const updatePaymentStatus = async (req, res) => {
 const getRefundRequests = async (req, res) => {
   try {
     const whereClause = req.user.role === 'client' ? { clientId: req.user.id } : {};
-    const refunds = await prisma.refundRequest.findMany({
-      where: whereClause,
-      include: { 
-        client: { 
-          select: { 
-            id: true, 
-            firstName: true, 
-            lastName: true, 
-            email: true, 
-            phone: true, 
-            serviceType: true,
-            payments: {
-              where: { status: 'Paid' }
-            }
+    let refunds = [];
+    try {
+      refunds = await prisma.refundRequest.findMany({
+        where: whereClause,
+        include: { 
+          client: { 
+            select: { 
+              id: true, 
+              firstName: true, 
+              lastName: true, 
+              email: true, 
+              phone: true, 
+              serviceType: true,
+              payments: {
+                where: { status: 'Paid' }
+              }
+            } 
           } 
-        } 
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+    } catch (prismaErr) {
+      console.warn('[getRefundRequests Warning] Retrying query without relation due to orphan record:', prismaErr.message);
+      const rawRefunds = await prisma.refundRequest.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const clientIds = [...new Set(rawRefunds.map(r => r.clientId).filter(Boolean))];
+      const clients = await prisma.client.findMany({
+        where: { id: { in: clientIds } },
+        select: { 
+          id: true, 
+          firstName: true, 
+          lastName: true, 
+          email: true, 
+          phone: true, 
+          serviceType: true,
+          payments: {
+            where: { status: 'Paid' }
+          }
+        }
+      });
+      const clientMap = new Map(clients.map(c => [c.id, c]));
+      refunds = rawRefunds.map(r => ({
+        ...r,
+        client: clientMap.get(r.clientId) || null
+      }));
+    }
     
     const mapped = refunds.map(r => {
       const clientPaidTotal = (r.client?.payments || []).reduce((sum, p) => sum + p.amount, 0);

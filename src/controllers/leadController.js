@@ -782,7 +782,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       // 3. Socket.io Notification to CRM Staff
       try {
         if (reqApp) {
-          const io = req.app.get('io');
+          const io = reqApp.get('io');
           if (io) {
             io.to('role:admin').to('role:consultant').to(`user:${lead.assignedToId}`).emit('new_booking', {
               consultation,

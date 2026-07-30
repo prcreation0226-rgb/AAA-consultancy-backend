@@ -27,6 +27,9 @@ if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
     }
   });
 } else {
