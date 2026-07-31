@@ -41,6 +41,11 @@ async function runUnitTests() {
   const originalUpdateCycle = prisma.applicationCycle.update;
   const originalUpdateClient = prisma.client.update;
   const originalFindManyCycles = prisma.applicationCycle.findMany;
+  const originalTransaction = prisma.$transaction;
+  prisma.resubmissionChecklistItem = { createMany: async () => ({ count: 5 }) };
+  prisma.$transaction = async (cb) => {
+    return await cb(prisma);
+  };
 
   try {
     // 1. Consultant Access Security (Unassigned consultant attempt)

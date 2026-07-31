@@ -41,6 +41,9 @@ model User {
   communicationLogs CommunicationLog[] @relation("AgentCommunications")
   rateHistories      CommissionRateHistory[] @relation("AgentRateHistory")
   rateChangesMade    CommissionRateHistory[] @relation("RateChangesMade")
+  submittedCycles    ApplicationCycle[] @relation("CycleSubmissions")
+  closedCycles       ApplicationCycle[] @relation("CycleClosures")
+  reviewedDocuments  Document[]         @relation("DocumentReviewer")
 
   @@map("users")
 }
@@ -191,11 +194,24 @@ model ApplicationCycle {
   refusalReason    String?  @db.Text
   changesMade      String?  @db.Text
   resubmissionDate DateTime?
+  submissionReference String?
+  submissionNotes     String?  @db.Text
+  submissionReceiptUrl String?
+  submittedById       String?
+  submittedBy         User?    @relation("CycleSubmissions", fields: [submittedById], references: [id])
+  submittedAt         DateTime?
+
   lawyerAssigned   String?
   appealSubmissionDate DateTime?
   appealDeadline   DateTime?
   governmentDecision String? @db.Text
   governmentDecisionDate DateTime?
+
+  closureReason    String?  @db.Text
+  closedById       String?
+  closedBy         User?    @relation("CycleClosures", fields: [closedById], references: [id])
+  closedAt         DateTime?
+
   status           String   @default("Resubmission in Progress")
   serviceType      String?
   type             String?  @default("resubmission") // resubmission, appeal
@@ -207,6 +223,7 @@ model ApplicationCycle {
   payments         Payment[]
   documents        Document[]
   history          AuditLog[]
+  checklistItems   ResubmissionChecklistItem[] @relation("CycleChecklistItems")
 
   @@map("application_cycles")
 }
@@ -252,26 +269,70 @@ model Payment {
   @@map("payments")
 }
 
-model Document {
-  id               String   @id @default(uuid())
-  clientId         String
-  client           Client   @relation(fields: [clientId], references: [id])
-  applicationId    String?
-  applicationCycle ApplicationCycle? @relation(fields: [applicationId], references: [id])
+model ResubmissionChecklistItem {
+  id                 String           @id @default(uuid())
+  applicationId      String
+  applicationCycle   ApplicationCycle @relation("CycleChecklistItems", fields: [applicationId], references: [id])
   
-  name             String
-  category         String
-  url              String
-  translatedUrl    String?  // URL to download translated PDF
-  size             String?
-  status           String   @default("Pending Verification") // VERIFIED, REJECTED
-  comment          String?  @db.Text
+  templateKey        String
+  belongsTo          String           @default("Main Applicant")
+  category           String
+  title              String
+  isMandatory        Boolean          @default(true)
+  dueDate            DateTime?
+  clientInstructions String?          @db.Text
+  status             String           @default("MISSING") // MISSING, PENDING_VERIFICATION, VERIFIED, REJECTED, NOT_REQUIRED
+  
+  sourceDocumentId   String?
+  sourceDocument     Document?        @relation("ReusedSourceDocuments", fields: [sourceDocumentId], references: [id])
+  
+  activeDocumentId   String?          @unique
+  activeDocument     Document?        @relation("ActiveChecklistDocument", fields: [activeDocumentId], references: [id])
+  
+  documents          Document[]       @relation("ChecklistItemVersions")
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
-  uploadedDate     DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  belongsTo        String?  // e.g. "Main Applicant", "Spouse", "Child 1"
-  wordCount        Int?     @default(0)
+  @@unique([applicationId, templateKey, belongsTo])
+  @@index([applicationId])
+  @@index([status])
+  @@index([sourceDocumentId])
+  @@map("resubmission_checklist_items")
+}
 
+model Document {
+  id                      String                     @id @default(uuid())
+  clientId                String
+  client                  Client                     @relation(fields: [clientId], references: [id])
+  applicationId           String?
+  applicationCycle        ApplicationCycle?          @relation(fields: [applicationId], references: [id])
+  
+  checklistItemId         String?
+  checklistItem           ResubmissionChecklistItem? @relation("ChecklistItemVersions", fields: [checklistItemId], references: [id])
+  
+  reusedInChecklistItems  ResubmissionChecklistItem[] @relation("ReusedSourceDocuments")
+  activeInChecklistItem   ResubmissionChecklistItem? @relation("ActiveChecklistDocument")
+  
+  version                 Int                        @default(1)
+  name                    String
+  category                String
+  url                     String
+  translatedUrl           String?  // URL to download translated PDF
+  size                    String?
+  status                  String   @default("Pending Verification") // VERIFIED, REJECTED
+  comment                 String?  @db.Text
+
+  reviewedById            String?
+  reviewedBy              User?                      @relation("DocumentReviewer", fields: [reviewedById], references: [id])
+  reviewedAt              DateTime?
+
+  uploadedDate            DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  belongsTo               String?  // e.g. "Main Applicant", "Spouse", "Child 1"
+  wordCount               Int?     @default(0)
+
+  @@unique([checklistItemId, version])
   @@map("documents")
 }
 
