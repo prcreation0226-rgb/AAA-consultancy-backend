@@ -1,5 +1,50 @@
+const crypto = require('crypto');
 const prisma = require('../config/db');
 const { logActivity } = require('../services/auditService');
+
+// Default checklist item templates generated when a resubmission cycle is created
+const DEFAULT_CHECKLIST_TEMPLATES = [
+  {
+    templateKey: 'passport_main',
+    belongsTo: 'Main Applicant',
+    category: 'Identity Documents',
+    title: 'Passport Copy (Main Applicant)',
+    isMandatory: true,
+    clientInstructions: 'High-resolution color scan of all pages including blank pages.'
+  },
+  {
+    templateKey: 'rejection_letter',
+    belongsTo: 'Main Applicant',
+    category: 'Official Notices',
+    title: 'Embassy Rejection Notice',
+    isMandatory: true,
+    clientInstructions: 'Complete official refusal letter issued by the embassy/consulate.'
+  },
+  {
+    templateKey: 'proof_income',
+    belongsTo: 'Main Applicant',
+    category: 'Financial Documents',
+    title: 'Proof of Income / Employment',
+    isMandatory: true,
+    clientInstructions: 'Recent payslips, employment certificate, or tax returns for the last 12 months.'
+  },
+  {
+    templateKey: 'bank_statement',
+    belongsTo: 'Main Applicant',
+    category: 'Financial Documents',
+    title: '6-Month Bank Statement',
+    isMandatory: true,
+    clientInstructions: 'Official bank statement showing sufficient funds and regular income.'
+  },
+  {
+    templateKey: 'cover_letter',
+    belongsTo: 'Main Applicant',
+    category: 'Application Forms',
+    title: 'Updated Cover Letter & Resubmission Summary',
+    isMandatory: true,
+    clientInstructions: 'Detailed letter explaining how previous refusal points have been addressed.'
+  }
+];
 
 const getActiveCases = async (req, res) => {
   try {
@@ -90,6 +135,14 @@ const getCyclesByClient = async (req, res) => {
 
     const cycles = await prisma.applicationCycle.findMany({
       where: { clientId },
+      include: {
+        checklistItems: {
+          include: {
+            activeDocument: true,
+            documents: { orderBy: { version: 'desc' } }
+          }
+        }
+      },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -176,30 +229,61 @@ const createCycle = async (req, res) => {
     const initialStatus = isAppeal ? 'Appeal in Progress' : 'Resubmission in Progress';
     const actorName = req.user ? (req.user.fullName || req.user.email) : 'Consultant';
 
-    const cycle = await prisma.applicationCycle.create({
-      data: {
-        clientId,
-        type: type || 'resubmission',
-        status: initialStatus,
-        serviceType: serviceType || client.serviceType || 'Resubmission / Appeal Package',
-        originalSubmissionDate: originalSubmissionDate ? new Date(originalSubmissionDate) : undefined,
-        refusalReason: refusalReason || client.refusalReason || 'Visa Refused',
-        refusalDate: refusalDate ? new Date(refusalDate) : new Date(),
-        changesMade: changesMade || null,
-        resubmissionDate: isAppeal ? null : new Date(),
-        lawyerAssigned: lawyerAssigned || null,
-        appealSubmissionDate: appealSubmissionDate ? new Date(appealSubmissionDate) : (isAppeal ? new Date() : null),
-        appealDeadline: appealDeadline ? new Date(appealDeadline) : null,
-        appealDocuments: appealDocuments || null
-      }
-    });
+    // Atomic Transaction: Create Cycle + Default Checklist Items
+    const result = await prisma.$transaction(async (tx) => {
+      const cycle = await tx.applicationCycle.create({
+        data: {
+          clientId,
+          type: type || 'resubmission',
+          status: initialStatus,
+          serviceType: serviceType || client.serviceType || 'Resubmission Package',
+          originalSubmissionDate: originalSubmissionDate ? new Date(originalSubmissionDate) : (client.createdAt || new Date()),
+          refusalReason: refusalReason || client.refusalReason || 'Visa Refused',
+          refusalDate: refusalDate ? new Date(refusalDate) : new Date(),
+          changesMade: changesMade || null,
+          resubmissionDate: null,
+          lawyerAssigned: lawyerAssigned || null,
+          appealSubmissionDate: appealSubmissionDate ? new Date(appealSubmissionDate) : (isAppeal ? new Date() : null),
+          appealDeadline: appealDeadline ? new Date(appealDeadline) : null,
+          appealDocuments: appealDocuments || null
+        }
+      });
 
-    // Update client.visaStatus ONLY (Preserve client.status unchanged)
-    await prisma.client.update({
-      where: { id: clientId },
-      data: {
-        visaStatus: initialStatus
+      // Generate default checklist items for resubmission cycle
+      if (!isAppeal) {
+        const templates = [...DEFAULT_CHECKLIST_TEMPLATES];
+        if (client.applicantsCount && client.applicantsCount.toLowerCase().includes('spouse')) {
+          templates.push({
+            templateKey: 'passport_spouse',
+            belongsTo: 'Spouse',
+            category: 'Identity Documents',
+            title: 'Passport Copy (Spouse)',
+            isMandatory: true,
+            clientInstructions: 'High-resolution color scan of spouse passport.'
+          });
+        }
+
+        await tx.resubmissionChecklistItem.createMany({
+          data: templates.map(tpl => ({
+            applicationId: cycle.id,
+            templateKey: tpl.templateKey,
+            belongsTo: tpl.belongsTo,
+            category: tpl.category,
+            title: tpl.title,
+            isMandatory: tpl.isMandatory,
+            clientInstructions: tpl.clientInstructions,
+            status: 'MISSING'
+          }))
+        });
       }
+
+      // Update client.visaStatus ONLY (Preserve client.status untouched)
+      await tx.client.update({
+        where: { id: clientId },
+        data: { visaStatus: initialStatus }
+      });
+
+      return cycle;
     });
 
     // Log Activity Timeline
@@ -211,10 +295,10 @@ const createCycle = async (req, res) => {
       action: isAppeal ? 'APPEAL_INITIATED' : 'RESUBMISSION_INITIATED',
       description: isAppeal 
         ? `Legal Appeal initiated by ${actorName}. Lawyer assigned: ${lawyerAssigned || 'TBD'}. Deadline: ${appealDeadline || 'Not set'}.`
-        : `Resubmission initiated by ${actorName}. Refusal Reason: "${refusalReason || 'None'}". Changes Required: "${changesMade || 'Document update'}".`
+        : `Resubmission initiated by ${actorName}. Refusal Reason: "${refusalReason || 'None'}". Automatic checklist items generated.`
     });
 
-    res.status(201).json(cycle);
+    res.status(201).json(result);
   } catch (error) {
     console.error('Error creating application cycle:', error);
     res.status(500).json({ message: 'Server error creating application cycle', error: error.message });
@@ -255,7 +339,7 @@ const updateCycle = async (req, res) => {
       }
     }
 
-    // 3. Strict Transition Sequence Matrix Safeguard (Guard 4)
+    // 3. Transition Sequence Matrix Safeguard & Manual Ready Validation
     if (status && status !== existingCycle.status) {
       const current = existingCycle.status;
       let isValidTransition = false;
@@ -266,12 +350,43 @@ const updateCycle = async (req, res) => {
         isValidTransition = status === 'Resubmitted';
       } else if (current === 'Appeal in Progress') {
         isValidTransition = status === 'Appeal Approved' || status === 'Appeal Refused';
+      } else if (current === 'Resubmitted') {
+        isValidTransition = true; // Governed by governmentDecision recording
       }
 
       if (!isValidTransition) {
         return res.status(400).json({
           message: `Invalid status transition from '${current}' to '${status}'.`
         });
+      }
+
+      // Requirement 5: Validate Manual Ready for Resubmission
+      if (status === 'Ready for Resubmission') {
+        const cycleItems = await prisma.resubmissionChecklistItem.findMany({
+          where: { applicationId: id }
+        });
+
+        const activeMandatoryItems = cycleItems.filter(i => i.isMandatory && i.status !== 'NOT_REQUIRED');
+
+        if (activeMandatoryItems.length === 0) {
+          return res.status(400).json({
+            message: "Cannot transition status to 'Ready for Resubmission'. Checklist contains no active mandatory items.",
+            incompleteCount: 0,
+            incompleteItems: []
+          });
+        }
+
+        const incompleteItems = activeMandatoryItems
+          .filter(i => i.status !== 'VERIFIED')
+          .map(i => ({ title: i.title, status: i.status }));
+
+        if (incompleteItems.length > 0) {
+          return res.status(400).json({
+            message: `Cannot transition cycle status to 'Ready for Resubmission'. ${incompleteItems.length} mandatory checklist item(s) remain unverified.`,
+            incompleteCount: incompleteItems.length,
+            incompleteItems: incompleteItems
+          });
+        }
       }
     }
 
@@ -298,41 +413,12 @@ const updateCycle = async (req, res) => {
     if (status === 'Resubmitted') clientVisaStatus = 'Resubmitted';
     if (status === 'Appeal in Progress') clientVisaStatus = 'Appeal in Progress';
     if (status === 'Appeal Approved' || governmentDecision === 'Approved') clientVisaStatus = 'Visa Approved';
-    if (status === 'Appeal Refused' || governmentDecision === 'Refused') clientVisaStatus = 'Final Refusal';
+    if (status === 'Appeal Refused' || governmentDecision === 'Refused') clientVisaStatus = 'Visa Refused';
 
     if (clientVisaStatus) {
       await prisma.client.update({
         where: { id: cycle.clientId },
         data: { visaStatus: clientVisaStatus }
-      });
-    }
-
-    // Money-Back Guarantee Flagging on Final Refusal (No RefundRequest model created, no payouts)
-    if (status === 'Appeal Refused' || governmentDecision === 'Refused') {
-      const clientPayments = await prisma.payment.findMany({
-        where: { clientId: cycle.clientId }
-      });
-
-      const totalPaid = clientPayments.reduce((sum, p) => sum + (p.totalPaid || p.amount || 0), 0);
-      const calculatedRefund = Number((totalPaid * 0.50).toFixed(2));
-
-      await prisma.payment.updateMany({
-        where: { clientId: cycle.clientId, status: 'Paid' },
-        data: {
-          refundStatus: 'Refund Eligible',
-          refundEligibility: true,
-          refundAmount: calculatedRefund,
-          refundReason: `Automatic 50% Money-Back Guarantee triggered on Final Refusal (${cycle.serviceType || 'Visa Package'})`
-        }
-      });
-
-      logActivity({
-        clientId: cycle.clientId,
-        actorId: 'system',
-        actorName: 'System Policy Engine',
-        actorRole: 'system',
-        action: 'REFUND_ELIGIBILITY_TRIGGERED',
-        description: `Final Refusal reached. Client auto-flagged as 'Refund Eligible' for 50% Guarantee (€${calculatedRefund}).`
       });
     }
 
@@ -343,7 +429,7 @@ const updateCycle = async (req, res) => {
       actorName,
       actorRole: userRole || 'staff',
       action: 'CYCLE_STATUS_UPDATED',
-      description: `Case cycle updated to "${status}". Government Decision: ${governmentDecision || 'Pending'}. Updated by ${actorName}.`
+      description: `Case cycle updated to "${status || cycle.status}". Government Decision: ${governmentDecision || cycle.governmentDecision || 'Pending'}. Updated by ${actorName}.`
     });
 
     res.json(cycle);
@@ -353,11 +439,540 @@ const updateCycle = async (req, res) => {
   }
 };
 
+const getCycleChecklist = async (req, res) => {
+  try {
+    const { cycleId } = req.params;
+    const userRole = req.user?.role;
+    const userId = req.user?.id;
+
+    const cycle = await prisma.applicationCycle.findUnique({
+      where: { id: cycleId },
+      include: { client: true }
+    });
+
+    if (!cycle) {
+      return res.status(404).json({ message: 'Application cycle not found' });
+    }
+
+    if (userRole === 'client' && cycle.clientId !== userId) {
+      return res.status(403).json({ message: 'Access denied.' });
+    }
+
+    if (userRole === 'consultant' && cycle.client?.assignedToId !== userId) {
+      return res.status(403).json({ message: 'Access denied.' });
+    }
+
+    const items = await prisma.resubmissionChecklistItem.findMany({
+      where: { applicationId: cycleId },
+      include: {
+        activeDocument: {
+          include: {
+            reviewedBy: { select: { fullName: true, email: true } }
+          }
+        },
+        sourceDocument: true,
+        documents: {
+          orderBy: { version: 'desc' },
+          include: {
+            reviewedBy: { select: { fullName: true, email: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    res.json(items);
+  } catch (error) {
+    console.error('Error in getCycleChecklist:', error);
+    res.status(500).json({ message: 'Server error fetching checklist' });
+  }
+};
+
+const addChecklistItem = async (req, res) => {
+  try {
+    const { applicationId, title, category, belongsTo, isMandatory, dueDate, clientInstructions } = req.body;
+    
+    if (!applicationId || !title || !category) {
+      return res.status(400).json({ message: 'applicationId, title, and category are required' });
+    }
+
+    const cycle = await prisma.applicationCycle.findUnique({ where: { id: applicationId } });
+    if (!cycle) {
+      return res.status(404).json({ message: 'Application cycle not found' });
+    }
+
+    const item = await prisma.resubmissionChecklistItem.create({
+      data: {
+        applicationId,
+        templateKey: `custom_${crypto.randomUUID()}`,
+        title,
+        category,
+        belongsTo: belongsTo || 'Main Applicant',
+        isMandatory: isMandatory !== undefined ? isMandatory : true,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        clientInstructions: clientInstructions || null,
+        status: 'MISSING'
+      }
+    });
+
+    logActivity({
+      clientId: cycle.clientId,
+      actorId: req.user?.id || 'staff',
+      actorName: req.user ? (req.user.fullName || req.user.email) : 'Consultant',
+      actorRole: req.user?.role || 'consultant',
+      action: 'CHECKLIST_ITEM_ADDED',
+      description: `Added custom checklist item "${title}" for ${belongsTo || 'Main Applicant'}.`
+    });
+
+    res.status(201).json(item);
+  } catch (error) {
+    console.error('Error adding checklist item:', error);
+    res.status(500).json({ message: 'Server error adding checklist item' });
+  }
+};
+
+const updateChecklistItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, category, belongsTo, isMandatory, dueDate, clientInstructions, status } = req.body;
+
+    const existing = await prisma.resubmissionChecklistItem.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ message: 'Checklist item not found' });
+    }
+
+    const item = await prisma.resubmissionChecklistItem.update({
+      where: { id },
+      data: {
+        title: title !== undefined ? title : existing.title,
+        category: category !== undefined ? category : existing.category,
+        belongsTo: belongsTo !== undefined ? belongsTo : existing.belongsTo,
+        isMandatory: isMandatory !== undefined ? isMandatory : existing.isMandatory,
+        dueDate: dueDate ? new Date(dueDate) : existing.dueDate,
+        clientInstructions: clientInstructions !== undefined ? clientInstructions : existing.clientInstructions,
+        status: status !== undefined ? status : existing.status
+      }
+    });
+
+    res.json(item);
+  } catch (error) {
+    console.error('Error updating checklist item:', error);
+    res.status(500).json({ message: 'Server error updating checklist item' });
+  }
+};
+
+const deleteChecklistItem = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const item = await prisma.resubmissionChecklistItem.findUnique({
+      where: { id },
+      include: {
+        applicationCycle: true,
+        documents: true
+      }
+    });
+
+    if (!item) {
+      return res.status(404).json({ message: 'Checklist item not found' });
+    }
+
+    const cycleStatus = item.applicationCycle.status;
+    const hasUploadedDocs = item.documents && item.documents.length > 0;
+
+    // Rule 2 Enforcement:
+    if (cycleStatus === 'Resubmission in Progress' && !hasUploadedDocs && !item.sourceDocumentId && !item.activeDocumentId) {
+      // Hard delete allowed only if zero upload/review history & cycle is Resubmission in Progress
+      await prisma.resubmissionChecklistItem.delete({ where: { id } });
+      
+      logActivity({
+        clientId: item.applicationCycle.clientId,
+        actorId: req.user?.id || 'staff',
+        actorName: req.user ? (req.user.fullName || req.user.email) : 'Staff',
+        actorRole: req.user?.role || 'staff',
+        action: 'CHECKLIST_ITEM_DELETED',
+        description: `Hard-deleted checklist item "${item.title}" (no uploads/history).`
+      });
+
+      return res.json({ success: true, deleted: true, status: 'DELETED' });
+    } else {
+      // Mark as NOT_REQUIRED to preserve complete document and review history
+      const updated = await prisma.resubmissionChecklistItem.update({
+        where: { id },
+        data: { status: 'NOT_REQUIRED' }
+      });
+
+      logActivity({
+        clientId: item.applicationCycle.clientId,
+        actorId: req.user?.id || 'staff',
+        actorName: req.user ? (req.user.fullName || req.user.email) : 'Staff',
+        actorRole: req.user?.role || 'staff',
+        action: 'CHECKLIST_ITEM_MARKED_NOT_REQUIRED',
+        description: `Marked checklist item "${item.title}" as NOT_REQUIRED to preserve document history.`
+      });
+
+      return res.json({ success: true, deleted: false, status: 'NOT_REQUIRED', item: updated });
+    }
+  } catch (error) {
+    console.error('Error deleting checklist item:', error);
+    res.status(500).json({ message: 'Server error deleting checklist item' });
+  }
+};
+
+// Requirement 4: Helper for Storage Orphan Cleanup
+const deleteUploadedOrphanFile = async (file) => {
+  if (!file) return;
+  try {
+    const fs = require('fs');
+    if (file.path && fs.existsSync(file.path)) {
+      fs.unlink(file.path, (err) => {
+        if (err) console.error('[Storage Cleanup Error] Failed to delete local orphan file:', err.message);
+      });
+    } else if (file.key || file.filename) {
+      const isAwsConfigured = process.env.AWS_ACCESS_KEY_ID && 
+        process.env.AWS_SECRET_ACCESS_KEY && 
+        process.env.AWS_BUCKET_NAME && 
+        !process.env.AWS_ACCESS_KEY_ID.includes('your_aws');
+
+      if (isAwsConfigured) {
+        const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+        const s3 = new S3Client({
+          region: process.env.AWS_REGION || 'eu-west-1',
+          credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+          }
+        });
+        const key = file.key || `documents/${file.filename}`;
+        await s3.send(new DeleteObjectCommand({
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: key
+        }));
+      }
+    }
+  } catch (err) {
+    console.error('[Storage Cleanup Exception] Non-fatal orphan cleanup error:', err.message);
+  }
+};
+
+const uploadChecklistDoc = async (req, res) => {
+  try {
+    const { id } = req.params; // checklistItemId
+
+    const item = await prisma.resubmissionChecklistItem.findUnique({
+      where: { id },
+      include: { applicationCycle: { include: { client: true } } }
+    });
+
+    if (!item) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(404).json({ message: 'Checklist item not found' });
+    }
+
+    const client = item.applicationCycle?.client;
+    if (!client) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(404).json({ message: 'Associated client record not found' });
+    }
+
+    // Backend Role & Ownership Validation (Requirement 2B)
+    const userRole = req.user?.role;
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+
+    if (userRole === 'client') {
+      if (userId !== client.id && userEmail !== client.email) {
+        if (req.file) await deleteUploadedOrphanFile(req.file);
+        return res.status(403).json({ message: 'Access denied. You can only upload documents for your own checklist.' });
+      }
+    } else if (userRole === 'consultant') {
+      if (client.assignedToId && client.assignedToId !== userId) {
+        if (req.file) await deleteUploadedOrphanFile(req.file);
+        return res.status(403).json({ message: 'Access denied. You are not the assigned consultant for this client.' });
+      }
+    } else if (['operations', 'finance', 'marketing'].includes(userRole)) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(403).json({ message: 'Access denied. Operations, Finance, and Marketing roles cannot upload checklist documents.' });
+    } else if (!['super_admin', 'admin'].includes(userRole)) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(403).json({ message: 'Access denied. Unauthorized role.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Versioning logic: Find highest current version for this checklist item
+    const lastDoc = await prisma.document.findFirst({
+      where: { checklistItemId: id },
+      orderBy: { version: 'desc' }
+    });
+    const nextVersion = lastDoc ? lastDoc.version + 1 : 1;
+
+    // Create Document version record
+    let document;
+    try {
+      document = await prisma.document.create({
+        data: {
+          clientId: item.applicationCycle.clientId,
+          applicationId: item.applicationId,
+          checklistItemId: id,
+          version: nextVersion,
+          name: req.file.originalname,
+          category: item.category,
+          url: req.file.location || `/uploads/${req.file.filename}`,
+          size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
+          status: 'PENDING_VERIFICATION',
+          belongsTo: item.belongsTo || 'Main Applicant'
+        }
+      });
+
+      // Update active document and set item status to PENDING_VERIFICATION
+      await prisma.resubmissionChecklistItem.update({
+        where: { id },
+        data: {
+          activeDocumentId: document.id,
+          status: 'PENDING_VERIFICATION'
+        }
+      });
+    } catch (dbError) {
+      // Requirement 4: Clean up storage orphan if DB insertion fails
+      await deleteUploadedOrphanFile(req.file);
+      throw dbError;
+    }
+
+    logActivity({
+      clientId: item.applicationCycle.clientId,
+      documentId: document.id,
+      actorId: req.user?.id || 'client',
+      actorName: req.user ? (req.user.fullName || req.user.email) : 'Client',
+      actorRole: req.user?.role || 'client',
+      action: 'CHECKLIST_DOC_UPLOADED',
+      description: `Uploaded version V${nextVersion} for checklist item "${item.title}".`
+    });
+
+    res.status(201).json(document);
+  } catch (error) {
+    if (req.file) await deleteUploadedOrphanFile(req.file);
+    console.error('Error uploading checklist document:', error);
+    res.status(500).json({ message: 'Server error uploading checklist document' });
+  }
+};
+
+const reviewChecklistDoc = async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { status, comment } = req.body; // status: 'VERIFIED' | 'REJECTED'
+
+    if (!['VERIFIED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be VERIFIED or REJECTED' });
+    }
+
+    if (status === 'REJECTED' && (!comment || comment.trim() === '')) {
+      return res.status(400).json({ message: 'Rejection reason is mandatory when rejecting a document.' });
+    }
+
+    const doc = await prisma.document.findUnique({
+      where: { id: documentId },
+      include: { checklistItem: true }
+    });
+
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    // Requirement 3: Confirm document is the latest active document version
+    if (doc.checklistItemId) {
+      const checklistItem = await prisma.resubmissionChecklistItem.findUnique({
+        where: { id: doc.checklistItemId }
+      });
+
+      if (checklistItem && checklistItem.activeDocumentId && doc.id !== checklistItem.activeDocumentId) {
+        return res.status(409).json({
+          message: 'Only the latest active document version can be reviewed.'
+        });
+      }
+    }
+
+    // Update document status & review notes
+    const updatedDoc = await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: status,
+        comment: comment || null,
+        reviewedById: req.user?.id || null,
+        reviewedAt: new Date()
+      }
+    });
+
+    // If this doc is linked to a checklist item, update item status
+    let cycleAutoUpdated = false;
+    if (doc.checklistItemId) {
+      await prisma.resubmissionChecklistItem.update({
+        where: { id: doc.checklistItemId },
+        data: { status }
+      });
+
+      // Check Readiness Guard for cycle:
+      // If ALL mandatory items (isMandatory: true AND status != 'NOT_REQUIRED') are VERIFIED, transition cycle to Ready for Resubmission
+      const cycleItems = await prisma.resubmissionChecklistItem.findMany({
+        where: { applicationId: doc.applicationId }
+      });
+
+      const mandatoryItems = cycleItems.filter(i => i.isMandatory && i.status !== 'NOT_REQUIRED');
+      const allMandatoryVerified = mandatoryItems.length > 0 && mandatoryItems.every(i => i.status === 'VERIFIED');
+
+      if (allMandatoryVerified) {
+        await prisma.applicationCycle.update({
+          where: { id: doc.applicationId },
+          data: { status: 'Ready for Resubmission' }
+        });
+
+        await prisma.client.update({
+          where: { id: doc.clientId },
+          data: { visaStatus: 'Ready for Resubmission' }
+        });
+
+        cycleAutoUpdated = true;
+
+        logActivity({
+          clientId: doc.clientId,
+          actorId: 'system',
+          actorName: 'System Policy Engine',
+          actorRole: 'system',
+          action: 'CYCLE_READY_FOR_RESUBMISSION',
+          description: `All mandatory checklist items verified. Application Cycle automatically transitioned to "Ready for Resubmission".`
+        });
+      }
+    }
+
+    logActivity({
+      clientId: doc.clientId,
+      documentId: doc.id,
+      actorId: req.user?.id || 'operations',
+      actorName: req.user ? (req.user.fullName || req.user.email) : 'Operations Staff',
+      actorRole: req.user?.role || 'operations',
+      action: status === 'VERIFIED' ? 'DOC_VERIFIED' : 'DOC_REJECTED',
+      description: `Operations staff marked document "${doc.name}" as ${status}.${comment ? ` Rejection Reason: "${comment}"` : ''}`
+    });
+
+    res.json({ document: updatedDoc, cycleAutoUpdated });
+  } catch (error) {
+    console.error('Error reviewing checklist document:', error);
+    res.status(500).json({ message: 'Server error reviewing document' });
+  }
+};
+
+const resubmitCycle = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { resubmissionDate, submissionReference, changesMade, submissionNotes, submissionReceiptUrl } = req.body;
+
+    const existingCycle = await prisma.applicationCycle.findUnique({ where: { id } });
+    if (!existingCycle) {
+      return res.status(404).json({ message: 'Application cycle not found' });
+    }
+
+    if (existingCycle.status !== 'Ready for Resubmission') {
+      return res.status(400).json({
+        message: `Cannot resubmit. Cycle status must be "Ready for Resubmission" (current: "${existingCycle.status}").`
+      });
+    }
+
+    const updatedCycle = await prisma.applicationCycle.update({
+      where: { id },
+      data: {
+        status: 'Resubmitted',
+        resubmissionDate: resubmissionDate ? new Date(resubmissionDate) : new Date(),
+        submissionReference: submissionReference || null,
+        changesMade: changesMade || null,
+        submissionNotes: submissionNotes || null,
+        submissionReceiptUrl: submissionReceiptUrl || null,
+        submittedById: req.user?.id || null,
+        submittedAt: new Date()
+      }
+    });
+
+    await prisma.client.update({
+      where: { id: existingCycle.clientId },
+      data: { visaStatus: 'Resubmitted' }
+    });
+
+    logActivity({
+      clientId: existingCycle.clientId,
+      actorId: req.user?.id || 'staff',
+      actorName: req.user ? (req.user.fullName || req.user.email) : 'Consultant',
+      actorRole: req.user?.role || 'consultant',
+      action: 'RESUBMISSION_FILED',
+      description: `Application resubmitted to government authority. Submission Ref: "${submissionReference || 'N/A'}".`
+    });
+
+    res.json(updatedCycle);
+  } catch (error) {
+    console.error('Error in resubmitCycle:', error);
+    res.status(500).json({ message: 'Server error submitting resubmission' });
+  }
+};
+
+const recordGovernmentDecision = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { governmentDecision, governmentDecisionDate } = req.body;
+
+    if (!['Approved', 'Refused'].includes(governmentDecision)) {
+      return res.status(400).json({ message: 'governmentDecision must be "Approved" or "Refused".' });
+    }
+
+    const existingCycle = await prisma.applicationCycle.findUnique({ where: { id } });
+    if (!existingCycle) {
+      return res.status(404).json({ message: 'Application cycle not found' });
+    }
+
+    // Rule 1 Enforcement:
+    // Permanently record government decision & date while keeping cycle status as Resubmitted
+    const updatedCycle = await prisma.applicationCycle.update({
+      where: { id },
+      data: {
+        governmentDecision: governmentDecision,
+        governmentDecisionDate: governmentDecisionDate ? new Date(governmentDecisionDate) : new Date()
+      }
+    });
+
+    // Update Client.visaStatus to "Visa Approved" or "Visa Refused"
+    const newVisaStatus = governmentDecision === 'Approved' ? 'Visa Approved' : 'Visa Refused';
+    await prisma.client.update({
+      where: { id: existingCycle.clientId },
+      data: { visaStatus: newVisaStatus }
+    });
+
+    logActivity({
+      clientId: existingCycle.clientId,
+      actorId: req.user?.id || 'staff',
+      actorName: req.user ? (req.user.fullName || req.user.email) : 'Staff',
+      actorRole: req.user?.role || 'staff',
+      action: 'GOVERNMENT_DECISION_RECORDED',
+      description: `Official Government Decision recorded: ${governmentDecision} on ${governmentDecisionDate || new Date().toISOString().split('T')[0]}. Client visa status updated to "${newVisaStatus}".`
+    });
+
+    res.json({ cycle: updatedCycle, clientVisaStatus: newVisaStatus });
+  } catch (error) {
+    console.error('Error recording government decision:', error);
+    res.status(500).json({ message: 'Server error recording government decision' });
+  }
+};
+
 module.exports = {
   getActiveCases,
   getClosedCases,
   getCyclesByClient,
   createCycle,
-  updateCycle
+  updateCycle,
+  getCycleChecklist,
+  addChecklistItem,
+  updateChecklistItem,
+  deleteChecklistItem,
+  uploadChecklistDoc,
+  reviewChecklistDoc,
+  resubmitCycle,
+  recordGovernmentDecision
 };
-
