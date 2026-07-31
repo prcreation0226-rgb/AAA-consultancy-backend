@@ -46,6 +46,12 @@ if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
  * @returns {Promise<{success: boolean, messageId?: string, dryRun?: boolean}>}
  */
 exports.sendEmail = async ({ to, subject, html, text }) => {
+  const currentKey = process.env.RESEND_API_KEY;
+  if (!resendClient && currentKey && currentKey !== 'your_resend_api_key_here') {
+    console.log('Email Service: Dynamically initializing Resend client');
+    resendClient = new Resend(currentKey);
+  }
+
   if (resendClient) {
     try {
       const rawFrom = process.env.RESEND_FROM || process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'client@aaabusinessconsultancy.com';
