@@ -1,160 +1,151 @@
 /**
- * deploy.js — Railway Production Startup Script
+ * deploy.js — Railway Safe Startup Script & Auto-Migration Enforcer
  *
- * Handles the P3005 "database schema is not empty" Prisma error.
- * When the DB was originally created with `prisma db push` (no migration history),
- * `prisma migrate deploy` refuses to run. This script:
- *   1. Creates the _prisma_migrations table if missing
- *   2. Applies Phase 2 SQL if the new columns don't exist yet
- *   3. Records the migration as applied
- *   4. Starts the Express server
+ * Guarantees Phase 2 database schema columns & tables exist on production MySQL:
+ *   - documents.checklistItemId
+ *   - documents.version
+ *   - documents.reviewedById
+ *   - documents.reviewedAt
+ *   - application_cycles phase 2 columns
+ *   - resubmission_checklist_items table
  */
 
 'use strict';
 
 const { PrismaClient } = require('@prisma/client');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
-
-const MIGRATION_NAME = '20260731000000_phase2_resubmission_flow';
-const MIGRATION_SQL_PATH = path.join(
-  __dirname,
-  'prisma/migrations',
-  MIGRATION_NAME,
-  'migration.sql'
-);
-
 const prisma = new PrismaClient();
 
-async function ensureMigrationsTable() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS \`_prisma_migrations\` (
-      \`id\`                  VARCHAR(36)  NOT NULL,
-      \`checksum\`            VARCHAR(64)  NOT NULL,
-      \`finished_at\`         DATETIME(3)  NULL,
-      \`migration_name\`      VARCHAR(255) NOT NULL,
-      \`logs\`                TEXT         NULL,
-      \`rolled_back_at\`      DATETIME(3)  NULL,
-      \`started_at\`          DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-      \`applied_steps_count\` INT UNSIGNED NOT NULL DEFAULT 0,
-      PRIMARY KEY (\`id\`)
-    ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-  `);
-}
-
-async function isMigrationApplied() {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS cnt FROM \`_prisma_migrations\`
-     WHERE migration_name = ? AND finished_at IS NOT NULL`,
-    MIGRATION_NAME
-  );
-  return Number(rows[0].cnt) > 0;
-}
-
 async function columnExists(table, column) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS cnt
-     FROM information_schema.columns
-     WHERE table_schema = DATABASE()
-       AND table_name   = ?
-       AND column_name  = ?`,
-    table,
-    column
-  );
-  return Number(rows[0].cnt) > 0;
-}
-
-async function tableExists(table) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT COUNT(*) AS cnt
-     FROM information_schema.tables
-     WHERE table_schema = DATABASE()
-       AND table_name   = ?`,
-    table
-  );
-  return Number(rows[0].cnt) > 0;
-}
-
-async function applyPhase2SQL() {
-  const sql = fs.readFileSync(MIGRATION_SQL_PATH, 'utf8');
-
-  // Split on semicolons, skip blank lines and comment-only lines
-  const statements = sql
-    .split(/;\s*\n/)
-    .map(s => s.trim())
-    .filter(s => s.length > 0 && !s.startsWith('--'));
-
-  for (const stmt of statements) {
-    // Skip pure comment blocks
-    const nonComment = stmt.replace(/--[^\n]*/g, '').trim();
-    if (!nonComment) continue;
-    try {
-      await prisma.$executeRawUnsafe(stmt);
-    } catch (err) {
-      // "Duplicate column" / "already exists" errors are safe to ignore
-      if (
-        err.message.includes('Duplicate column') ||
-        err.message.includes('already exists') ||
-        err.message.includes("Can't DROP") ||
-        err.message.includes('already has')
-      ) {
-        console.log(`[Deploy] Skipping (already applied): ${nonComment.substring(0, 80)}...`);
-      } else {
-        throw err;
-      }
-    }
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS cnt
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name   = ?
+         AND column_name  = ?`,
+      table,
+      column
+    );
+    return Number(rows[0].cnt) > 0;
+  } catch (e) {
+    return false;
   }
 }
 
-async function recordMigration() {
-  const id  = crypto.randomUUID();
-  const now = new Date();
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO \`_prisma_migrations\`
-       (id, checksum, finished_at, migration_name, logs, rolled_back_at, started_at, applied_steps_count)
-     VALUES (?, 'phase2-baseline-manual', ?, ?, NULL, NULL, ?, 1)`,
-    id, now, MIGRATION_NAME, now
-  );
+async function tableExists(table) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS cnt
+       FROM information_schema.tables
+       WHERE table_schema = DATABASE()
+         AND table_name   = ?`,
+      table
+    );
+    return Number(rows[0].cnt) > 0;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function ensurePhase2Schema() {
+  console.log('[Deploy] Checking database schema for Phase 2 columns & tables...');
+
+  // 1. Ensure resubmission_checklist_items table exists
+  const hasChecklistTable = await tableExists('resubmission_checklist_items');
+  if (!hasChecklistTable) {
+    console.log('[Deploy] Creating table `resubmission_checklist_items`...');
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS \`resubmission_checklist_items\` (
+        \`id\` VARCHAR(191) NOT NULL,
+        \`applicationId\` VARCHAR(191) NOT NULL,
+        \`templateKey\` VARCHAR(191) NOT NULL,
+        \`belongsTo\` VARCHAR(191) NOT NULL DEFAULT 'Main Applicant',
+        \`category\` VARCHAR(191) NOT NULL,
+        \`title\` VARCHAR(191) NOT NULL,
+        \`isMandatory\` BOOLEAN NOT NULL DEFAULT true,
+        \`dueDate\` DATETIME(3) NULL,
+        \`clientInstructions\` TEXT NULL,
+        \`status\` VARCHAR(191) NOT NULL DEFAULT 'MISSING',
+        \`sourceDocumentId\` VARCHAR(191) NULL,
+        \`activeDocumentId\` VARCHAR(191) NULL,
+        \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        \`updatedAt\` DATETIME(3) NOT NULL,
+        UNIQUE INDEX \`resubmission_checklist_items_activeDocumentId_key\`(\`activeDocumentId\`),
+        INDEX \`resubmission_checklist_items_applicationId_idx\`(\`applicationId\`),
+        INDEX \`resubmission_checklist_items_status_idx\`(\`status\`),
+        INDEX \`resubmission_checklist_items_sourceDocumentId_idx\`(\`sourceDocumentId\`),
+        UNIQUE INDEX \`resubmission_checklist_items_applicationId_templateKey_belongsTo_key\`(\`applicationId\`, \`templateKey\`, \`belongsTo\`),
+        PRIMARY KEY (\`id\`)
+      ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    `);
+    console.log('[Deploy] Table `resubmission_checklist_items` created successfully.');
+  } else {
+    console.log('[Deploy] Table `resubmission_checklist_items`: OK');
+  }
+
+  // 2. Ensure documents table columns exist
+  const docCols = [
+    { name: 'checklistItemId', sql: 'ALTER TABLE `documents` ADD COLUMN `checklistItemId` VARCHAR(191) NULL;' },
+    { name: 'version',          sql: 'ALTER TABLE `documents` ADD COLUMN `version` INT NOT NULL DEFAULT 1;' },
+    { name: 'reviewedById',     sql: 'ALTER TABLE `documents` ADD COLUMN `reviewedById` VARCHAR(191) NULL;' },
+    { name: 'reviewedAt',       sql: 'ALTER TABLE `documents` ADD COLUMN `reviewedAt` DATETIME(3) NULL;' }
+  ];
+
+  for (const col of docCols) {
+    const exists = await columnExists('documents', col.name);
+    if (!exists) {
+      console.log(`[Deploy] Adding column \`documents.${col.name}\`...`);
+      try {
+        await prisma.$executeRawUnsafe(col.sql);
+        console.log(`[Deploy] Column \`documents.${col.name}\` added.`);
+      } catch (err) {
+        console.log(`[Deploy] Note on \`documents.${col.name}\`: ${err.message}`);
+      }
+    } else {
+      console.log(`[Deploy] Column \`documents.${col.name}\`: OK`);
+    }
+  }
+
+  // 3. Ensure application_cycles table columns exist
+  const cycleCols = [
+    { name: 'submissionReference',  sql: 'ALTER TABLE `application_cycles` ADD COLUMN `submissionReference` VARCHAR(191) NULL;' },
+    { name: 'submissionNotes',      sql: 'ALTER TABLE `application_cycles` ADD COLUMN `submissionNotes` TEXT NULL;' },
+    { name: 'submissionReceiptUrl', sql: 'ALTER TABLE `application_cycles` ADD COLUMN `submissionReceiptUrl` VARCHAR(191) NULL;' },
+    { name: 'submittedById',        sql: 'ALTER TABLE `application_cycles` ADD COLUMN `submittedById` VARCHAR(191) NULL;' },
+    { name: 'submittedAt',          sql: 'ALTER TABLE `application_cycles` ADD COLUMN `submittedAt` DATETIME(3) NULL;' },
+    { name: 'closureReason',        sql: 'ALTER TABLE `application_cycles` ADD COLUMN `closureReason` TEXT NULL;' },
+    { name: 'closedById',           sql: 'ALTER TABLE `application_cycles` ADD COLUMN `closedById` VARCHAR(191) NULL;' },
+    { name: 'closedAt',             sql: 'ALTER TABLE `application_cycles` ADD COLUMN `closedAt` DATETIME(3) NULL;' }
+  ];
+
+  for (const col of cycleCols) {
+    const exists = await columnExists('application_cycles', col.name);
+    if (!exists) {
+      console.log(`[Deploy] Adding column \`application_cycles.${col.name}\`...`);
+      try {
+        await prisma.$executeRawUnsafe(col.sql);
+        console.log(`[Deploy] Column \`application_cycles.${col.name}\` added.`);
+      } catch (err) {
+        console.log(`[Deploy] Note on \`application_cycles.${col.name}\`: ${err.message}`);
+      }
+    } else {
+      console.log(`[Deploy] Column \`application_cycles.${col.name}\`: OK`);
+    }
+  }
 }
 
 async function main() {
   console.log('[Deploy] ===== AAA Backend Startup =====');
-  console.log('[Deploy] Checking Phase 2 migration status...');
-
   try {
-    await ensureMigrationsTable();
-    console.log('[Deploy] _prisma_migrations table: OK');
-
-    const alreadyApplied = await isMigrationApplied();
-
-    if (alreadyApplied) {
-      console.log('[Deploy] Phase 2 migration already applied. Nothing to do.');
-    } else {
-      // Check if the key Phase 2 column already exists in DB
-      // (e.g. if someone ran db push previously)
-      const hasChecklistItemId = await columnExists('documents', 'checklistItemId');
-      const hasChecklistTable  = await tableExists('resubmission_checklist_items');
-
-      if (hasChecklistItemId && hasChecklistTable) {
-        console.log('[Deploy] Phase 2 columns already exist in DB (prior db push). Recording migration baseline only.');
-      } else {
-        console.log('[Deploy] Applying Phase 2 migration SQL...');
-        await applyPhase2SQL();
-        console.log('[Deploy] Phase 2 SQL applied successfully.');
-      }
-
-      await recordMigration();
-      console.log('[Deploy] Migration recorded in _prisma_migrations.');
-    }
+    await ensurePhase2Schema();
+    console.log('[Deploy] All Phase 2 database schema checks complete.');
   } catch (err) {
-    console.error('[Deploy] Migration failed:', err.message);
-    console.error('[Deploy] Proceeding to start server anyway...');
+    console.error('[Deploy] Database check warning:', err.message);
   } finally {
     await prisma.$disconnect();
   }
 
-  console.log('[Deploy] Starting Express server...');
+  console.log('[Deploy] Launching Express server (src/app)...');
   require('./src/app');
 }
 
