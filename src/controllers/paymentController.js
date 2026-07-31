@@ -272,8 +272,15 @@ const updatePaymentStatus = async (req, res) => {
           if (clientObj.email) {
             const { sendVisaChecklist } = require('../services/emailService');
             const clientName = `${clientObj.firstName} ${clientObj.lastName}`.trim();
-            sendVisaChecklist(clientObj.email, clientName, clientObj.serviceType)
-              .catch(err => console.error('[BG-Email] Visa checklist email failed:', err.message));
+            const invoiceLink = zohoInvoiceUrl || `${process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app'}/#/portal/login?zoho_fallback=true`;
+            sendVisaChecklist(clientObj.email, clientName, clientObj.serviceType, {
+              clientCode: clientObj.clientCode,
+              amount: updatedPayment.amount,
+              packageName: updatedPayment.packageType || clientObj.serviceType,
+              transactionId: updatedPayment.transactionId,
+              dateStr: new Date(updatedPayment.updatedAt || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+              invoiceUrl: invoiceLink
+            }).catch(err => console.error('[BG-Email] Visa checklist email failed:', err.message));
             console.log(`[Auto-Email Payment Receipt] Dispatched checklist email to ${clientObj.email}`);
           }
         }
@@ -989,17 +996,7 @@ const verifyStripeCheckoutSession = async (req, res) => {
             }
           });
 
-          // Send Checklist Email (Non-blocking)
-          try {
-            const { sendVisaChecklist } = require('../services/emailService');
-            sendVisaChecklist(client.email, `${client.firstName} ${client.lastName}`, client.serviceType)
-              .then(() => console.log(`[Auto-Checklist] Sent checklist to client ${client.email} for ${client.serviceType}`))
-              .catch(emailErr => console.error('[Auto-Checklist] Failed to send checklist email:', emailErr.message));
-          } catch (emailErr) {
-            console.error('[Auto-Checklist] Error invoking checklist email:', emailErr.message);
-          }
-
-          // Dispatch WhatsApp Payment Receipt & Zoho Invoice Link
+          // Dispatch WhatsApp & Email Payment Receipts with Zoho Invoice Link
           try {
             let zohoInvoiceUrl = null;
             try {
@@ -1017,6 +1014,25 @@ const verifyStripeCheckoutSession = async (req, res) => {
               }
             } catch (zohoErr) {
               console.warn('[Zoho Invoice Engine] Warning:', zohoErr.message);
+            }
+
+            const invoiceLink = zohoInvoiceUrl || `${process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app'}/#/portal/login?zoho_fallback=true`;
+
+            // Send Branded Payment Receipt & Checklist Email
+            try {
+              const { sendVisaChecklist } = require('../services/emailService');
+              sendVisaChecklist(client.email, `${client.firstName} ${client.lastName}`, client.serviceType, {
+                clientCode: client.clientCode,
+                amount: session.amount_total / 100 || payment.amount,
+                packageName: payment.packageType || client.serviceType,
+                transactionId: session.id || payment.transactionId,
+                dateStr: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                invoiceUrl: invoiceLink
+              })
+                .then(() => console.log(`[Auto-Checklist] Sent receipt email to client ${client.email}`))
+                .catch(emailErr => console.error('[Auto-Checklist] Failed to send receipt email:', emailErr.message));
+            } catch (emailErr) {
+              console.error('[Auto-Checklist] Error invoking receipt email:', emailErr.message);
             }
 
             if (client && client.phone) {
