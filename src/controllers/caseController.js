@@ -448,7 +448,7 @@ const updateCycle = async (req, res) => {
 
 const getCycleChecklist = async (req, res) => {
   try {
-    const { cycleId } = req.params;
+    const cycleId = req.params.cycleId || req.params.id;
     const userRole = req.user?.role;
     const userId = req.user?.id;
 
@@ -970,7 +970,7 @@ const recordGovernmentDecision = async (req, res) => {
 
 const generateDefaultChecklist = async (req, res) => {
   try {
-    const { id } = req.params; // cycleId
+    const id = req.params.id || req.params.cycleId; // cycleId
 
     const cycle = await prisma.applicationCycle.findUnique({
       where: { id },
