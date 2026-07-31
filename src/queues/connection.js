@@ -3,8 +3,11 @@ require('dotenv').config();
 
 let connection;
 
-if (process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL) {
-  console.log('Redis is disabled or REDIS_URL is missing. Using Mock Redis.');
+const isProductionWithoutRedis = process.env.NODE_ENV === 'production' && (!process.env.REDIS_URL || process.env.REDIS_URL.includes('127.0.0.1'));
+const isRedisDisabled = process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL || isProductionWithoutRedis;
+
+if (isRedisDisabled) {
+  console.log('Redis is disabled or unconfigured. Using Mock Redis connection.');
 
   class MockRedis {
     constructor() {
@@ -12,7 +15,6 @@ if (process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL) {
     }
 
     on(event, callback) {
-      // No-op for events
       return this;
     }
 
@@ -41,16 +43,19 @@ if (process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL) {
 
   connection = new MockRedis();
 } else {
-  connection = new Redis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
+  connection = new Redis(process.env.REDIS_URL, {
     maxRetriesPerRequest: null, // Required by BullMQ
+    enableOfflineQueue: false,
     retryStrategy(times) {
-      // Wait at least 2 seconds, up to 10 seconds before retrying, to avoid terminal spam
-      return Math.min(times * 2000, 10000);
+      if (times > 3) {
+        return null; // Stop retrying after 3 attempts to prevent CPU/loop starvation
+      }
+      return Math.min(times * 1000, 3000);
     },
   });
 
-  connection.on('error', (err) => {
-    console.error('Redis connection error:', err);
+  connection.on('error', () => {
+    // Quiet error handler to avoid console spam
   });
 }
 
