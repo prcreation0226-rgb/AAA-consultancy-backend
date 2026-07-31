@@ -6,22 +6,8 @@ const axios = require('axios');
 const SESSION_TIMEOUT = 3600; // 1 hour session validity
 
 function isWhitelistedPhone(phone) {
-  // Enable phone whitelist restriction ONLY if TEST_MODE or TESTING_MODE is explicitly set to 'true'
-  if (process.env.TESTING_MODE !== 'true' && process.env.TEST_MODE !== 'true') {
-    return true;
-  }
-
-  const envNumbers = (process.env.ALLOWED_TEST_NUMBERS || process.env.TEST_PHONES || '').split(',');
-  const defaultTestNumbers = ['+918770145658', '+917693091260', '+917047687998', '+971524350123', '+971524360123', '+971566952566'];
-
-  const allAllowed = [...envNumbers, ...defaultTestNumbers]
-    .map(n => n.trim().replace(/[^\d]/g, ''))
-    .filter(Boolean);
-
-  const incomingDigits = (phone || '').replace(/[^\d]/g, '');
-  if (!incomingDigits) return false;
-
-  return allAllowed.some(allowed => incomingDigits.endsWith(allowed) || allowed.endsWith(incomingDigits));
+  // Production Mode: Allow all customer phone numbers globally
+  return true;
 }
 
 /**
