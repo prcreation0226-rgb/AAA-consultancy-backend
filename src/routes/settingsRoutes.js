@@ -20,6 +20,8 @@ const {
 } = require('../controllers/settingsController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
 
+const router = express.Router();
+
 router.delete('/purge-all-data', authMiddleware, purgeAllData);
 
 router.get('/test-email-live', async (req, res) => {

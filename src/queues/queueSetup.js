@@ -13,10 +13,8 @@ const defaultJobOptions = {
 
 let communicationsQueue, remindersQueue, noShowEnforcerQueue, paymentDripQueue, failedJobsQueue;
 
-const useMockQueues = process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL;
-
-if (useMockQueues) {
-  console.log('BullMQ Queues are disabled or REDIS_URL missing. Using Mock Queues.');
+if (process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL) {
+  console.log('BullMQ Queues are disabled (no REDIS_URL or DISABLE_REDIS=true). Using Mock Queues.');
 
   class MockQueue {
     constructor(name) {
