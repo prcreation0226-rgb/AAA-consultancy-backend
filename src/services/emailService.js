@@ -48,9 +48,10 @@ if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
 exports.sendEmail = async ({ to, subject, html, text }) => {
   if (resendClient) {
     try {
-      const fromAddress = RESEND_FROM || SMTP_FROM;
+      const rawFrom = process.env.RESEND_FROM || process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'client@aaabusinessconsultancy.com';
+      const cleanFrom = rawFrom.replace(/\\"/g, '"');
       const response = await resendClient.emails.send({
-        from: fromAddress,
+        from: cleanFrom,
         to,
         subject,
         html,

@@ -53,6 +53,7 @@ model Lead {
   email            String
   phone            String
   nationality      String?
+  passportNumber   String?
   countryOfResidence String?
   preferredLanguage String? @default("English")
   serviceType      String?  // DNV, NLV, Business, Study, Tourist, Sworn Translation
@@ -106,6 +107,7 @@ model Client {
   isTemporaryPassword Boolean @default(true)
   phone            String
   nationality      String?
+  passportNumber   String?
   countryOfResidence String?
   preferredLanguage String? @default("English")
   serviceType      String?

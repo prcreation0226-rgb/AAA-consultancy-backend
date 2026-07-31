@@ -55,7 +55,7 @@ const getClients = async (req, res) => {
 const createClient = async (req, res) => {
   try {
     const { 
-      firstName, lastName, email, phone, nationality, 
+      firstName, lastName, email, phone, nationality, passportNumber,
       serviceType, serviceId, assignedToId, assignedConsultantId, 
       leadId, packageId, applicantsCount, status, profileSummary,
       dependentsDetails
@@ -99,6 +99,7 @@ const createClient = async (req, res) => {
         lastName: lastName || client.lastName,
         phone: phone || client.phone,
         nationality: nationality || client.nationality,
+        passportNumber: passportNumber || client.passportNumber,
         serviceType: serviceType || serviceId || client.serviceType,
         assignedToId: finalAssignedTo || client.assignedToId,
         packageId: packageId || client.packageId,
@@ -167,6 +168,7 @@ const createClient = async (req, res) => {
           email,
           phone,
           nationality,
+          passportNumber,
           clientCode,
           serviceType: serviceType || serviceId,
           assignedToId: finalAssignedTo || undefined,
@@ -748,6 +750,8 @@ const updateClient = async (req, res) => {
       aiNotes,
       isAiFlagged,
       flagReason,
+      nationality,
+      passportNumber,
       status,
       visaStatus,
       nextFollowUpDate
@@ -774,6 +778,7 @@ const updateClient = async (req, res) => {
     }
 
     // Optional updatable fields
+    if (passportNumber !== undefined) data.passportNumber = passportNumber || null;
     if (profileSummary !== undefined) data.profileSummary = profileSummary;
     if (aiNotes !== undefined) data.aiNotes = aiNotes;
     if (isAiFlagged !== undefined) data.isAiFlagged = isAiFlagged;

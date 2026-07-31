@@ -604,10 +604,45 @@ Thank you for your support!`;
 };
 
 /**
- * Sends automated WhatsApp Payment Success Receipt to client upon successful payment.
- * Includes Permanent CID (CID-12001), Amount, Service Package, Transaction ID, and Portal Link.
+ * Sends an automated WhatsApp Invoice / Payment Checkout link to client.
  */
-exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, transactionId, generatedPassword }) => {
+exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serviceType, checkoutUrl }) => {
+  try {
+    const phone = client?.phone;
+    if (!phone) return;
+
+    const { sendCustomWhatsApp } = require('./chatbotService');
+    const clientName = `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || 'Valued Client';
+    const formattedAmount = Number(netAmount || amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const displayService = serviceType || client?.serviceType || 'Spain Visa / Relocation Service';
+
+    const messageBody = `📄 *Invoice & Payment Request - AAA Business Consultancy*
+
+Dear *${clientName}*,
+
+An invoice has been generated for your application. Please find the details below:
+
+📋 *Invoice Details:*
+• 📦 *Service:* ${displayService}
+• 💳 *Total Amount:* €${formattedAmount}
+${checkoutUrl ? `• 🔗 *Complete Payment / View Invoice:* ${checkoutUrl}` : ''}
+
+If you have any questions, feel free to reply directly to this message.
+
+Best regards,
+*AAA Business Consultancy Team* 🇪🇸`;
+
+    await sendCustomWhatsApp(phone, messageBody);
+  } catch (err) {
+    console.error('[Invoice WA Error]:', err.message);
+  }
+};
+
+/**
+ * Sends automated WhatsApp Payment Success Receipt to client upon successful payment.
+ * Includes Permanent CID (CID-12001), Amount, Service Package, Transaction ID, Zoho Invoice Link, and Portal Link.
+ */
+exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, transactionId, generatedPassword, zohoInvoiceUrl }) => {
   try {
     const phone = client?.phone;
     if (!phone) {
@@ -648,6 +683,11 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
       credsSection = `\n🔑 *Portal Login Credentials:*\n👤 *Username:* ${client.email}\n🔑 *Temp Password:* ${generatedPassword}\n`;
     }
 
+    let zohoSection = '';
+    if (zohoInvoiceUrl) {
+      zohoSection = `\n🧾 *Official Tax Invoice:* ${zohoInvoiceUrl}\n`;
+    }
+
     const messageBody = `🎉 *Payment Confirmed - AAA Business Consultancy*
 
 Dear *${clientName}*,
@@ -660,7 +700,7 @@ Thank you! We have successfully received your payment. Here are your transaction
 • 📦 *Package / Service:* ${displayService}
 • 🔖 *Transaction ID:* ${displayTx}
 • 📅 *Date:* ${formattedDate}
-${credsSection}
+${credsSection}${zohoSection}
 🚀 *Next Steps:*
 Your Client Portal is active. Log in to upload your required documents and track your application progress:
 🔗 *Client Portal:* ${portalUrl}

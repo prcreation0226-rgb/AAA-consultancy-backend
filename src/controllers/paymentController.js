@@ -235,7 +235,26 @@ const updatePaymentStatus = async (req, res) => {
             data: { status: 'Document Preparation', documentUploadAllowed: true }
           });
 
-          // 2. Dispatch WhatsApp payment receipt
+          // 2. Generate / Fetch official Zoho Tax Invoice URL
+          let zohoInvoiceUrl = null;
+          try {
+            const zohoInvoiceService = require('../services/zohoInvoiceService');
+            const zohoRes = await zohoInvoiceService.createZohoInvoice({
+              client: clientObj,
+              amount: Number(payment.amount) || 0,
+              discount: Number(payment.discount) || 0,
+              netAmount: updatedPayment.totalPaid || (payment.amount - (payment.discount || 0)),
+              serviceType: clientObj.serviceType,
+              dueDate: payment.dueDate
+            });
+            if (zohoRes && zohoRes.invoiceUrl) {
+              zohoInvoiceUrl = zohoRes.invoiceUrl;
+            }
+          } catch (zohoErr) {
+            console.warn('[Zoho Invoice Engine] Warning:', zohoErr.message);
+          }
+
+          // 3. Dispatch WhatsApp payment receipt with Zoho Invoice URL
           if (clientObj.phone) {
             const { sendPaymentSuccessWhatsApp } = require('../services/whatsappService');
             sendPaymentSuccessWhatsApp({
@@ -243,9 +262,19 @@ const updatePaymentStatus = async (req, res) => {
               paymentId: updatedPayment.id,
               amount: updatedPayment.totalPaid || (payment.amount - (payment.discount || 0)),
               serviceType: clientObj.serviceType,
-              transactionId: transactionId || updatedPayment.transactionId
+              transactionId: transactionId || updatedPayment.transactionId,
+              zohoInvoiceUrl: zohoInvoiceUrl
             }).catch(err => console.error('[BG-WA] Payment receipt WA failed:', err.message));
-            console.log(`[Auto-WhatsApp Payment Receipt] Dispatched receipt to ${clientObj.phone}`);
+            console.log(`[Auto-WhatsApp Payment Receipt] Dispatched receipt with Zoho Invoice link to ${clientObj.phone}`);
+          }
+
+          // 4. Dispatch Email payment receipt & document checklist to client email
+          if (clientObj.email) {
+            const { sendVisaChecklist } = require('../services/emailService');
+            const clientName = `${clientObj.firstName} ${clientObj.lastName}`.trim();
+            sendVisaChecklist(clientObj.email, clientName, clientObj.serviceType)
+              .catch(err => console.error('[BG-Email] Visa checklist email failed:', err.message));
+            console.log(`[Auto-Email Payment Receipt] Dispatched checklist email to ${clientObj.email}`);
           }
         }
       } catch (err) {
@@ -866,7 +895,7 @@ const verifyStripeCheckoutSession = async (req, res) => {
             }
           });
 
-          await prisma.client.update({
+          const client = await prisma.client.update({
             where: { id: payment.clientId },
             data: {
               documentUploadAllowed: true,
@@ -874,6 +903,42 @@ const verifyStripeCheckoutSession = async (req, res) => {
               visaStatus: 'Document Preparation'
             }
           });
+
+          // Dispatch WhatsApp Payment Receipt & Zoho Invoice Link
+          try {
+            let zohoInvoiceUrl = null;
+            try {
+              const zohoInvoiceService = require('../services/zohoInvoiceService');
+              const zohoRes = await zohoInvoiceService.createZohoInvoice({
+                client,
+                amount: Number(payment.amount) || 0,
+                discount: Number(payment.discount) || 0,
+                netAmount: finalPrice,
+                serviceType: client.serviceType,
+                dueDate: payment.dueDate
+              });
+              if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
+                zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
+              }
+            } catch (zohoErr) {
+              console.warn('[Zoho Invoice Engine] Warning:', zohoErr.message);
+            }
+
+            if (client && client.phone) {
+              const { sendPaymentSuccessWhatsApp } = require('../services/whatsappService');
+              sendPaymentSuccessWhatsApp({
+                client,
+                paymentId: payment.id,
+                amount: finalPrice,
+                serviceType: client.serviceType,
+                transactionId: `mock-txn-${Date.now()}`,
+                zohoInvoiceUrl: zohoInvoiceUrl
+              }).catch(err => console.error('[BG-WA] Payment receipt WA failed:', err.message));
+              console.log(`[Auto-WhatsApp Payment Receipt] Dispatched mock checkout receipt to ${client.phone}`);
+            }
+          } catch (waErr) {
+            console.error('[Auto-WhatsApp Payment Receipt] Mock checkout error:', waErr.message);
+          }
         }
       }
       return res.status(200).json({ success: true, message: 'Mock payment verified successfully.' });
@@ -932,6 +997,42 @@ const verifyStripeCheckoutSession = async (req, res) => {
               .catch(emailErr => console.error('[Auto-Checklist] Failed to send checklist email:', emailErr.message));
           } catch (emailErr) {
             console.error('[Auto-Checklist] Error invoking checklist email:', emailErr.message);
+          }
+
+          // Dispatch WhatsApp Payment Receipt & Zoho Invoice Link
+          try {
+            let zohoInvoiceUrl = null;
+            try {
+              const zohoInvoiceService = require('../services/zohoInvoiceService');
+              const zohoRes = await zohoInvoiceService.createZohoInvoice({
+                client,
+                amount: Number(payment.amount) || 0,
+                discount: Number(payment.discount) || 0,
+                netAmount: session.amount_total / 100,
+                serviceType: client.serviceType,
+                dueDate: payment.dueDate
+              });
+              if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
+                zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
+              }
+            } catch (zohoErr) {
+              console.warn('[Zoho Invoice Engine] Warning:', zohoErr.message);
+            }
+
+            if (client && client.phone) {
+              const { sendPaymentSuccessWhatsApp } = require('../services/whatsappService');
+              sendPaymentSuccessWhatsApp({
+                client,
+                paymentId: payment.id,
+                amount: session.amount_total / 100,
+                serviceType: client.serviceType,
+                transactionId: session.id,
+                zohoInvoiceUrl: zohoInvoiceUrl
+              }).catch(err => console.error('[BG-WA] Payment receipt WA failed:', err.message));
+              console.log(`[Auto-WhatsApp Payment Receipt] Dispatched Stripe checkout receipt to ${client.phone}`);
+            }
+          } catch (waErr) {
+            console.error('[Auto-WhatsApp Payment Receipt] Stripe checkout error:', waErr.message);
           }
         }
       }
