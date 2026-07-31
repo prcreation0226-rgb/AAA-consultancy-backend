@@ -8,13 +8,16 @@ const defaultJobOptions = {
     delay: 1000,
   },
   removeOnComplete: true,
-  removeOnFail: false, // We want to inspect failed jobs or move them to DLQ
+  removeOnFail: false,
 };
 
 let communicationsQueue, remindersQueue, noShowEnforcerQueue, paymentDripQueue, failedJobsQueue;
 
-if (process.env.DISABLE_REDIS === 'true') {
-  console.log('BullMQ Queues are disabled (DISABLE_REDIS=true). Using Mock Queues.');
+// Use MockQueue if Redis is not available (DISABLE_REDIS=true or no REDIS_URL)
+const useRedis = process.env.DISABLE_REDIS !== 'true' && !!process.env.REDIS_URL;
+
+if (!useRedis) {
+  console.log('BullMQ Queues are disabled (no REDIS_URL or DISABLE_REDIS=true). Using Mock Queues.');
 
   class MockQueue {
     constructor(name) {
@@ -22,7 +25,6 @@ if (process.env.DISABLE_REDIS === 'true') {
     }
 
     async add(name, data, opts) {
-      console.log(`[Mock Queue: ${this.name}] Added job "${name}":`, JSON.stringify(data));
       return { id: `mock-job-${Date.now()}` };
     }
 
@@ -40,13 +42,7 @@ if (process.env.DISABLE_REDIS === 'true') {
   communicationsQueue = new Queue('communications', { connection, defaultJobOptions });
   remindersQueue = new Queue('reminders', { connection, defaultJobOptions });
   noShowEnforcerQueue = new Queue('no-show-enforcer', { connection, defaultJobOptions });
-  paymentDripQueue = new Queue('payment-drip', { 
-    connection, 
-    defaultJobOptions: {
-      ...defaultJobOptions,
-      attempts: 5, // Payment retry more
-    }
-  });
+  paymentDripQueue = new Queue('payment-drip', { connection, defaultJobOptions });
   failedJobsQueue = new Queue('failed-jobs', { connection, defaultJobOptions });
 }
 
