@@ -32,11 +32,11 @@ router.post('/cycles/:id/government-decision', authMiddleware, rbacMiddleware(['
 // Checklist Management Endpoints
 router.get('/cycles/:cycleId/checklist', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant', 'operations', 'finance', 'client']), getCycleChecklist);
 router.post('/checklists/item', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant']), addChecklistItem);
-router.patch('/checklists/item/:id', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant', 'operations']), updateChecklistItem);
+router.patch('/checklists/item/:id', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant']), updateChecklistItem);
 router.delete('/checklists/item/:id', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant']), deleteChecklistItem);
 
 // Checklist Upload & Operations Review Endpoints
-router.post('/checklists/item/:id/upload', authMiddleware, upload.single('file'), uploadChecklistDoc);
-router.patch('/documents/:documentId/review', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant']), reviewChecklistDoc);
+router.post('/checklists/item/:id/upload', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant', 'client']), upload.single('file'), uploadChecklistDoc);
+router.patch('/documents/:documentId/review', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations']), reviewChecklistDoc);
 
 module.exports = router;

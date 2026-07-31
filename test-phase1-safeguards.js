@@ -42,7 +42,10 @@ async function runUnitTests() {
   const originalUpdateClient = prisma.client.update;
   const originalFindManyCycles = prisma.applicationCycle.findMany;
   const originalTransaction = prisma.$transaction;
-  prisma.resubmissionChecklistItem = { createMany: async () => ({ count: 5 }) };
+  prisma.resubmissionChecklistItem = { 
+    createMany: async () => ({ count: 5 }),
+    findMany: async () => [{ isMandatory: true, status: 'VERIFIED' }]
+  };
   prisma.$transaction = async (cb) => {
     return await cb(prisma);
   };

@@ -339,7 +339,7 @@ const updateCycle = async (req, res) => {
       }
     }
 
-    // 3. Transition Sequence Matrix Safeguard
+    // 3. Transition Sequence Matrix Safeguard & Manual Ready Validation
     if (status && status !== existingCycle.status) {
       const current = existingCycle.status;
       let isValidTransition = false;
@@ -358,6 +358,35 @@ const updateCycle = async (req, res) => {
         return res.status(400).json({
           message: `Invalid status transition from '${current}' to '${status}'.`
         });
+      }
+
+      // Requirement 5: Validate Manual Ready for Resubmission
+      if (status === 'Ready for Resubmission') {
+        const cycleItems = await prisma.resubmissionChecklistItem.findMany({
+          where: { applicationId: id }
+        });
+
+        const activeMandatoryItems = cycleItems.filter(i => i.isMandatory && i.status !== 'NOT_REQUIRED');
+
+        if (activeMandatoryItems.length === 0) {
+          return res.status(400).json({
+            message: "Cannot transition status to 'Ready for Resubmission'. Checklist contains no active mandatory items.",
+            incompleteCount: 0,
+            incompleteItems: []
+          });
+        }
+
+        const incompleteItems = activeMandatoryItems
+          .filter(i => i.status !== 'VERIFIED')
+          .map(i => ({ title: i.title, status: i.status }));
+
+        if (incompleteItems.length > 0) {
+          return res.status(400).json({
+            message: `Cannot transition cycle status to 'Ready for Resubmission'. ${incompleteItems.length} mandatory checklist item(s) remain unverified.`,
+            incompleteCount: incompleteItems.length,
+            incompleteItems: incompleteItems
+          });
+        }
       }
     }
 
@@ -590,17 +619,83 @@ const deleteChecklistItem = async (req, res) => {
   }
 };
 
+// Requirement 4: Helper for Storage Orphan Cleanup
+const deleteUploadedOrphanFile = async (file) => {
+  if (!file) return;
+  try {
+    const fs = require('fs');
+    if (file.path && fs.existsSync(file.path)) {
+      fs.unlink(file.path, (err) => {
+        if (err) console.error('[Storage Cleanup Error] Failed to delete local orphan file:', err.message);
+      });
+    } else if (file.key || file.filename) {
+      const isAwsConfigured = process.env.AWS_ACCESS_KEY_ID && 
+        process.env.AWS_SECRET_ACCESS_KEY && 
+        process.env.AWS_BUCKET_NAME && 
+        !process.env.AWS_ACCESS_KEY_ID.includes('your_aws');
+
+      if (isAwsConfigured) {
+        const { S3Client, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+        const s3 = new S3Client({
+          region: process.env.AWS_REGION || 'eu-west-1',
+          credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+          }
+        });
+        const key = file.key || `documents/${file.filename}`;
+        await s3.send(new DeleteObjectCommand({
+          Bucket: process.env.AWS_BUCKET_NAME,
+          Key: key
+        }));
+      }
+    }
+  } catch (err) {
+    console.error('[Storage Cleanup Exception] Non-fatal orphan cleanup error:', err.message);
+  }
+};
+
 const uploadChecklistDoc = async (req, res) => {
   try {
     const { id } = req.params; // checklistItemId
 
     const item = await prisma.resubmissionChecklistItem.findUnique({
       where: { id },
-      include: { applicationCycle: true }
+      include: { applicationCycle: { include: { client: true } } }
     });
 
     if (!item) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
       return res.status(404).json({ message: 'Checklist item not found' });
+    }
+
+    const client = item.applicationCycle?.client;
+    if (!client) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(404).json({ message: 'Associated client record not found' });
+    }
+
+    // Backend Role & Ownership Validation (Requirement 2B)
+    const userRole = req.user?.role;
+    const userId = req.user?.id;
+    const userEmail = req.user?.email;
+
+    if (userRole === 'client') {
+      if (userId !== client.id && userEmail !== client.email) {
+        if (req.file) await deleteUploadedOrphanFile(req.file);
+        return res.status(403).json({ message: 'Access denied. You can only upload documents for your own checklist.' });
+      }
+    } else if (userRole === 'consultant') {
+      if (client.assignedToId && client.assignedToId !== userId) {
+        if (req.file) await deleteUploadedOrphanFile(req.file);
+        return res.status(403).json({ message: 'Access denied. You are not the assigned consultant for this client.' });
+      }
+    } else if (['operations', 'finance', 'marketing'].includes(userRole)) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(403).json({ message: 'Access denied. Operations, Finance, and Marketing roles cannot upload checklist documents.' });
+    } else if (!['super_admin', 'admin'].includes(userRole)) {
+      if (req.file) await deleteUploadedOrphanFile(req.file);
+      return res.status(403).json({ message: 'Access denied. Unauthorized role.' });
     }
 
     if (!req.file) {
@@ -615,29 +710,36 @@ const uploadChecklistDoc = async (req, res) => {
     const nextVersion = lastDoc ? lastDoc.version + 1 : 1;
 
     // Create Document version record
-    const document = await prisma.document.create({
-      data: {
-        clientId: item.applicationCycle.clientId,
-        applicationId: item.applicationId,
-        checklistItemId: id,
-        version: nextVersion,
-        name: req.file.originalname,
-        category: item.category,
-        url: req.file.location || `/uploads/${req.file.filename}`,
-        size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
-        status: 'PENDING_VERIFICATION',
-        belongsTo: item.belongsTo || 'Main Applicant'
-      }
-    });
+    let document;
+    try {
+      document = await prisma.document.create({
+        data: {
+          clientId: item.applicationCycle.clientId,
+          applicationId: item.applicationId,
+          checklistItemId: id,
+          version: nextVersion,
+          name: req.file.originalname,
+          category: item.category,
+          url: req.file.location || `/uploads/${req.file.filename}`,
+          size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
+          status: 'PENDING_VERIFICATION',
+          belongsTo: item.belongsTo || 'Main Applicant'
+        }
+      });
 
-    // Update active document and set item status to PENDING_VERIFICATION
-    await prisma.resubmissionChecklistItem.update({
-      where: { id },
-      data: {
-        activeDocumentId: document.id,
-        status: 'PENDING_VERIFICATION'
-      }
-    });
+      // Update active document and set item status to PENDING_VERIFICATION
+      await prisma.resubmissionChecklistItem.update({
+        where: { id },
+        data: {
+          activeDocumentId: document.id,
+          status: 'PENDING_VERIFICATION'
+        }
+      });
+    } catch (dbError) {
+      // Requirement 4: Clean up storage orphan if DB insertion fails
+      await deleteUploadedOrphanFile(req.file);
+      throw dbError;
+    }
 
     logActivity({
       clientId: item.applicationCycle.clientId,
@@ -651,6 +753,7 @@ const uploadChecklistDoc = async (req, res) => {
 
     res.status(201).json(document);
   } catch (error) {
+    if (req.file) await deleteUploadedOrphanFile(req.file);
     console.error('Error uploading checklist document:', error);
     res.status(500).json({ message: 'Server error uploading checklist document' });
   }
@@ -676,6 +779,19 @@ const reviewChecklistDoc = async (req, res) => {
 
     if (!doc) {
       return res.status(404).json({ message: 'Document not found' });
+    }
+
+    // Requirement 3: Confirm document is the latest active document version
+    if (doc.checklistItemId) {
+      const checklistItem = await prisma.resubmissionChecklistItem.findUnique({
+        where: { id: doc.checklistItemId }
+      });
+
+      if (checklistItem && checklistItem.activeDocumentId && doc.id !== checklistItem.activeDocumentId) {
+        return res.status(409).json({
+          message: 'Only the latest active document version can be reviewed.'
+        });
+      }
     }
 
     // Update document status & review notes
