@@ -74,7 +74,7 @@ async function ensurePhase2Schema() {
         INDEX \`resubmission_checklist_items_applicationId_idx\`(\`applicationId\`),
         INDEX \`resubmission_checklist_items_status_idx\`(\`status\`),
         INDEX \`resubmission_checklist_items_sourceDocumentId_idx\`(\`sourceDocumentId\`),
-        UNIQUE INDEX \`resubmission_checklist_items_applicationId_templateKey_belongsTo_key\`(\`applicationId\`, \`templateKey\`, \`belongsTo\`),
+        UNIQUE INDEX \`rci_appId_tmplKey_belongsTo_key\`(\`applicationId\`, \`templateKey\`, \`belongsTo\`),
         PRIMARY KEY (\`id\`)
       ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
     `);
