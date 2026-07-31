@@ -28,7 +28,6 @@ async function findAndDelete() {
 
     for (const l of leads) {
       console.log(`Deleting dependent records for Lead ID ${l.id}...`);
-      await prisma.payment.deleteMany({ where: { leadId: l.id } });
       await prisma.consultation.deleteMany({ where: { leadId: l.id } });
       await prisma.lead.delete({ where: { id: l.id } });
       console.log(`Deleted Lead ${l.id}`);
