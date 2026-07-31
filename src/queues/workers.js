@@ -19,8 +19,9 @@ const handleJobFailure = async (job, err) => {
 };
 
 const setupWorkers = () => {
-  if (process.env.DISABLE_REDIS === 'true') {
-    console.log('BullMQ Workers are disabled (DISABLE_REDIS=true). Skipping worker initialization.');
+  const useMockWorkers = process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL;
+  if (useMockWorkers) {
+    console.log('BullMQ Workers are disabled or REDIS_URL missing. Skipping worker initialization.');
     return;
   }
 
