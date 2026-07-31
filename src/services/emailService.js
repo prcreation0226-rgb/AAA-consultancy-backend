@@ -232,7 +232,7 @@ exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlo
           <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📅 Appointment Details:</h4>
           <ul style="margin: 0; padding-left: 20px; color: #334155; line-height: 1.8;">
             <li><b>Date:</b> ${date}</li>
-            <li><b>Time:</b> ${finalTime} (UTC)</li>
+            <li><b>Time:</b> ${finalTime} (UAE)</li>
             <li><b>Duration:</b> 20 Minutes</li>
             <li><b>Meeting Link:</b> <a href="${joinUrl}" style="color: #2563eb; font-weight: 600;">Click to Join Zoom Meeting</a></li>
           </ul>
@@ -513,7 +513,7 @@ exports.sendMeetingCancelledEmail = async ({ to, firstName, date, time, rebookLi
       <div style="padding: 28px;">
         <h3 style="color: #e53e3e; margin-top: 0; font-size: 18px;">❌ Appointment Cancelled</h3>
         <p style="color: #4a5568; line-height: 1.6;">Dear <b>${firstName}</b>,</p>
-        <p style="color: #4a5568; line-height: 1.6;">Your Spain Visa Eligibility Assessment scheduled for <b>${date}</b> at <b>${time}</b> (UTC) has been successfully cancelled.</p>
+        <p style="color: #4a5568; line-height: 1.6;">Your Spain Visa Eligibility Assessment scheduled for <b>${date}</b> at <b>${time}</b> (UAE) has been successfully cancelled.</p>
         
         <p style="color: #4a5568; line-height: 1.6;">If you would like to schedule another appointment, please use the button below to rebook at your convenience:</p>
 
@@ -551,7 +551,7 @@ exports.sendMeetingRescheduledEmail = async ({ to, firstName, date, time, link, 
           <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📅 New Appointment Details:</h4>
           <ul style="margin: 0; padding-left: 20px; color: #334155; line-height: 1.8;">
             <li><b>Date:</b> ${date}</li>
-            <li><b>Time:</b> ${time} (UTC)</li>
+            <li><b>Time:</b> ${time} (UAE)</li>
             <li><b>Duration:</b> 20 Minutes</li>
             <li><b>Meeting Link:</b> <a href="${link}" style="color: #2563eb; font-weight: 600;">Click to Join Zoom Meeting</a></li>
           </ul>

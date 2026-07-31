@@ -887,7 +887,7 @@ Dear *${name}*,
 Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${date}
-⏰ *Time:* ${time} (UTC)
+⏰ *Time:* ${time} (UAE)
 🔗 *Meeting Join Link:* ${link}
 
 ─────────────
