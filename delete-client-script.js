@@ -19,9 +19,11 @@ async function findAndDelete() {
 
     for (const c of clients) {
       console.log(`Deleting dependent records for Client ID ${c.id}...`);
-      await prisma.payment.deleteMany({ where: { clientId: c.id } });
-      await prisma.document.deleteMany({ where: { clientId: c.id } });
-      await prisma.consultation.deleteMany({ where: { leadId: c.id } });
+      await prisma.payment.deleteMany({ where: { clientId: c.id } }).catch(() => {});
+      await prisma.document.deleteMany({ where: { clientId: c.id } }).catch(() => {});
+      await prisma.notification.deleteMany({ where: { clientId: c.id } }).catch(() => {});
+      await prisma.applicationCycle.deleteMany({ where: { clientId: c.id } }).catch(() => {});
+      await prisma.lead.deleteMany({ where: { clientId: c.id } }).catch(() => {});
       await prisma.client.delete({ where: { id: c.id } });
       console.log(`Deleted Client ${c.id}`);
     }

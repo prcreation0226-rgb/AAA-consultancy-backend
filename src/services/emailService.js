@@ -55,7 +55,10 @@ exports.sendEmail = async ({ to, subject, html, text }) => {
   if (resendClient) {
     try {
       const rawFrom = process.env.RESEND_FROM || process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'client@aaabusinessconsultancy.com';
-      const cleanFrom = rawFrom.replace(/\\"/g, '"');
+      let cleanFrom = rawFrom.replace(/\\"/g, '"');
+      if (!cleanFrom.includes('<')) {
+        cleanFrom = `AAA Business Consultancy <${cleanFrom}>`;
+      }
       const response = await resendClient.emails.send({
         from: cleanFrom,
         to,
