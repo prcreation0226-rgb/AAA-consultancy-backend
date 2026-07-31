@@ -3,8 +3,8 @@ require('dotenv').config();
 
 let connection;
 
-if (process.env.DISABLE_REDIS === 'true') {
-  console.log('Redis is disabled (DISABLE_REDIS=true). Using Mock Redis.');
+if (process.env.DISABLE_REDIS === 'true' || !process.env.REDIS_URL) {
+  console.log('Redis is disabled or REDIS_URL is missing. Using Mock Redis.');
 
   class MockRedis {
     constructor() {
