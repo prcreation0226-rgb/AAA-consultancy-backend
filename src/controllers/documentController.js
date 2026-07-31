@@ -103,6 +103,18 @@ const uploadDocument = async (req, res) => {
       }
     });
 
+    // Auto-update client passportNumber if provided in payload
+    if (req.body.passportNumber && clientId) {
+      try {
+        await prisma.client.update({
+          where: { id: clientId },
+          data: { passportNumber: req.body.passportNumber }
+        });
+      } catch (pErr) {
+        console.warn('[DocUpload] Could not update client passport number:', pErr.message);
+      }
+    }
+
     // 2. Find the client to get their name, email and assigned operator
     let client = await prisma.client.findUnique({
       where: { id: clientId },

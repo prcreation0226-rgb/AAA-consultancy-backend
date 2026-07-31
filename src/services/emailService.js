@@ -48,9 +48,10 @@ if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
 exports.sendEmail = async ({ to, subject, html, text }) => {
   if (resendClient) {
     try {
-      const fromAddress = RESEND_FROM || SMTP_FROM;
+      const rawFrom = process.env.RESEND_FROM || process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM || 'client@aaabusinessconsultancy.com';
+      const cleanFrom = rawFrom.replace(/\\"/g, '"');
       const response = await resendClient.emails.send({
-        from: fromAddress,
+        from: cleanFrom,
         to,
         subject,
         html,
@@ -198,11 +199,12 @@ exports.sendVisaChecklist = async (to, clientName, serviceType) => {
 /**
  * Sends branded Appointment Confirmation email with Reschedule, Cancel, and Packages action buttons.
  */
-exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlot, meetingLink, consultationId }) => {
+exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlot, time, meetingLink, link, consultationId, rescheduleLink, cancelLink }) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const joinUrl = meetingLink || 'https://zoom.us';
-  const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId || ''}`;
-  const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId || ''}`;
+  const finalTime = timeSlot || time || 'TBD';
+  const joinUrl = meetingLink || link || 'https://zoom.us';
+  const finalRescheduleUrl = rescheduleLink || `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId || ''}`;
+  const finalCancelUrl = cancelLink || `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId || ''}`;
   const packagesUrl = `${frontendUrl}/#/portal/login`;
 
   const html = `
@@ -221,7 +223,7 @@ exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlo
           <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📅 Appointment Details:</h4>
           <ul style="margin: 0; padding-left: 20px; color: #334155; line-height: 1.8;">
             <li><b>Date:</b> ${date}</li>
-            <li><b>Time:</b> ${timeSlot} (UTC)</li>
+            <li><b>Time:</b> ${finalTime} (UTC)</li>
             <li><b>Duration:</b> 20 Minutes</li>
             <li><b>Meeting Link:</b> <a href="${joinUrl}" style="color: #2563eb; font-weight: 600;">Click to Join Zoom Meeting</a></li>
           </ul>
@@ -235,8 +237,8 @@ exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlo
 
         <h4 style="color: #334155; margin-bottom: 12px; font-size: 14px;">⚙️ Manage Your Booking:</h4>
         <div style="margin-bottom: 20px;">
-          <a href="${rescheduleUrl}" style="display: inline-block; padding: 10px 18px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-right: 8px; margin-bottom: 8px;">🔄 Reschedule Appointment</a>
-          <a href="${cancelUrl}" style="display: inline-block; padding: 10px 18px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-right: 8px; margin-bottom: 8px;">❌ Cancel Appointment</a>
+          <a href="${finalRescheduleUrl}" style="display: inline-block; padding: 10px 18px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-right: 8px; margin-bottom: 8px;">🔄 Reschedule Appointment</a>
+          <a href="${finalCancelUrl}" style="display: inline-block; padding: 10px 18px; background-color: #ef4444; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-right: 8px; margin-bottom: 8px;">❌ Cancel Appointment</a>
           <a href="${packagesUrl}" style="display: inline-block; padding: 10px 18px; background-color: #059669; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; margin-bottom: 8px;">📦 Explore Service Packages</a>
         </div>
 
