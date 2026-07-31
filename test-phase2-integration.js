@@ -11,7 +11,8 @@ const {
   uploadChecklistDoc,
   reviewChecklistDoc,
   resubmitCycle,
-  recordGovernmentDecision
+  recordGovernmentDecision,
+  generateDefaultChecklist
 } = require('./src/controllers/caseController');
 
 function createMockRes() {
@@ -139,13 +140,26 @@ async function runPhase2IntegrationTests() {
             }));
             mockChecklistItems.push(...created);
             return { count: created.length };
-          }
+          },
+          findMany: async ({ where }) => mockChecklistItems.filter(i => i.applicationId === where.applicationId)
         },
         client: { update: prisma.client.update }
       };
       return await cb(tx);
     };
 
+    prisma.resubmissionChecklistItem.count = async ({ where }) => {
+      return mockChecklistItems.filter(i => i.applicationId === where.applicationId).length;
+    };
+    prisma.resubmissionChecklistItem.createMany = async ({ data }) => {
+      const created = data.map(item => ({
+        id: `item-${Math.random().toString(36).substr(2, 9)}`,
+        ...item,
+        createdAt: new Date()
+      }));
+      mockChecklistItems.push(...created);
+      return { count: created.length };
+    };
     prisma.resubmissionChecklistItem.findMany = async ({ where }) => {
       return mockChecklistItems.filter(i => i.applicationId === where.applicationId);
     };
@@ -215,8 +229,30 @@ async function runPhase2IntegrationTests() {
 
     assert(resCreate.statusCode === 201, 'Cycle created with HTTP 201');
     assert(mockCycles.length === 1, 'ApplicationCycle record added');
-    assert(mockChecklistItems.length === 5, '5 default checklist items generated');
+    assert(mockChecklistItems.length === 5, '5 default checklist items generated automatically');
+    assert(Array.isArray(resCreate.responseData.checklistItems) && resCreate.responseData.checklistItems.length === 5, 'API response includes generated checklist items array');
     const createdCycleId = mockCycles[0].id;
+
+    // TEST 1B: Manual Generate Default Checklist Endpoint Safety
+    console.log('\n--- Test 1B: Manual Generate Default Checklist Action ---');
+    const reqGenerateNonEmpty = {
+      user: { id: 'consultant-001', role: 'consultant' },
+      params: { id: createdCycleId }
+    };
+    const resGenerateNonEmpty = createMockRes();
+    await generateDefaultChecklist(reqGenerateNonEmpty, resGenerateNonEmpty);
+    assert(resGenerateNonEmpty.statusCode === 400, 'Generating default checklist on non-empty cycle returns HTTP 400');
+
+    // Test on empty resubmission cycle
+    const emptyCycleId = 'cycle-empty-001';
+    mockCycles.push({ id: emptyCycleId, clientId: mockClient.id, type: 'resubmission', status: 'Resubmission in Progress', client: mockClient });
+    const reqGenerateEmpty = {
+      user: { id: 'consultant-001', role: 'consultant' },
+      params: { id: emptyCycleId }
+    };
+    const resGenerateEmpty = createMockRes();
+    await generateDefaultChecklist(reqGenerateEmpty, resGenerateEmpty);
+    assert(resGenerateEmpty.statusCode === 201 && resGenerateEmpty.responseData.count === 5, 'Generating default checklist on empty cycle returns HTTP 201 with 5 items');
 
     // TEST 2: Client Checklist Access Security (Client A vs Client B)
     console.log('\n--- Test 2: Client Portal Checklist Access Security ---');

@@ -225,7 +225,8 @@ const createCycle = async (req, res) => {
       });
     }
 
-    const isAppeal = type === 'appeal';
+    const cycleType = (type || 'resubmission').toLowerCase();
+    const isAppeal = cycleType === 'appeal';
     const initialStatus = isAppeal ? 'Appeal in Progress' : 'Resubmission in Progress';
     const actorName = req.user ? (req.user.fullName || req.user.email) : 'Consultant';
 
@@ -250,6 +251,7 @@ const createCycle = async (req, res) => {
       });
 
       // Generate default checklist items for resubmission cycle
+      let createdItems = [];
       if (!isAppeal) {
         const templates = [...DEFAULT_CHECKLIST_TEMPLATES];
         if (client.applicantsCount && client.applicantsCount.toLowerCase().includes('spouse')) {
@@ -275,6 +277,11 @@ const createCycle = async (req, res) => {
             status: 'MISSING'
           }))
         });
+
+        createdItems = await tx.resubmissionChecklistItem.findMany({
+          where: { applicationId: cycle.id },
+          orderBy: { createdAt: 'asc' }
+        });
       }
 
       // Update client.visaStatus ONLY (Preserve client.status untouched)
@@ -283,7 +290,7 @@ const createCycle = async (req, res) => {
         data: { visaStatus: initialStatus }
       });
 
-      return cycle;
+      return { ...cycle, checklistItems: createdItems };
     });
 
     // Log Activity Timeline
@@ -961,6 +968,85 @@ const recordGovernmentDecision = async (req, res) => {
   }
 };
 
+const generateDefaultChecklist = async (req, res) => {
+  try {
+    const { id } = req.params; // cycleId
+
+    const cycle = await prisma.applicationCycle.findUnique({
+      where: { id },
+      include: { client: true }
+    });
+
+    if (!cycle) {
+      return res.status(404).json({ message: 'Application cycle not found' });
+    }
+
+    if (cycle.type === 'appeal') {
+      return res.status(400).json({ message: 'Default checklist generation is not applicable for legal appeal cycles.' });
+    }
+
+    // Check if checklist items already exist
+    const existingCount = await prisma.resubmissionChecklistItem.count({
+      where: { applicationId: id }
+    });
+
+    if (existingCount > 0) {
+      return res.status(400).json({
+        message: `Cycle already has ${existingCount} checklist item(s). Default checklist generation is only allowed when checklist is empty.`,
+        count: existingCount
+      });
+    }
+
+    const templates = [...DEFAULT_CHECKLIST_TEMPLATES];
+    if (cycle.client?.applicantsCount && cycle.client.applicantsCount.toLowerCase().includes('spouse')) {
+      templates.push({
+        templateKey: 'passport_spouse',
+        belongsTo: 'Spouse',
+        category: 'Identity Documents',
+        title: 'Passport Copy (Spouse)',
+        isMandatory: true,
+        clientInstructions: 'High-resolution color scan of spouse passport.'
+      });
+    }
+
+    await prisma.resubmissionChecklistItem.createMany({
+      data: templates.map(tpl => ({
+        applicationId: id,
+        templateKey: tpl.templateKey,
+        belongsTo: tpl.belongsTo,
+        category: tpl.category,
+        title: tpl.title,
+        isMandatory: tpl.isMandatory,
+        clientInstructions: tpl.clientInstructions,
+        status: 'MISSING'
+      }))
+    });
+
+    const items = await prisma.resubmissionChecklistItem.findMany({
+      where: { applicationId: id },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    logActivity({
+      clientId: cycle.clientId,
+      actorId: req.user?.id || 'staff',
+      actorName: req.user ? (req.user.fullName || req.user.email) : 'Staff',
+      actorRole: req.user?.role || 'staff',
+      action: 'DEFAULT_CHECKLIST_GENERATED',
+      description: `Generated ${items.length} default checklist items for Application Cycle #${id.substring(0, 8)}.`
+    });
+
+    res.status(201).json({
+      message: `Successfully generated ${items.length} default checklist items.`,
+      count: items.length,
+      items
+    });
+  } catch (error) {
+    console.error('Error generating default checklist:', error);
+    res.status(500).json({ message: 'Server error generating default checklist', error: error.message });
+  }
+};
+
 module.exports = {
   getActiveCases,
   getClosedCases,
@@ -974,5 +1060,6 @@ module.exports = {
   uploadChecklistDoc,
   reviewChecklistDoc,
   resubmitCycle,
-  recordGovernmentDecision
+  recordGovernmentDecision,
+  generateDefaultChecklist
 };

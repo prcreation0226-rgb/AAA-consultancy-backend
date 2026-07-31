@@ -12,7 +12,8 @@ const {
   uploadChecklistDoc,
   reviewChecklistDoc,
   resubmitCycle,
-  recordGovernmentDecision
+  recordGovernmentDecision,
+  generateDefaultChecklist
 } = require('../controllers/caseController');
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
@@ -28,6 +29,7 @@ router.post('/cycles', authMiddleware, rbacMiddleware(['super_admin', 'admin', '
 router.patch('/cycles/:id', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant']), updateCycle);
 router.post('/cycles/:id/resubmit', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant']), resubmitCycle);
 router.post('/cycles/:id/government-decision', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant', 'operations']), recordGovernmentDecision);
+router.post('/cycles/:id/generate-checklist', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant']), generateDefaultChecklist);
 
 // Checklist Management Endpoints
 router.get('/cycles/:cycleId/checklist', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'consultant', 'operations', 'finance', 'client']), getCycleChecklist);
