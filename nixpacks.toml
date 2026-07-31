@@ -1,8 +1,0 @@
-[phases.setup]
-nixPkgs = ["nodejs-20_x"]
-
-[phases.build]
-cmds = ["npx prisma generate"]
-
-[phases.start]
-cmd = "node src/app.js"
