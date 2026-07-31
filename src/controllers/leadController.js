@@ -802,6 +802,56 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
         // Do NOT rollback database status — keep consultation scheduled
       }
 
+      // 2b. Immediate Email Confirmation for User (Applicant) and Admin Notification
+      try {
+        const { sendAppointmentConfirmationEmail, sendEmail } = require('../services/emailService');
+        const clientName = `${lead.firstName} ${lead.lastName}`.trim();
+        const adminSenderEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_USER || 'client@aaabusinessconsultancy.com';
+
+        // Send Confirmation Email to User/Applicant
+        if (lead.email) {
+          sendAppointmentConfirmationEmail({
+            to: lead.email,
+            firstName: lead.firstName || 'Client',
+            date: meetingDate,
+            timeSlot: meetingTime,
+            meetingLink: meetingLink,
+            consultationId: consultation.id
+          })
+          .then(() => console.log(`[BOOKING EMAIL] Sent confirmation email to user ${lead.email}`))
+          .catch(err => console.error('[BOOKING EMAIL] User email failed:', err.message));
+        }
+
+        // Send Booking Notification Email to Admin/Sender
+        sendEmail({
+          to: adminSenderEmail,
+          subject: `🔔 New Assessment Booking Received: ${clientName} (${meetingDate} at ${meetingTime})`,
+          html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
+              <h2 style="color: #0f172a;">📅 New Assessment Consultation Booked</h2>
+              <p>A new consultation has been booked on the website portal.</p>
+              <hr style="border: 1px solid #e2e8f0; margin: 15px 0;" />
+              <ul style="line-height: 1.8;">
+                <li><b>Client Name:</b> ${clientName}</li>
+                <li><b>Email:</b> ${lead.email || 'N/A'}</li>
+                <li><b>Phone:</b> ${lead.phone || 'N/A'}</li>
+                <li><b>Service Category:</b> ${lead.serviceType || 'Spain Visa / Residency'}</li>
+                <li><b>Date:</b> ${meetingDate}</li>
+                <li><b>Time:</b> ${meetingTime} (UAE)</li>
+                <li><b>Zoom Link:</b> <a href="${meetingLink}">${meetingLink}</a></li>
+              </ul>
+              <br/>
+              <p><b>AAA Business Consultancy CRM System</b></p>
+            </div>
+          `
+        })
+        .then(() => console.log(`[BOOKING EMAIL] Sent notification email to Admin (${adminSenderEmail})`))
+        .catch(err => console.error('[BOOKING EMAIL] Admin notification failed:', err.message));
+
+      } catch (emailErr) {
+        console.error('[BOOKING EMAIL] Error invoking email dispatch:', emailErr.message);
+      }
+
       // 3. Socket.io Notification to CRM Staff
       try {
         if (reqApp) {
