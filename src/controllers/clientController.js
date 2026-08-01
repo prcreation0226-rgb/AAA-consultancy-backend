@@ -361,13 +361,25 @@ const createClient = async (req, res) => {
 const updateClientStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, visaStatus, nextFollowUpDate } = req.body;
+    const { status, visaStatus, nextFollowUpDate, documentUploadAllowed } = req.body;
     
     const data = {};
     if (status) data.status = status;
     if (visaStatus) data.visaStatus = visaStatus;
     if (nextFollowUpDate !== undefined) {
       data.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
+    }
+
+    const paidStatuses = ['Payment Received', 'Paid', 'Partially Paid', 'Under Process', 'Processing', 'Active'];
+    const activeVisaStatuses = ['Document Preparation', 'Document Review', 'Apostille & Translations', 'Submitted - Pending Decision', 'NIE / Local Registration', 'Visa Approved'];
+
+    if (documentUploadAllowed !== undefined) {
+      data.documentUploadAllowed = Boolean(documentUploadAllowed);
+    } else if (
+      (status && paidStatuses.includes(status)) ||
+      (visaStatus && activeVisaStatuses.includes(visaStatus))
+    ) {
+      data.documentUploadAllowed = true;
     }
     
     const client = await prisma.client.update({
@@ -786,6 +798,18 @@ const updateClient = async (req, res) => {
     if (status !== undefined) data.status = status;
     if (visaStatus !== undefined) data.visaStatus = visaStatus;
     if (nextFollowUpDate !== undefined) data.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
+
+    const paidStatuses = ['Payment Received', 'Paid', 'Partially Paid', 'Under Process', 'Processing', 'Active'];
+    const activeVisaStatuses = ['Document Preparation', 'Document Review', 'Apostille & Translations', 'Submitted - Pending Decision', 'NIE / Local Registration', 'Visa Approved'];
+
+    if (req.body.documentUploadAllowed !== undefined) {
+      data.documentUploadAllowed = Boolean(req.body.documentUploadAllowed);
+    } else if (
+      (data.status && paidStatuses.includes(data.status)) ||
+      (data.visaStatus && activeVisaStatuses.includes(data.visaStatus))
+    ) {
+      data.documentUploadAllowed = true;
+    }
 
     if (Object.keys(data).length === 0) {
       return res.status(400).json({ message: 'No valid fields to update.' });
