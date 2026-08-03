@@ -486,6 +486,35 @@ const updateOutcome = async (req, res) => {
       }
     }
 
+    // Auto-update associated lead status & send WhatsApp confirmation when Unblocked & Restored to Scheduled
+    if (consultation.leadId && status === 'Scheduled') {
+      try {
+        const updatedLead = await prisma.lead.update({
+          where: { id: consultation.leadId },
+          data: { status: 'Meeting Scheduled' }
+        });
+
+        // Remove lead from blacklist if present
+        if (updatedLead) {
+          const cleanPhoneDigits = updatedLead.phone ? updatedLead.phone.replace(/\D/g, '').slice(-10) : '';
+          await prisma.blacklistedClient.deleteMany({
+            where: {
+              OR: [
+                ...(updatedLead.email ? [{ email: updatedLead.email.toLowerCase().trim() }] : []),
+                ...(cleanPhoneDigits ? [{ phone: { contains: cleanPhoneDigits } }] : [])
+              ]
+            }
+          }).catch(err => console.warn('[Unblock Restore] Blacklist cleanup warning:', err.message));
+        }
+
+        // Trigger Instant WhatsApp & Email Notifications for Restored Consultation
+        sendConsultationNotifications(consultation).catch(err => console.error('[Unblock Restore] WhatsApp dispatch error:', err.message));
+        console.log(`[Unblock & Restore] Restored Consultation ${consultation.id} & Lead ${consultation.leadId}, dispatched WhatsApp message.`);
+      } catch (unblockErr) {
+        console.error('[Unblock Restore Error]:', unblockErr.message);
+      }
+    }
+
     res.json(consultation);
   } catch (error) {
     res.status(500).json({ message: 'Server error updating consultation outcome' });

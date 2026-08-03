@@ -44,70 +44,70 @@ const parseMessageContent = (content) => {
  */
 exports.getConversations = async (req, res) => {
   try {
-    // 1. Fetch all clients and leads once to map phones safely without strict substring boundaries
-    const allClients = await prisma.client.findMany({
-      select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true }
-    });
-    const allLeads = await prisma.lead.findMany({
-      select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true, clientId: true }
-    });
-
-    // 2. Fetch all communication logs ordered by newest first
-    const logs = await prisma.communicationLog.findMany({
-      orderBy: { createdAt: 'desc' }
-    });
-
-    // 3. Group by unique phone numbers to get the latest message
-    const conversationsMap = {};
-    const uniquePhones = [];
-
-    for (const log of logs) {
-      if (!log.phone) continue;
-      const cleanPh = cleanPhoneNumber(log.phone);
-      if (!conversationsMap[cleanPh]) {
-        conversationsMap[cleanPh] = log;
-        uniquePhones.push(cleanPh);
-      }
-    }
-
-    // 4. Enrich each conversation with Lead/Client details, messages history, and unread count
-    const conversations = [];
-
-    for (const cleanPh of uniquePhones) {
-      const latestLog = conversationsMap[cleanPh];
-      const numberPart = cleanPh.replace(/\D/g, ''); // extract digits only
-
-      // Safe matching: strip all non-digits from db phones to compare accurately
-      const client = allClients.find(c => c.phone && c.phone.replace(/\D/g, '').includes(numberPart));
-      const lead = allLeads.find(l => l.phone && l.phone.replace(/\D/g, '').includes(numberPart));
-
-      // Fetch message history for this phone (matching with or without + prefix)
-      const messagesLogs = await prisma.communicationLog.findMany({
-        where: {
-          OR: [
-            { phone: cleanPh },
-            { phone: numberPart },
-            { phone: `+${numberPart}` }
-          ]
-        },
+    // 1. Parallel fetch of all clients, leads, and logs with respondedByUser included
+    const [allClients, allLeads, logs] = await Promise.all([
+      prisma.client.findMany({
+        select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true }
+      }),
+      prisma.lead.findMany({
+        select: { id: true, phone: true, firstName: true, lastName: true, status: true, email: true, clientId: true }
+      }),
+      prisma.communicationLog.findMany({
         orderBy: { createdAt: 'asc' },
         include: {
           respondedByUser: {
             select: { id: true, fullName: true, role: true, avatar: true }
           }
         }
-      });
+      })
+    ]);
 
-      // Determine Name and Status
+    // 2. Group logs by normalized digit phone key in memory (0 DB overhead)
+    const logsByPhoneMap = {};
+    const conversationsOrderMap = {};
+    const uniquePhones = [];
+
+    for (const log of logs) {
+      if (!log.phone) continue;
+      const cleanPh = cleanPhoneNumber(log.phone);
+      const numDigits = cleanPh.replace(/\D/g, '');
+      const key = numDigits || cleanPh;
+
+      if (!logsByPhoneMap[key]) {
+        logsByPhoneMap[key] = [];
+        uniquePhones.push(cleanPh);
+      }
+      logsByPhoneMap[key].push(log);
+      conversationsOrderMap[cleanPh] = log; // keeps track of latest log
+    }
+
+    // Sort uniquePhones by newest log date descending
+    uniquePhones.sort((a, b) => {
+      const dateA = new Date(conversationsOrderMap[a]?.createdAt || 0);
+      const dateB = new Date(conversationsOrderMap[b]?.createdAt || 0);
+      return dateB - dateA;
+    });
+
+    const isApplicantPlaceholder = (val) => {
+      if (!val) return true;
+      const normalized = val.trim().toLowerCase();
+      return normalized === '' || normalized === 'applicant' || normalized.includes('applicant');
+    };
+
+    // 3. Build conversations in memory
+    const conversations = uniquePhones.map(cleanPh => {
+      const numberPart = cleanPh.replace(/\D/g, '');
+      const key = numberPart || cleanPh;
+      const messagesLogs = logsByPhoneMap[key] || [];
+      const latestLog = messagesLogs[messagesLogs.length - 1] || conversationsOrderMap[cleanPh];
+
+      // Safe matching with clients & leads
+      const client = allClients.find(c => c.phone && c.phone.replace(/\D/g, '').includes(numberPart));
+      const lead = allLeads.find(l => l.phone && l.phone.replace(/\D/g, '').includes(numberPart));
+
       let name = cleanPh;
       let status = 'New Lead';
       let email = null;
-
-      const isApplicantPlaceholder = (val) => {
-        if (!val) return true;
-        const normalized = val.trim().toLowerCase();
-        return normalized === '' || normalized === 'applicant' || normalized.includes('applicant');
-      };
 
       if (client && !isApplicantPlaceholder(`${client.firstName} ${client.lastName}`)) {
         name = `${client.firstName} ${client.lastName}`.trim();
@@ -118,11 +118,10 @@ exports.getConversations = async (req, res) => {
         status = lead.status || 'New Lead';
         email = lead.email;
       } else {
-        // Fallback to the latest INBOUND message name to avoid grabbing "Agent"
         const latestInboundLog = messagesLogs.slice().reverse().find(m => m.direction === 'INBOUND');
         if (latestInboundLog && latestInboundLog.name && !isApplicantPlaceholder(latestInboundLog.name)) {
           name = latestInboundLog.name.trim();
-        } else if (latestLog.name && !isApplicantPlaceholder(latestLog.name) && latestLog.direction !== 'OUTBOUND') {
+        } else if (latestLog && latestLog.name && !isApplicantPlaceholder(latestLog.name) && latestLog.direction !== 'OUTBOUND') {
           name = latestLog.name.trim();
         }
       }
@@ -149,16 +148,9 @@ exports.getConversations = async (req, res) => {
         };
       });
 
-      // Calculate unread count (INBOUND messages that are unread)
-      const unreadCount = await prisma.communicationLog.count({
-        where: {
-          phone: cleanPh,
-          direction: 'INBOUND',
-          readStatus: false
-        }
-      });
+      const unreadCount = messagesLogs.filter(m => m.direction === 'INBOUND' && !m.readStatus).length;
 
-      conversations.push({
+      return {
         id: `conv_phone_${cleanPh.replace(/[^\d]/g, '')}`,
         phone: cleanPh,
         name: name,
@@ -170,15 +162,15 @@ exports.getConversations = async (req, res) => {
         leadId: lead ? lead.id : (client ? client.leadId : null),
         clientId: client ? client.id : null,
         messages: messages,
-        latestMessage: parseMessageContent(latestLog.content).text,
-        timestamp: latestLog.createdAt
-      });
-    }
+        latestMessage: latestLog ? parseMessageContent(latestLog.content).text : '',
+        timestamp: latestLog ? latestLog.createdAt : new Date()
+      };
+    });
 
     return res.status(200).json(conversations);
   } catch (error) {
     console.error('Error fetching conversations:', error);
-    res.status(500).json({ error: 'Failed to fetch conversations' });
+    return res.status(500).json({ error: 'Failed to fetch conversations' });
   }
 };
 
