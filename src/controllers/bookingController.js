@@ -537,9 +537,22 @@ async function getTranslationRate(sourceLanguage) {
         ? JSON.parse(settings.swornTranslationRates)
         : settings.swornTranslationRates;
 
-      if (lang.includes('urdu') && rates.urduToSpanish) return parseFloat(rates.urduToSpanish);
-      if (lang.includes('arabic') && rates.arabicToSpanish) return parseFloat(rates.arabicToSpanish);
-      if (lang.includes('english') && rates.englishToSpanish) return parseFloat(rates.englishToSpanish);
+      if (Array.isArray(rates)) {
+        const found = rates.find(r => {
+          const n = (r.name || '').toLowerCase();
+          return (lang.includes('urdu') && n.includes('urdu')) ||
+                 (lang.includes('arabic') && n.includes('arabic')) ||
+                 (lang.includes('english') && n.includes('english')) ||
+                 n.includes(lang);
+        });
+        if (found && found.rate !== undefined) {
+          return parseFloat(found.rate);
+        }
+      } else if (typeof rates === 'object') {
+        if (lang.includes('urdu') && rates.urduToSpanish) return parseFloat(rates.urduToSpanish);
+        if (lang.includes('arabic') && rates.arabicToSpanish) return parseFloat(rates.arabicToSpanish);
+        if (lang.includes('english') && rates.englishToSpanish) return parseFloat(rates.englishToSpanish);
+      }
     }
   } catch (e) {
     console.warn("Failed to fetch custom translation rates:", e.message);

@@ -96,6 +96,7 @@ const createOrGetContact = async ({ name, email, phone }) => {
     const createRes = await axios.post(`${apiUrl}/contacts?organization_id=${orgId}`, {
       contact_name: name || 'Valued Client',
       contact_type: 'customer',
+      language_code: 'en',
       contact_persons: [
         {
           first_name: name || 'Valued Client',

@@ -81,9 +81,15 @@ exports.getConversations = async (req, res) => {
       const client = allClients.find(c => c.phone && c.phone.replace(/\D/g, '').includes(numberPart));
       const lead = allLeads.find(l => l.phone && l.phone.replace(/\D/g, '').includes(numberPart));
 
-      // Fetch message history for this phone
+      // Fetch message history for this phone (matching with or without + prefix)
       const messagesLogs = await prisma.communicationLog.findMany({
-        where: { phone: cleanPh },
+        where: {
+          OR: [
+            { phone: cleanPh },
+            { phone: numberPart },
+            { phone: `+${numberPart}` }
+          ]
+        },
         orderBy: { createdAt: 'asc' },
         include: {
           respondedByUser: {
@@ -231,11 +237,17 @@ exports.clearChat = async (req, res) => {
 exports.getMessagesByPhone = async (req, res) => {
   try {
     const { phone } = req.params;
-    const cleanPh = cleanPhoneNumber(phone);
+    const numberPart = cleanPh.replace(/\D/g, '');
 
-    // 1. Fetch all logs for this phone number
+    // 1. Fetch all logs for this phone number (matching with or without + prefix)
     const logs = await prisma.communicationLog.findMany({
-      where: { phone: cleanPh },
+      where: {
+        OR: [
+          { phone: cleanPh },
+          { phone: numberPart },
+          { phone: `+${numberPart}` }
+        ]
+      },
       orderBy: { createdAt: 'asc' },
       include: {
         respondedByUser: {
@@ -247,7 +259,11 @@ exports.getMessagesByPhone = async (req, res) => {
     // 2. Mark incoming messages as read
     await prisma.communicationLog.updateMany({
       where: {
-        phone: cleanPh,
+        OR: [
+          { phone: cleanPh },
+          { phone: numberPart },
+          { phone: `+${numberPart}` }
+        ],
         direction: 'INBOUND',
         readStatus: false
       },
