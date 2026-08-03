@@ -134,8 +134,8 @@ exports.sendEmail = async ({ to, subject, html, text }) => {
         text: text || html.replace(/<[^>]*>/g, ''), // Basic HTML strip for fallback text
         html
       });
-      
-      const timeoutPromise = new Promise((_, reject) => 
+
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('SMTP sendMail timed out after 10s')), 10000)
       );
 
@@ -436,11 +436,11 @@ exports.sendPackagePaymentConfirmationEmail = async ({ clientId, paymentId }) =>
 
     const client = payment.client;
     const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
-    
+
     // Parse snapshot
     let snapshot = payment.invoiceSnapshot;
     if (typeof snapshot === 'string') {
-      try { snapshot = JSON.parse(snapshot); } catch (e) {}
+      try { snapshot = JSON.parse(snapshot); } catch (e) { }
     }
 
     if (!snapshot) {
