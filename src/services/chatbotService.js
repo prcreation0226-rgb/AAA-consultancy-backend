@@ -249,13 +249,16 @@ async function sendCustomWhatsApp(phone, messageBody) {
   if (isConfigured) {
     try {
       const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-      await client.messages.create({
+      const res = await client.messages.create({
         body: messageBody,
         from: TWILIO_WHATSAPP_FROM,
         to: twilioTo
       });
+      console.log(`[Twilio WA Outbound Success] Sent to ${twilioTo}. SID: ${res.sid}, Status: ${res.status}`);
+      return res;
     } catch (err) {
-      console.error(`Twilio Chatbot Outbound Send failed to ${twilioTo}:`, err.message);
+      console.error(`[Twilio WA Outbound Error] Failed to ${twilioTo}: ${err.code} - ${err.message}`);
+      throw err;
     }
   } else {
     console.log('------------------------------------------------------------');
