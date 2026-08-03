@@ -486,15 +486,22 @@ const updateOutcome = async (req, res) => {
       }
     }
 
-    // Auto-update associated lead status & send WhatsApp confirmation when Unblocked & Restored to Scheduled
-    if (consultation.leadId && status === 'Scheduled') {
+    // Auto-update associated lead status & send WhatsApp rebooking link when Unblocked & Restored
+    if (consultation.leadId && (status === 'Scheduled' || status === 'Unblocked' || status === 'Restored')) {
       try {
+        // 1. Update consultation status to Unblocked
+        await prisma.consultation.update({
+          where: { id: consultation.id },
+          data: { status: 'Unblocked' }
+        }).catch(err => console.warn('[Unblock Restore] Consultation status update warning:', err.message));
+
+        // 2. Update lead status to Unblocked - Rebook Pending
         const updatedLead = await prisma.lead.update({
           where: { id: consultation.leadId },
-          data: { status: 'Meeting Scheduled' }
+          data: { status: 'Unblocked - Rebook Pending' }
         });
 
-        // Remove lead from blacklist if present
+        // 3. Remove lead from blacklist if present
         if (updatedLead) {
           const cleanPhoneDigits = updatedLead.phone ? updatedLead.phone.replace(/\D/g, '').slice(-10) : '';
           await prisma.blacklistedClient.deleteMany({
@@ -507,9 +514,30 @@ const updateOutcome = async (req, res) => {
           }).catch(err => console.warn('[Unblock Restore] Blacklist cleanup warning:', err.message));
         }
 
-        // Trigger Instant WhatsApp & Email Notifications for Restored Consultation
-        sendConsultationNotifications(consultation).catch(err => console.error('[Unblock Restore] WhatsApp dispatch error:', err.message));
-        console.log(`[Unblock & Restore] Restored Consultation ${consultation.id} & Lead ${consultation.leadId}, dispatched WhatsApp message.`);
+        // 4. Send WhatsApp message with fresh booking form link
+        if (updatedLead && updatedLead.phone) {
+          const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+          const rebookUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
+          const clientName = `${updatedLead.firstName || ''} ${updatedLead.lastName || ''}`.trim() || 'Valued Client';
+
+          const waMsg = `🔓 *AAA Business Consultancy - Access Restored!*
+
+Dear *${clientName}*,
+
+Your account has been unblocked by our team! 🎉
+
+You can now select a new date and time slot for your Spain Visa Consultation using the link below:
+
+📅 *Book New Appointment Slot:*
+${rebookUrl}
+
+We look forward to assisting you!
+_AAA Business Consultancy_`;
+
+          const { sendCustomWhatsApp } = require('../services/chatbotService');
+          await sendCustomWhatsApp(updatedLead.phone, waMsg);
+          console.log(`[Unblock & Restore] Restored Consultation ${consultation.id} & Lead ${consultation.leadId}, dispatched WhatsApp rebooking link to ${updatedLead.phone}.`);
+        }
       } catch (unblockErr) {
         console.error('[Unblock Restore Error]:', unblockErr.message);
       }
