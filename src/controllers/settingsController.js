@@ -79,6 +79,9 @@ let DEFAULT_CUSTOMIZATION = {
     adultAgeThreshold: 18,
     bookingAllowedStart: '09:00',
     bookingAllowedEnd: '18:00',
+    bookingWindows: [
+      { startTime: '09:00', endTime: '18:00' }
+    ],
     welcomeEmailSubject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
     welcomeEmailTemplate: `<div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; color: #2d3748;">
   <div style="text-align: center; margin-bottom: 24px;">

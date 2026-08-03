@@ -15,6 +15,33 @@ const SMTP_FROM = process.env.SMTP_FROM || `"AAA Business Consultancy" <info@aaa
 let resendClient = null;
 let transporter = null;
 
+const getCleanPackageName = (rawPackageName, serviceType) => {
+  const input = String(rawPackageName || serviceType || '').trim();
+  if (!input) return 'Spain Visa & Residency Services';
+
+  // If input is a raw technical ID like pkg_1785313855786 or Stripe session ID
+  if (input.startsWith('pkg_') || input.startsWith('cs_') || input.startsWith('pi_') || input.startsWith('ch_')) {
+    if (serviceType && !String(serviceType).startsWith('pkg_')) {
+      return getCleanPackageName(serviceType, null);
+    }
+    return 'Spain Relocation & Visa Package';
+  }
+
+  const lower = input.toLowerCase();
+  if (lower.includes('case_assessment') || lower.includes('option_a') || lower === 'option a') return 'Professional Case Assessment';
+  if (lower.includes('option_b') || lower.includes('full processing')) return 'Full Processing Package (Option B)';
+  if (lower.includes('option_c') || lower.includes('premium')) return 'Premium Package (Option C)';
+  if (lower.includes('option_d') || lower.includes('relocation')) return 'Administrative Relocation Package (Option D)';
+  if (lower.includes('nomad') || lower.includes('dnv')) return 'Spain Digital Nomad Visa (DNV)';
+  if (lower.includes('lucrative') || lower.includes('nlv')) return 'Spain Non-Lucrative Visa (NLV)';
+  if (lower.includes('study') || lower.includes('student')) return 'Spain Student Visa';
+  if (lower.includes('tourist') || lower.includes('schengen')) return 'Spain Tourist Visa (Schengen)';
+  if (lower.includes('property') || lower.includes('investment')) return 'Property Investment Guidance Service';
+  if (lower.includes('translation') || lower.includes('sworn')) return 'Spanish Sworn Translation Service';
+
+  return input;
+};
+
 if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
   console.log('Email Service: Initializing Resend client');
   resendClient = new Resend(RESEND_API_KEY);
@@ -182,8 +209,7 @@ exports.sendVisaChecklist = async (to, clientName, serviceType, paymentData = {}
   const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
   const clientCode = paymentData.clientCode || 'N/A';
   const amountPaid = paymentData.amount ? `€${Number(paymentData.amount).toFixed(2)}` : 'N/A';
-  const packageName = paymentData.packageName || serviceType || 'Service Package';
-  const transactionId = paymentData.transactionId || 'N/A';
+  const packageName = getCleanPackageName(paymentData.packageName, serviceType);
   const dateStr = paymentData.dateStr || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const invoiceUrl = paymentData.invoiceUrl || `${frontendUrl}/#/portal/login?zoho_fallback=true`;
   const portalUrl = `${frontendUrl}/#/portal/login`;
@@ -206,7 +232,6 @@ exports.sendVisaChecklist = async (to, clientName, serviceType, paymentData = {}
             <li><b>👤 Client ID:</b> ${clientCode}</li>
             <li><b>💳 Amount Paid:</b> ${amountPaid}</li>
             <li><b>📦 Package / Service:</b> ${packageName}</li>
-            <li><b>🔖 Transaction ID:</b> ${transactionId}</li>
             <li><b>📅 Date:</b> ${dateStr}</li>
           </ul>
         </div>

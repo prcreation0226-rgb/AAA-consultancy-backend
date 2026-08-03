@@ -307,6 +307,16 @@ exports.handleStripeWebhook = async (req, res) => {
 
         // Schedule Phase 7 Drips & Google Review if remindersQueue is active
         const { remindersQueue } = require('../queues/queueSetup');
+        const { sendGoogleReviewRequestWhatsApp } = require('../services/whatsappService');
+
+        // Trigger 2: Send Google Review request immediately after payment
+        await sendGoogleReviewRequestWhatsApp({
+          phone: client.phone,
+          clientName: `${client.firstName} ${client.lastName}`.trim(),
+          clientId: client.id,
+          triggerStage: 'POST_PAYMENT'
+        }).catch(gErr => console.error('[Stripe Webhook] Immediate Google Review failed:', gErr.message));
+
         if (remindersQueue && remindersQueue.add) {
           // 1. Schedule Upgrade drips (3d, 7d, 10d, 14d)
           await remindersQueue.add('paid-assessment-upgrade-drip', { clientId: client.id, dripIndex: 1 }, { delay: 3 * 24 * 60 * 60 * 1000 });
@@ -314,9 +324,9 @@ exports.handleStripeWebhook = async (req, res) => {
           await remindersQueue.add('paid-assessment-upgrade-drip', { clientId: client.id, dripIndex: 3 }, { delay: 10 * 24 * 60 * 60 * 1000 });
           await remindersQueue.add('paid-assessment-upgrade-drip', { clientId: client.id, dripIndex: 4 }, { delay: 14 * 24 * 60 * 60 * 1000 });
 
-          // 2. Schedule Google Review request drip (3d)
-          await remindersQueue.add('google-review-request-drip', { clientId: client.id }, { delay: 3 * 24 * 60 * 60 * 1000 });
-          console.log(`[Stripe Webhook] Scheduled Phase 7 upgrade drips and Google review request for client ${client.id}`);
+          // Trigger 3: Schedule 3-Day Post-Payment Google Review request drip
+          await remindersQueue.add('google-review-request-drip', { clientId: client.id, triggerStage: 'POST_PAYMENT_3D' }, { delay: 3 * 24 * 60 * 60 * 1000 });
+          console.log(`[Stripe Webhook] Scheduled Phase 7 upgrade drips and 3-day post-payment Google review request for client ${client.id}`);
         }
       }
 
@@ -474,46 +484,8 @@ async function processZoomRecording(requestBody) {
         console.log(`[processZoomRecording] Successfully linked recording link to Lead ${lead.id} notes and communication logs.`);
       }
 
-      // 5. Trigger automated post-consultation Google Review WhatsApp message (Immediate + 3d + 7d drips)
-      (async () => {
-        try {
-          const targetPhone = consultation.lead?.phone;
-          const targetName = consultation.lead ? `${consultation.lead.firstName} ${consultation.lead.lastName}`.trim() : 'Client';
-          const targetClientId = consultation.lead?.clientId;
+      // 5. Note: Google Review Trigger 1 is already handled upon Consultation Completion in consultationController.js
 
-          await sendGoogleReviewRequestWhatsApp({
-            phone: targetPhone,
-            clientName: targetName,
-            clientId: targetClientId,
-            leadId: consultation.leadId
-          });
-
-          if (remindersQueue && remindersQueue.add) {
-            await remindersQueue.add('google-review-request-drip', {
-              leadId: consultation.leadId,
-              clientId: targetClientId,
-              phone: targetPhone,
-              clientName: targetName,
-              dripIndex: 2
-            }, {
-              delay: 3 * 24 * 60 * 60 * 1000 // 3 days
-            });
-
-            await remindersQueue.add('google-review-request-drip', {
-              leadId: consultation.leadId,
-              clientId: targetClientId,
-              phone: targetPhone,
-              clientName: targetName,
-              dripIndex: 3
-            }, {
-              delay: 7 * 24 * 60 * 60 * 1000 // 7 days
-            });
-            console.log(`[Zoom Recording Complete] Scheduled 3-day and 7-day Google Review drips for lead ${consultation.leadId}`);
-          }
-        } catch (gErr) {
-          console.error('[processZoomRecording] Error triggering Google Review WhatsApp sequence:', gErr.message);
-        }
-      })();
     } else {
       console.warn(`No Consultation record found matching Zoom Meeting ID ${meetingId}`);
     }

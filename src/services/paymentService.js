@@ -199,6 +199,33 @@ const processPaymentEvent = async (event) => {
               console.error('[Email Webhook] Failed to send package payment confirmation email:', emailErr.message);
             }
           }
+
+          // Trigger 2: Post-Payment Immediate Google Review Request
+          try {
+            const { sendGoogleReviewRequestWhatsApp } = require('./whatsappService');
+            await sendGoogleReviewRequestWhatsApp({
+              phone: updatedClient.phone,
+              clientName: `${updatedClient.firstName} ${updatedClient.lastName}`.trim(),
+              clientId: updatedClient.id,
+              triggerStage: 'POST_PAYMENT'
+            });
+          } catch (gReviewErr) {
+            console.error('[Payment Webhook] Trigger 2 Google Review failed:', gReviewErr.message);
+          }
+
+          // Trigger 3: Schedule 3-Day Post-Payment Google Review Drip
+          try {
+            const { remindersQueue } = require('../queues/queueSetup');
+            if (remindersQueue && remindersQueue.add) {
+              await remindersQueue.add('google-review-request-drip', {
+                clientId: updatedClient.id,
+                triggerStage: 'POST_PAYMENT_3D'
+              }, { delay: 3 * 24 * 60 * 60 * 1000 });
+              console.log(`[Payment Webhook] Scheduled Trigger 3 (3-Day Post-Payment Google Review Drip) for client ${updatedClient.id}`);
+            }
+          } catch (qErr) {
+            console.error('[Payment Webhook] Trigger 3 queue scheduling failed:', qErr.message);
+          }
         }
         
         // Remove from payment drip queue if applicable (handled by queue removal logic usually)

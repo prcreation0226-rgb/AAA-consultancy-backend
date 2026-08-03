@@ -59,7 +59,7 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
     payment_reminder_2h: 'HX02a8475f06ded5fb55382c41dcc12e03',
     payment_reminder_24h: 'HX58d9dc8fcb2379bc8fd07c62f5d6f08c',
     payment_reminder_48h: 'HXdf389214c0d680e13b1ac350963136ae',
-    google_review: 'HX8ded76e53776ddfd06f90c990f656107',
+    google_review: 'HXceaff82353f36a4766549d38d53825bf',
     aaa_meeting_reminder_24h: 'HX2f47579af995ae8f89e0995030cd7d75',
     aaa_meeting_reminder_1h: 'HX745752fa78cb0a8a2675e376fe385330',
     // --- REQUIRED NEW TEMPLATES FOR NOTIFICATION FLOW ---
@@ -484,7 +484,7 @@ Thank you for choosing AAA Business Consultancy!`;
  * Sends automated Google Review invitation WhatsApp message post-consultation.
  * Enforces a 14-day phone-number-based deduplication guard using CommunicationLog.
  */
-exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, leadId }) => {
+exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, leadId, triggerStage = 'POST_CONSULTATION' }) => {
   try {
     if (!phone) {
       console.warn('[Google Review WhatsApp] Missing phone number. Skipping.');
@@ -502,101 +502,84 @@ exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, 
       return { success: false, reason: 'INVALID_PHONE' };
     }
 
-    // Exact requested message content
-    const messageBody = `Thank you for choosing AAA Business Consultancy.
+    // 0. Check if Client has already submitted a Google Review in DB
+    let targetClientId = clientId || null;
+    if (!targetClientId && leadId) {
+      const lead = await prisma.lead.findUnique({
+        where: { id: leadId },
+        select: { clientId: true }
+      });
+      if (lead) targetClientId = lead.clientId;
+    }
 
-We hope you were satisfied with your consultation. We’d truly appreciate it if you could take a moment to leave us a Google Review.
-
-⭐ Leave your review here:
-
-https://g.page/r/CXugL6bqOJCXEAI/review
-
-Thank you for your support!`;
-
-    // Test mode / Whitelist filter
-    const isTestMode = process.env.TEST_MODE !== 'false';
-    if (isTestMode) {
-      const whitelistStr = process.env.TEST_PHONES || '+917047687998,+971524350123,+971524360123,+971566952566';
-      const testPhones = whitelistStr.split(',').map(p => p.trim());
-      if (!testPhones.includes(cleanPh)) {
-        console.log(`[TEST MODE] Blocked Google Review WhatsApp message to ${cleanPh} (not whitelisted)`);
-        // Log to database even in test mode so deduplication is recorded
-        try {
-          await prisma.communicationLog.create({
-            data: {
-              clientId: clientId || null,
-              phone: cleanPh,
-              name: clientName || 'Client',
-              channel: 'WHATSAPP',
-              direction: 'OUTBOUND',
-              externalProviderId: 'GOOGLE_REVIEW_REQUEST',
-              content: messageBody,
-              deliveryStatus: 'LOGGED',
-              failureReason: 'TEST_MODE_NOT_WHITELISTED'
-            }
-          });
-        } catch (logErr) {
-          console.warn('[Google Review WhatsApp] Test mode log warning:', logErr.message);
-        }
-        return { success: true, dryRun: true, reason: 'SANDBOX_BLOCKED' };
+    if (targetClientId) {
+      const clientRecord = await prisma.client.findUnique({
+        where: { id: targetClientId },
+        select: { googleReviewSubmitted: true }
+      });
+      if (clientRecord && clientRecord.googleReviewSubmitted) {
+        console.log(`[Google Review WhatsApp] Client ${targetClientId} already submitted review. Skipping.`);
+        return { success: true, skipped: true, reason: 'REVIEW_ALREADY_SUBMITTED' };
       }
     }
 
-    const twilioTo = `whatsapp:${cleanPh}`;
-    let deliveryStatus = 'SENT';
-    let failureReason = null;
-
-    if (isConfigured) {
-      try {
-        const clientTwilio = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-        await clientTwilio.messages.create({
-          body: messageBody,
-          from: TWILIO_WHATSAPP_FROM,
-          to: twilioTo
-        });
-        console.log(`[Google Review WhatsApp] Successfully sent review request to ${twilioTo}`);
-      } catch (err) {
-        console.error(`[Google Review WhatsApp] Twilio send failed to ${twilioTo}:`, err.message);
-        deliveryStatus = 'FAILED';
-        failureReason = err.message;
-      }
-    } else {
-      console.log('------------------------------------------------------------');
-      console.log(`[GOOGLE REVIEW WHATSAPP DRY-RUN]`);
-      console.log(`To:   ${twilioTo}`);
-      console.log(`Body:\n${messageBody}`);
-      console.log('------------------------------------------------------------');
-    }
-
-    // Record in CommunicationLog
+    // 1. Enforce Stage-Based 24-hour Deduplication Guard via CommunicationLog
     try {
-      let targetClientId = clientId || null;
-      if (!targetClientId && leadId) {
-        const lead = await prisma.lead.findUnique({
-          where: { id: leadId },
-          select: { clientId: true }
-        });
-        if (lead) targetClientId = lead.clientId;
-      }
+      const numberPart = cleanPh.replace('+', '');
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recentLog = await prisma.communicationLog.findFirst({
+        where: {
+          phone: { contains: numberPart },
+          externalProviderId: { in: ['GOOGLE_REVIEW_REQUEST', 'google_review', `google_review_${triggerStage}`] },
+          createdAt: { gte: oneDayAgo },
+          deliveryStatus: { in: ['SENT', 'LOGGED'] }
+        }
+      });
 
+      if (recentLog && (recentLog.externalProviderId === `google_review_${triggerStage}` || recentLog.externalProviderId === 'google_review')) {
+        console.log(`[Google Review WhatsApp] Blocked duplicate ${triggerStage} message to ${cleanPh} (Sent ${recentLog.createdAt})`);
+        return { success: true, skipped: true, reason: 'DEDUPLICATED_24H' };
+      }
+    } catch (dedupErr) {
+      console.warn('[Google Review WhatsApp] Deduplication check warning:', dedupErr.message);
+    }
+
+    // 2. Delegate sending to sendWhatsAppMessage using registered template 'google_review'
+    const targetName = clientName || 'Client';
+    const result = await exports.sendWhatsAppMessage({
+      to: cleanPh,
+      templateName: 'google_review',
+      languageCode: 'en',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: targetName }
+          ]
+        }
+      ]
+    });
+
+    // Record stage log in CommunicationLog
+    try {
       await prisma.communicationLog.create({
         data: {
           clientId: targetClientId,
           phone: cleanPh,
-          name: clientName || 'Client',
+          name: targetName,
           channel: 'WHATSAPP',
           direction: 'OUTBOUND',
-          externalProviderId: 'GOOGLE_REVIEW_REQUEST',
-          content: messageBody,
-          deliveryStatus: deliveryStatus,
-          failureReason: failureReason
+          externalProviderId: `google_review_${triggerStage}`,
+          content: `Google Review Request (${triggerStage})`,
+          deliveryStatus: result.success ? 'SENT' : 'FAILED'
         }
       });
     } catch (logErr) {
-      console.warn('[Google Review WhatsApp] DB log record warning:', logErr.message);
+      console.warn('[Google Review WhatsApp] CommunicationLog record warning:', logErr.message);
     }
 
-    return { success: true, dryRun: !isConfigured };
+    console.log(`[Google Review WhatsApp] Successfully dispatched ${triggerStage} review request template to ${cleanPh}`);
+    return result;
   } catch (err) {
     console.error('[Google Review WhatsApp Error]:', err.message);
     return { success: false, error: err.message };

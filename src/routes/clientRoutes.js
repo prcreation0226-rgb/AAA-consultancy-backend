@@ -1,5 +1,5 @@
 const express = require('express');
-const { getClients, createClient, updateClient, updateClientStatus, selectPackage, generateCredentials, clientLogin, changeClientPassword, updateClientDependents, getClientProfile, submitGoogleReviewStatus } = require('../controllers/clientController');
+const { getClients, createClient, updateClient, updateClientStatus, selectPackage, generateCredentials, clientLogin, changeClientPassword, updateClientDependents, getClientProfile, submitGoogleReviewStatus, deleteClient } = require('../controllers/clientController');
 
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 
@@ -18,5 +18,6 @@ router.post('/:id/select-package', authMiddleware, selectPackage);
 router.patch('/:id/dependents', authMiddleware, updateClientDependents);
 router.post('/:id/google-review', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant', 'agent', 'case_manager']), submitGoogleReviewStatus);
 router.put('/:id', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant', 'agent', 'case_manager']), updateClient);
+router.delete('/:id', authMiddleware, rbacMiddleware(['super_admin']), deleteClient);
 
 module.exports = router;

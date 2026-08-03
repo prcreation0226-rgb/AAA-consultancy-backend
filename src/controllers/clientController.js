@@ -831,6 +831,49 @@ const updateClient = async (req, res) => {
   }
 };
 
+const deleteClient = async (req, res) => {
+  try {
+    if (!req.user || req.user.role !== 'super_admin') {
+      return res.status(403).json({ message: 'Only Super Admin has permission to delete clients.' });
+    }
+    const { id } = req.params;
+
+    const existingClient = await prisma.client.findUnique({
+      where: { id }
+    });
+
+    if (!existingClient) {
+      return res.status(404).json({ message: 'Client record not found.' });
+    }
+
+    // Perform proper cascaded cleanup of all linked dependencies
+    await prisma.$transaction([
+      prisma.document.deleteMany({ where: { clientId: id } }),
+      prisma.payment.deleteMany({ where: { clientId: id } }),
+      prisma.refundRequest.deleteMany({ where: { clientId: id } }),
+      prisma.applicationCycle.deleteMany({ where: { clientId: id } }),
+      prisma.communicationLog.deleteMany({ where: { clientId: id } }),
+      prisma.discountCode.deleteMany({ where: { clientId: id } }),
+      prisma.lead.updateMany({
+        where: { clientId: id },
+        data: { clientId: null }
+      }),
+      prisma.client.delete({ where: { id } })
+    ]);
+
+    console.log(`[CLIENT DELETED] Super Admin ${req.user.email} deleted Client ID: ${id} (${existingClient.firstName} ${existingClient.lastName})`);
+
+    res.json({
+      success: true,
+      message: `Client ${existingClient.firstName} ${existingClient.lastName} deleted successfully.`,
+      clientId: id
+    });
+  } catch (error) {
+    console.error('Error in deleteClient:', error);
+    res.status(500).json({ message: 'Server error deleting client', error: error.message });
+  }
+};
+
 module.exports = { 
   getClients, 
   createClient, 
@@ -842,5 +885,6 @@ module.exports = {
   changeClientPassword,
   updateClientDependents,
   getClientProfile,
-  submitGoogleReviewStatus
+  submitGoogleReviewStatus,
+  deleteClient
 };

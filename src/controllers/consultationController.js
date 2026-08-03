@@ -406,37 +406,15 @@ const updateOutcome = async (req, res) => {
             }
           }
 
-          // 1st Message (Immediate)
+          // Trigger 1: 1st Google Review Message (Immediate Post-Consultation)
           await sendGoogleReviewRequestWhatsApp({
             phone: targetPhone,
             clientName: targetName,
             clientId: targetClientId,
-            leadId: consultation.leadId
+            leadId: consultation.leadId,
+            triggerStage: 'POST_CONSULTATION'
           });
-
-          // Schedule 2nd Message (3 Days Delay) & 3rd Message (7 Days Delay) in BullMQ Queue
-          if (remindersQueue && remindersQueue.add) {
-            await remindersQueue.add('google-review-request-drip', {
-              leadId: consultation.leadId,
-              clientId: targetClientId,
-              phone: targetPhone,
-              clientName: targetName,
-              dripIndex: 2
-            }, {
-              delay: 3 * 24 * 60 * 60 * 1000 // 3 days
-            });
-
-            await remindersQueue.add('google-review-request-drip', {
-              leadId: consultation.leadId,
-              clientId: targetClientId,
-              phone: targetPhone,
-              clientName: targetName,
-              dripIndex: 3
-            }, {
-              delay: 7 * 24 * 60 * 60 * 1000 // 7 days
-            });
-            console.log(`[Google Review Drip] Scheduled 3-day and 7-day Google Review drips for lead ${consultation.leadId}`);
-          }
+          console.log(`[Google Review] Dispatched Trigger 1 (Post-Consultation Immediate) for lead ${consultation.leadId}`);
         } catch (gReviewErr) {
           console.error('[Google Review Trigger] Error triggering review request:', gReviewErr.message);
         }

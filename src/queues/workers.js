@@ -394,45 +394,15 @@ const setupWorkers = () => {
           return;
         }
 
-        const { sendWhatsAppMessage, sendGoogleReviewRequestWhatsApp } = require('../services/whatsappService');
-        const { sendCustomWhatsApp } = require('../services/chatbotService');
+        const { sendGoogleReviewRequestWhatsApp } = require('../services/whatsappService');
 
-        if (dripIndex === 2) {
-          // 2nd Message (3 Days Post-Consultation) - Registered Twilio Template google_review
-          try {
-            await sendWhatsAppMessage({
-              to: targetPhone,
-              templateName: 'google_review',
-              languageCode: 'en',
-              components: [
-                {
-                  type: 'body',
-                  parameters: [
-                    { type: 'text', text: targetName || 'Applicant' }
-                  ]
-                }
-              ]
-            });
-            console.log(`[Google-Review-Drip] Sent 3-day Google Review template (google_review) to ${targetPhone}`);
-          } catch (waErr) {
-            console.warn('[Google-Review-Drip] Registered template send fallback to custom message:', waErr.message);
-            const msg = `Hello *${targetName || 'Client'}*,\n\nWe hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!`;
-            await sendCustomWhatsApp(targetPhone, msg);
-          }
-        } else if (dripIndex === 3) {
-          // 3rd Message (7 Days / 1 Week Post-Consultation) - Final Reminder
-          const msg = `Hello *${targetName || 'Client'}*,\n\nThis is a final gentle reminder from AAA Business Consultancy! 🌟\n\nIf you haven't had a chance yet, we would be incredibly grateful if you could share a quick Google Review about your consultation experience:\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you for trusting us with your Spain relocation journey!`;
-          await sendCustomWhatsApp(targetPhone, msg);
-          console.log(`[Google-Review-Drip] Sent 7-day Google Review final reminder to ${targetPhone}`);
-        } else {
-          // 1st Message fallback / direct invocation
-          await sendGoogleReviewRequestWhatsApp({
-            phone: targetPhone,
-            clientName: targetName,
-            clientId,
-            leadId
-          });
-        }
+        await sendGoogleReviewRequestWhatsApp({
+          phone: targetPhone,
+          clientName: targetName,
+          clientId,
+          leadId,
+          triggerStage: 'POST_PAYMENT_3D'
+        });
 
         if (targetEmail) {
           await sendEmail({
