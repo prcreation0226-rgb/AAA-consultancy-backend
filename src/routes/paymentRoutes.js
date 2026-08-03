@@ -44,4 +44,24 @@ router.patch('/commissions/rates', authMiddleware, rbacMiddleware(['super_admin'
 router.get('/commissions/report', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'consultant']), getCommissionsReport);
 router.get('/commissions/history/:agentId', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'operations', 'consultant']), getCommissionHistory);
 
+router.get('/zoho-pdf/:invoiceId', async (req, res) => {
+  try {
+    const { invoiceId } = req.params;
+    const cleanInvoiceId = invoiceId.replace(/\.pdf$/, '');
+    const zohoInvoiceService = require('../services/zohoInvoiceService');
+    const pdfBuffer = await zohoInvoiceService.getZohoInvoicePdfBuffer(cleanInvoiceId);
+
+    if (!pdfBuffer) {
+      return res.status(404).send('Invoice PDF not found');
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="AAA_Tax_Invoice_${cleanInvoiceId}.pdf"`);
+    res.send(Buffer.from(pdfBuffer));
+  } catch (err) {
+    console.error('Error streaming Zoho PDF:', err.message);
+    res.status(500).send('Error generating invoice PDF');
+  }
+});
+
 module.exports = router;

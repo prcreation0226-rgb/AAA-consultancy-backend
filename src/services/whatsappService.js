@@ -625,7 +625,7 @@ Best regards,
  * Sends automated WhatsApp Payment Success Receipt to client upon successful payment.
  * Includes Permanent CID (CID-12001), Amount, Service Package, Transaction ID, Zoho Invoice Link, and Portal Link.
  */
-exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, transactionId, generatedPassword, zohoInvoiceUrl }) => {
+exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, transactionId, generatedPassword, zohoInvoiceUrl, invoiceId }) => {
   try {
     const phone = client?.phone;
     if (!phone) {
@@ -653,6 +653,7 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
     const { sendCustomWhatsApp } = require('./chatbotService');
     const dayjs = require('dayjs');
     const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const backendUrl = process.env.BACKEND_URL || 'https://aaa-crm-service-production.up.railway.app';
     const portalUrl = `${frontendUrl}/#/portal/login`;
     const clientName = `${client.firstName} ${client.lastName}`.trim();
     const clientCode = client.clientCode || `CID-12001`;
@@ -695,9 +696,13 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
       credsSection = `\n🔑 *Portal Login Credentials:*\n👤 *Username:* ${client.email}\n🔑 *Temp Password:* ${generatedPassword}\n`;
     }
 
+    const pdfDirectUrl = invoiceId ? `${backendUrl}/api/v1/payments/zoho-pdf/${invoiceId}.pdf` : null;
+
     let zohoSection = '';
-    if (zohoInvoiceUrl) {
-      zohoSection = `\n🧾 *Official Tax Invoice:* ${zohoInvoiceUrl}\n`;
+    if (pdfDirectUrl) {
+      zohoSection = `\n📄 *Download Tax Invoice PDF:* ${pdfDirectUrl}\n`;
+    } else if (zohoInvoiceUrl) {
+      zohoSection = `\n📄 *Official Tax Invoice:* ${zohoInvoiceUrl}\n`;
     }
 
     const messageBody = `🎉 *Payment Confirmed - AAA Business Consultancy*
@@ -718,7 +723,7 @@ Your Client Portal is active. Log in to upload your required documents and track
 
 Thank you for choosing AAA Business Consultancy! 🇪🇸`;
 
-    await sendCustomWhatsApp(phone, messageBody).catch(err => console.error('[Payment Success WA Error]:', err.message));
+    await sendCustomWhatsApp(phone, messageBody, pdfDirectUrl).catch(err => console.error('[Payment Success WA Error]:', err.message));
 
     // Record deduplication marker in CommunicationLog
     try {

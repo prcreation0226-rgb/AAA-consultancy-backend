@@ -156,6 +156,7 @@ const processPaymentEvent = async (event) => {
 
           // Auto-Generate Official Zoho Invoice upon Payment Completion
           let zohoInvoiceUrl = null;
+          let zohoInvoiceId = null;
           try {
             const zohoInvoiceService = require('./zohoInvoiceService');
             const zohoRes = await zohoInvoiceService.createZohoInvoice({
@@ -167,6 +168,7 @@ const processPaymentEvent = async (event) => {
             });
             if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
               zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
+              zohoInvoiceId = zohoRes.invoiceId;
               console.log(`[Auto-Zoho Payment Webhook] Created & Paid Zoho Invoice ${zohoRes.invoiceNumber}. URL: ${zohoInvoiceUrl}`);
             }
           } catch (zohoErr) {
@@ -182,7 +184,8 @@ const processPaymentEvent = async (event) => {
               amount: totalPaid,
               serviceType: updatedClient.serviceType,
               generatedPassword: session.metadata?.tempPassword || null,
-              zohoInvoiceUrl
+              zohoInvoiceUrl,
+              invoiceId: zohoInvoiceId
             });
             console.log(`[Auto-WhatsApp Payment Webhook] Sent payment success & portal credentials to client ${updatedClient.phone}`);
           } catch (waErr) {

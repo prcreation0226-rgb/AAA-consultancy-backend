@@ -255,9 +255,32 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
   }
 };
 
+const getZohoInvoicePdfBuffer = async (invoiceId) => {
+  const token = await getAccessToken();
+  const orgId = process.env.ZOHO_ORGANIZATION_ID;
+  const apiUrl = process.env.ZOHO_API_URL || 'https://www.zohoapis.com/invoice/v3';
+
+  if (!token || !orgId || !invoiceId) return null;
+
+  try {
+    const response = await axios.get(`${apiUrl}/invoices/${invoiceId}?organization_id=${orgId}&accept=pdf`, {
+      headers: {
+        Authorization: `Zoho-oauthtoken ${token}`,
+        'X-com-zoho-invoice-organizationid': orgId
+      },
+      responseType: 'arraybuffer'
+    });
+    return response.data;
+  } catch (err) {
+    console.error(`[Zoho Invoice Service] Failed to fetch PDF buffer for ${invoiceId}:`, err.message);
+    return null;
+  }
+};
+
 module.exports = {
   isConfigured,
   getAccessToken,
   createOrGetContact,
-  createZohoInvoice
+  createZohoInvoice,
+  getZohoInvoicePdfBuffer
 };
