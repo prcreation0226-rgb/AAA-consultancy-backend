@@ -111,8 +111,8 @@ const createClient = async (req, res) => {
 
       // Generate credentials if missing
       if (!client.password) {
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
-        for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+        for (let i = 0; i < 6; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(plainPassword, salt);
@@ -127,9 +127,9 @@ const createClient = async (req, res) => {
         data: updateData
       });
     } else {
-      // Generate secure random password for new client
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
-      for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      // Generate secure random 6-character password for new client
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      for (let i = 0; i < 6; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
 
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(plainPassword, salt);
@@ -559,10 +559,10 @@ const generateCredentials = async (req, res) => {
       });
     }
 
-    // Generate a secure random 8-character password
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
+    // Generate a secure random 6-character password
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
     let plainPassword = '';
-    for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    for (let i = 0; i < 6; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(plainPassword, salt);
@@ -684,8 +684,8 @@ const changeClientPassword = async (req, res) => {
       return res.status(403).json({ message: 'Access denied. You cannot change password for other clients.' });
     }
     
-    if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+    if (!newPassword || newPassword.length !== 6) {
+      return res.status(400).json({ message: 'Password must contain exactly 6 characters.' });
     }
 
     const salt = await bcrypt.genSalt(10);

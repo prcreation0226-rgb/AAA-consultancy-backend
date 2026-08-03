@@ -259,9 +259,9 @@ const updateOutcome = async (req, res) => {
             }
 
             const bcrypt = require('bcrypt');
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%';
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
             let plainPassword = '';
-            for (let i = 0; i < 8; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+            for (let i = 0; i < 6; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
 
             const salt = await bcrypt.genSalt(10);
             const hashedPassword = await bcrypt.hash(plainPassword, salt);
