@@ -127,7 +127,7 @@ const createOrGetContact = async ({ name, email, phone }) => {
 /**
  * Creates an itemized Zoho Invoice for a client and returns the public payment URL.
  */
-const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceType, dueDate }) => {
+const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceType, dueDate, isPaid = false }) => {
   const token = await getAccessToken();
   const orgId = process.env.ZOHO_ORGANIZATION_ID;
   const apiUrl = process.env.ZOHO_API_URL || 'https://www.zohoapis.com/invoice/v3';
@@ -171,13 +171,6 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
         }
       ],
       discount: Number(discount) || 0,
-      payment_options: {
-        payment_gateways: [
-          {
-            gateway_name: 'stripe'
-          }
-        ]
-      },
       notes: 'Thank you for choosing AAA Business Consultancy!',
       terms: 'Payment is due upon receipt.'
     };
@@ -204,6 +197,33 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
         console.log(`[Zoho Invoice Service] Marked Zoho Invoice ${inv.invoice_number} as SENT.`);
       } catch (sentErr) {
         console.warn('[Zoho Invoice Status Sent Warning]:', sentErr.response?.data || sentErr.message);
+      }
+
+      // If payment is completed, record payment in Zoho so invoice is marked as PAID
+      if (isPaid && inv.invoice_id) {
+        try {
+          await axios.post(`${apiUrl}/customerpayments?organization_id=${orgId}`, {
+            customer_id: contactId,
+            payment_mode: 'Stripe',
+            amount: finalAmount,
+            date: new Date().toISOString().split('T')[0],
+            invoices: [
+              {
+                invoice_id: inv.invoice_id,
+                amount_applied: finalAmount
+              }
+            ]
+          }, {
+            headers: {
+              Authorization: `Zoho-oauthtoken ${token}`,
+              'X-com-zoho-invoice-organizationid': orgId,
+              'Content-Type': 'application/json'
+            }
+          });
+          console.log(`[Zoho Invoice Service] Recorded payment of €${finalAmount} for Zoho Invoice ${inv.invoice_number}. Status: PAID.`);
+        } catch (payErr) {
+          console.warn('[Zoho Payment Record Warning]:', payErr.response?.data || payErr.message);
+        }
       }
 
       // Zoho public payment URL

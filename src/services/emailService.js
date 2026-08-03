@@ -513,7 +513,7 @@ exports.sendPackagePaymentConfirmationEmail = async ({ clientId, paymentId }) =>
 /**
  * Sends branded Payment Success Email for Sworn Translation & general payments with Customer ID and Login Credentials.
  */
-exports.sendPaymentSuccessEmail = async ({ to, clientName, customerId, serviceType, amount, tempPassword }) => {
+exports.sendPaymentSuccessEmail = async ({ to, clientName, customerId, serviceType, amount, tempPassword, zohoInvoiceUrl }) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const loginUrl = `${frontendUrl}/#/portal/login`;
   const formattedAmount = Number(amount || 0).toFixed(2);
@@ -538,6 +538,13 @@ exports.sendPaymentSuccessEmail = async ({ to, clientName, customerId, serviceTy
             <li><b>Amount Paid:</b> <strong style="color: #22c55e; font-size: 16px;">€${formattedAmount}</strong></li>
             <li><b>Max Delivery Time:</b> 7 working days from date of payment confirmation</li>
           </ul>
+
+          ${zohoInvoiceUrl ? `
+          <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin-top: 16px; text-align: center;">
+            <h4 style="margin: 0 0 6px; color: #166534; font-size: 14px;">🧾 Official Tax Invoice:</h4>
+            <a href="${zohoInvoiceUrl}" target="_blank" style="display: inline-block; padding: 8px 18px; background-color: #16a34a; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 13px;">View Official Zoho Tax Invoice</a>
+          </div>
+          ` : ''}
 
           ${tempPassword ? `
           <div style="background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-top: 16px;">

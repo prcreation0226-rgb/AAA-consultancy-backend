@@ -154,6 +154,25 @@ const processPaymentEvent = async (event) => {
             }
           }
 
+          // Auto-Generate Official Zoho Invoice upon Payment Completion
+          let zohoInvoiceUrl = null;
+          try {
+            const zohoInvoiceService = require('./zohoInvoiceService');
+            const zohoRes = await zohoInvoiceService.createZohoInvoice({
+              client: updatedClient,
+              amount: totalPaid,
+              netAmount: totalPaid,
+              serviceType: updatedClient.serviceType || packageId || 'Spain Visa Service',
+              isPaid: true
+            });
+            if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
+              zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
+              console.log(`[Auto-Zoho Payment Webhook] Created & Paid Zoho Invoice ${zohoRes.invoiceNumber}. URL: ${zohoInvoiceUrl}`);
+            }
+          } catch (zohoErr) {
+            console.error('[Auto-Zoho Payment Webhook] Failed to create Zoho Invoice:', zohoErr.message);
+          }
+
           // Send Automated Payment Receipt & Credentials WhatsApp Message
           try {
             const { sendPaymentSuccessWhatsApp } = require('./whatsappService');
@@ -162,7 +181,8 @@ const processPaymentEvent = async (event) => {
               paymentId: payment.id,
               amount: totalPaid,
               serviceType: updatedClient.serviceType,
-              generatedPassword: session.metadata?.tempPassword || null
+              generatedPassword: session.metadata?.tempPassword || null,
+              zohoInvoiceUrl
             });
             console.log(`[Auto-WhatsApp Payment Webhook] Sent payment success & portal credentials to client ${updatedClient.phone}`);
           } catch (waErr) {
@@ -179,7 +199,8 @@ const processPaymentEvent = async (event) => {
               customerId: customerId,
               serviceType: updatedClient.serviceType,
               amount: totalPaid,
-              tempPassword: session.metadata?.tempPassword || null
+              tempPassword: session.metadata?.tempPassword || null,
+              zohoInvoiceUrl
             });
             console.log(`[Auto-Email Payment Webhook] Sent payment confirmation email to client ${updatedClient.email}`);
           } catch (emailConfErr) {

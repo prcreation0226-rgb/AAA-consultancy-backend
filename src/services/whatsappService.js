@@ -658,8 +658,37 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
     const clientCode = client.clientCode || `CID-12001`;
     const formattedAmount = Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const formattedDate = dayjs().format('DD/MM/YYYY hh:mm A');
-    const displayService = serviceType || client.serviceType || 'Spain Visa / Residency Service';
-    const displayTx = transactionId || paymentId || 'CONFIRMED';
+    const resolvePackageTitle = (rawService, packageId) => {
+      const pkgMap = {
+        'option_a': 'Option A: Professional Case Assessment (€250)',
+        'option_b': 'Option B: Full Processing Package (End to End Service)',
+        'option_c': 'Option C: Premium Package (End to End Service + Administrative Relocation)',
+        'option_d': 'Option D: Administrative Relocation Package',
+        'full_process': 'Full Processing Package (End to End Service)',
+        'premium': 'Premium Package (End to End Service + Administrative Relocation)',
+        'case_assessment': 'Professional Case Assessment (€250)'
+      };
+      if (packageId && pkgMap[packageId.toLowerCase()]) return pkgMap[packageId.toLowerCase()];
+      if (rawService && pkgMap[rawService.toLowerCase()]) return pkgMap[rawService.toLowerCase()];
+
+      const sMap = {
+        'dnv': 'Digital Nomad Visa (DNV)',
+        'nlv': 'Non-Lucrative Visa (NLV)',
+        'golden_visa': 'Golden Visa (Property Investment)',
+        'study_visa': 'Spain Study Visa',
+        'tourist_visa': 'Spain Tourist Visa (Schengen)',
+        'self_employed': 'Spain Self-Employed / Business Visa'
+      };
+      if (rawService && sMap[rawService.toLowerCase()]) return sMap[rawService.toLowerCase()];
+      if (packageId && sMap[packageId.toLowerCase()]) return sMap[packageId.toLowerCase()];
+
+      if (rawService && !rawService.startsWith('pkg_') && !rawService.startsWith('a5459021')) {
+        return rawService;
+      }
+      return 'Spain Visa & Residency Service';
+    };
+
+    const displayService = resolvePackageTitle(serviceType || client.serviceType, client.packageId);
 
     let credsSection = '';
     if (generatedPassword) {
@@ -675,13 +704,12 @@ exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, service
 
 Dear *${clientName}*,
 
-Thank you! We have successfully received your payment. Here are your transaction details:
+Thank you! We have successfully received your payment. Here are your receipt details:
 
 📋 *Receipt Summary:*
 • 👤 *Client ID:* ${clientCode}
 • 💳 *Amount Paid:* €${formattedAmount}
 • 📦 *Package / Service:* ${displayService}
-• 🔖 *Transaction ID:* ${displayTx}
 • 📅 *Date:* ${formattedDate}
 ${credsSection}${zohoSection}
 🚀 *Next Steps:*
