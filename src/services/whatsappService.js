@@ -560,6 +560,8 @@ exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, 
       ]
     });
 
+    const fullReviewText = `Hello ${targetName},\n\nWe hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!`;
+
     // Record stage log in CommunicationLog
     try {
       await prisma.communicationLog.create({
@@ -570,7 +572,7 @@ exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, 
           channel: 'WHATSAPP',
           direction: 'OUTBOUND',
           externalProviderId: `google_review_${triggerStage}`,
-          content: `Google Review Request (${triggerStage})`,
+          content: fullReviewText,
           deliveryStatus: result.success ? 'SENT' : 'FAILED'
         }
       });
