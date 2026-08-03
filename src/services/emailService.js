@@ -284,7 +284,7 @@ exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlo
   const joinUrl = meetingLink || link || 'https://zoom.us';
   const finalRescheduleUrl = rescheduleLink || `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultationId || ''}`;
   const finalCancelUrl = cancelLink || `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultationId || ''}`;
-  const packagesUrl = `${frontendUrl}/#/portal/login`;
+  const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
