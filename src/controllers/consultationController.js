@@ -374,16 +374,11 @@ const updateOutcome = async (req, res) => {
     // Auto-update associated lead status and auto-convert to client if eligible
     let targetLeadId = consultation.leadId;
     if (!targetLeadId) {
-      // Find lead by consultation details
-      const matchedLead = await prisma.lead.findFirst({
-        where: {
-          OR: [
-            ...(req.body.email ? [{ email: req.body.email }] : []),
-            ...(req.body.phone ? [{ phone: req.body.phone }] : [])
-          ]
-        }
+      // Reliable fallback: find lead that owns this consultation via DB relation
+      const leadWithConsultation = await prisma.lead.findFirst({
+        where: { consultations: { some: { id: consultation.id } } }
       });
-      if (matchedLead) targetLeadId = matchedLead.id;
+      if (leadWithConsultation) targetLeadId = leadWithConsultation.id;
     }
 
     if (targetLeadId) {
