@@ -184,6 +184,13 @@ const createLead = async (req, res) => {
             ...(matchDigits ? [{ phone: { contains: matchDigits } }] : [])
           ]
         },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          status: true,
+          createdAt: true
+        },
         orderBy: { createdAt: 'desc' }
       });
 
@@ -242,28 +249,9 @@ const createLead = async (req, res) => {
       }
     }
 
-    // Generate permanent unified CID for the lead (e.g. CID-12001)
-    let suffix = 0;
-    let isUnique = false;
-    let generatedClientCode = '';
-    while (!isUnique) {
-      const totalLeads = await prisma.lead.count();
-      const totalClients = await prisma.client.count();
-      generatedClientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
-
-      const existingLead = await prisma.lead.findFirst({ where: { clientCode: generatedClientCode } });
-      const existingClient = await prisma.client.findFirst({ where: { clientCode: generatedClientCode } });
-      if (!existingLead && !existingClient) {
-        isUnique = true;
-      } else {
-        suffix++;
-      }
-    }
-
-    // Create new lead
+    // Create new lead (compatible with Railway schema)
     lead = await prisma.lead.create({
         data: {
-          clientCode: generatedClientCode,
           firstName: firstName || '',
           lastName: lastName || '',
           email: safeEmail || email || '',
@@ -577,7 +565,22 @@ async function getPublicLeadDetails(req, res) {
       return res.status(400).json({ message: 'Lead ID is required' });
     }
     const lead = await prisma.lead.findUnique({
-      where: { id }
+      where: { id },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        nationality: true,
+        preferredLanguage: true,
+        serviceType: true,
+        meetingPreferredDate: true,
+        meetingPreferredTime: true,
+        meetingPreferredLanguage: true,
+        meetingNotes: true,
+        formSubmittedAt: true
+      }
     });
     if (!lead) {
       return res.status(404).json({ message: 'No lead found with this ID' });
@@ -687,7 +690,20 @@ async function syncLeadConsultation(leadId, reqApp = null) {
   try {
     console.log(`[BOOKING] Booking submission received for Lead ID: ${leadId}`);
     const lead = await prisma.lead.findUnique({
-      where: { id: leadId }
+      where: { id: leadId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        serviceType: true,
+        meetingPreferredDate: true,
+        meetingPreferredTime: true,
+        meetingNotes: true,
+        formSubmittedAt: true,
+        assignedToId: true
+      }
     });
     if (!lead || !lead.assignedToId) {
       console.log(`[BOOKING] Lead not found or consultant assignment missing for Lead ID: ${leadId}`);
