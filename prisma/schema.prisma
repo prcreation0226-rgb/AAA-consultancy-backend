@@ -41,8 +41,6 @@ model User {
   communicationLogs CommunicationLog[] @relation("AgentCommunications")
   rateHistories      CommissionRateHistory[] @relation("AgentRateHistory")
   rateChangesMade    CommissionRateHistory[] @relation("RateChangesMade")
-  submittedCycles    ApplicationCycle[] @relation("CycleSubmissions")
-  closedCycles       ApplicationCycle[] @relation("CycleClosures")
   reviewedDocuments  Document[]         @relation("DocumentReviewer")
 
   @@map("users")
@@ -197,7 +195,6 @@ model ApplicationCycle {
   submissionNotes     String?  @db.Text
   submissionReceiptUrl String?
   submittedById       String?
-  submittedBy         User?    @relation("CycleSubmissions", fields: [submittedById], references: [id])
   submittedAt         DateTime?
 
   lawyerAssigned   String?
@@ -208,7 +205,6 @@ model ApplicationCycle {
 
   closureReason    String?  @db.Text
   closedById       String?
-  closedBy         User?    @relation("CycleClosures", fields: [closedById], references: [id])
   closedAt         DateTime?
 
   status           String   @default("Resubmission in Progress")
