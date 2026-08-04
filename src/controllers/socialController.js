@@ -386,9 +386,6 @@ exports.sendSocialMessage = async (req, res) => {
       return res.status(400).json({ message: 'Text or media is required' });
     }
 
-    const cleanPh = cleanPhoneNumber(phone);
-    const twilioTo = `whatsapp:${cleanPh}`;
-
     const displayContent = `${text || ''}${mediaUrl ? `\n[FILE: ${mediaUrl}]` : ''}`.trim();
     console.log(`Sending manual WhatsApp message to ${twilioTo}: ${displayContent}`);
 
@@ -413,18 +410,6 @@ exports.sendSocialMessage = async (req, res) => {
     } else {
       console.log(`[MANUAL TWILIO DRY-RUN] To: ${twilioTo}, Text: ${text}`);
     }
-
-    const numberPart = cleanPh.replace('+', '');
-
-    // 2. Check if Client exists for linking
-    const clientRecord = await prisma.client.findFirst({
-      where: { phone: { contains: numberPart } }
-    });
-
-    const staffUserId = req.user?.id || null;
-    const staffName = req.user?.fullName || 'Agent';
-    const staffRole = req.user?.role || 'consultant';
-
     // 3. Log OUTBOUND message to Database
     const log = await prisma.communicationLog.create({
       data: {
