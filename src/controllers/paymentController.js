@@ -441,9 +441,24 @@ const createRefundRequest = async (req, res) => {
     try {
       const creatorName = req.user?.fullName || req.user?.email || 'Client Self-Service';
       const creatorRole = req.user?.role || 'client';
-      const targetClient = await prisma.client.findUnique({ where: { id: targetClientId } });
-      const clientName = targetClient ? `${targetClient.firstName} ${targetClient.lastName}` : 'Client';
-      
+
+      // Robust client lookup by ID, Email, or User Session
+      let targetClient = null;
+      if (targetClientId) {
+        targetClient = await prisma.client.findUnique({ where: { id: targetClientId } }).catch(() => null);
+      }
+      if (!targetClient && req.user?.email) {
+        targetClient = await prisma.client.findUnique({ where: { email: req.user.email } }).catch(() => null);
+      }
+      if (!targetClient && req.user?.id) {
+        targetClient = await prisma.client.findUnique({ where: { id: req.user.id } }).catch(() => null);
+      }
+
+      const clientEmail = targetClient?.email || req.user?.email;
+      const clientName = targetClient
+        ? `${targetClient.firstName} ${targetClient.lastName}`
+        : (req.user?.fullName || req.user?.name || req.user?.email?.split('@')[0] || 'Valued Client');
+
       await prisma.auditLog.create({
         data: {
           action: `Refund Request Created by ${creatorRole.toUpperCase()} (${creatorName})`,
@@ -468,7 +483,7 @@ const createRefundRequest = async (req, res) => {
           <div style="background-color: #FAF6ED; border: 1px solid rgba(197,155,39,0.4); padding: 18px; border-radius: 8px; margin: 20px 0;">
             <h4 style="margin: 0 0 10px; color: #051A3B;">Claim Summary (#${refund.id.substring(0, 8)})</h4>
             <p style="margin: 5px 0;"><strong>Client Name:</strong> ${clientName}</p>
-            <p style="margin: 5px 0;"><strong>Client Email:</strong> ${targetClient?.email || 'N/A'}</p>
+            <p style="margin: 5px 0;"><strong>Client Email:</strong> ${clientEmail || 'N/A'}</p>
             <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
             <p style="margin: 5px 0;"><strong>Calculated Amount:</strong> <span style="color: #dc2626; font-weight: 800;">€${refundAmount.toLocaleString()}</span></p>
             <p style="margin: 5px 0;"><strong>Reason/Statement:</strong> ${reason || 'N/A'}</p>
@@ -482,6 +497,7 @@ const createRefundRequest = async (req, res) => {
         </div>
       `;
 
+      console.log(`[Refund Email] Dispatching admin alert email to client@aaabusinessconsultancy.com for claim #${refund.id}`);
       sendEmail({
         to: 'client@aaabusinessconsultancy.com',
         subject: `🚨 Alert: New Refund Claim Submitted by ${clientName} (€${refundAmount})`,
@@ -489,7 +505,7 @@ const createRefundRequest = async (req, res) => {
       }).catch(err => console.error('[BG-Email] Admin refund alert email failed:', err.message));
 
       // Email 2: Send receipt acknowledgment to Client
-      if (targetClient?.email) {
+      if (clientEmail) {
         const clientEmailHtml = `
           <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
             <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
@@ -508,11 +524,14 @@ const createRefundRequest = async (req, res) => {
           </div>
         `;
 
+        console.log(`[Refund Email] Dispatching client receipt email to: ${clientEmail}`);
         sendEmail({
-          to: targetClient.email,
+          to: clientEmail,
           subject: `🛡️ Refund Claim Received (#${refund.id.substring(0, 8)}) - AAA Business Consultancy`,
           html: clientEmailHtml
         }).catch(err => console.error('[BG-Email] Client refund receipt email failed:', err.message));
+      } else {
+        console.warn(`[Refund Email] Warning: No client email available for refund receipt dispatch for client ID: ${targetClientId}`);
       }
 
       // 2. Create Internal CRM Notification in DB
