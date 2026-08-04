@@ -497,42 +497,41 @@ const createRefundRequest = async (req, res) => {
         </div>
       `;
 
-      console.log(`[Refund Email] Dispatching admin alert email to client@aaabusinessconsultancy.com for claim #${refund.id}`);
-      sendEmail({
-        to: 'client@aaabusinessconsultancy.com',
-        subject: `🚨 Alert: New Refund Claim Submitted by ${clientName} (€${refundAmount})`,
-        html: adminEmailHtml
-      }).catch(err => console.error('[BG-Email] Admin refund alert email failed:', err.message));
-
-      // Email 2: Send receipt acknowledgment to Client
-      if (clientEmail) {
-        const clientEmailHtml = `
-          <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
-            <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
-              <h2 style="color: #051A3B; margin: 0;">AAA Business Consultancy</h2>
-              <p style="color: #C59B27; font-weight: 700; margin: 4px 0 0; font-size: 14px;">Official Guarantee Refund Claim Acknowledgment</p>
-            </div>
-            <p style="font-size: 15px;">Dear <strong>${clientName}</strong>,</p>
-            <p>We have successfully received your refund claim request under our <strong>Spain Visa 50% Money-Back Guarantee Policy</strong>.</p>
-            <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 18px; border-radius: 8px; margin: 20px 0;">
-              <h4 style="margin: 0 0 10px; color: #051A3B;">Ticket Claim Details (#${refund.id.substring(0, 8)})</h4>
-              <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
-              <p style="margin: 5px 0;"><strong>Estimated 50% Amount:</strong> <strong style="color: #dc2626;">€${refundAmount.toLocaleString()}</strong></p>
-              <p style="margin: 5px 0;"><strong>Status:</strong> <span style="background-color: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Review</span></p>
-            </div>
-            <p style="font-size: 14px; color: #475569;">Our audit team is reviewing your submitted embassy rejection documentation. You will be updated once your payout is audited and executed.</p>
+      const clientEmailHtml = `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
+            <h2 style="color: #051A3B; margin: 0;">AAA Business Consultancy</h2>
+            <p style="color: #C59B27; font-weight: 700; margin: 4px 0 0; font-size: 14px;">Official Guarantee Refund Claim Acknowledgment</p>
           </div>
-        `;
+          <p style="font-size: 15px;">Dear <strong>${clientName}</strong>,</p>
+          <p>We have successfully received your refund claim request under our <strong>Spain Visa 50% Money-Back Guarantee Policy</strong>.</p>
+          <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 18px; border-radius: 8px; margin: 20px 0;">
+            <h4 style="margin: 0 0 10px; color: #051A3B;">Ticket Claim Details (#${refund.id.substring(0, 8)})</h4>
+            <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
+            <p style="margin: 5px 0;"><strong>Estimated 50% Amount:</strong> <strong style="color: #dc2626;">€${refundAmount.toLocaleString()}</strong></p>
+            <p style="margin: 5px 0;"><strong>Status:</strong> <span style="background-color: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Review</span></p>
+          </div>
+          <p style="font-size: 14px; color: #475569;">Our audit team is reviewing your submitted embassy rejection documentation. You will be updated once your payout is audited and executed.</p>
+        </div>
+      `;
 
-        console.log(`[Refund Email] Dispatching client receipt email to: ${clientEmail}`);
+      console.log(`[Refund Email] Dispatching dual emails (Admin & Client: ${clientEmail}) for claim #${refund.id}`);
+      
+      await Promise.allSettled([
         sendEmail({
+          to: 'client@aaabusinessconsultancy.com',
+          subject: `🚨 Alert: New Refund Claim Submitted by ${clientName} (€${refundAmount})`,
+          html: adminEmailHtml
+        }).then(res => console.log(`[Refund Email] Admin email sent:`, res))
+          .catch(err => console.error('[BG-Email] Admin refund alert email failed:', err.message)),
+
+        clientEmail ? sendEmail({
           to: clientEmail,
           subject: `🛡️ Refund Claim Received (#${refund.id.substring(0, 8)}) - AAA Business Consultancy`,
           html: clientEmailHtml
-        }).catch(err => console.error('[BG-Email] Client refund receipt email failed:', err.message));
-      } else {
-        console.warn(`[Refund Email] Warning: No client email available for refund receipt dispatch for client ID: ${targetClientId}`);
-      }
+        }).then(res => console.log(`[Refund Email] Client receipt email sent to ${clientEmail}:`, res))
+          .catch(err => console.error('[BG-Email] Client refund receipt email failed:', err.message)) : Promise.resolve()
+      ]);
 
       // 2. Create Internal CRM Notification in DB
       try {
