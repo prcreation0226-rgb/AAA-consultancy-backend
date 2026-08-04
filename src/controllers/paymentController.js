@@ -451,8 +451,87 @@ const createRefundRequest = async (req, res) => {
           details: `Refund Request #${refund.id.substring(0, 8)} created for ${clientName}. Category: ${category}, Amount: €${refundAmount}. Raised by: ${creatorName} (${creatorRole}).`
         }
       });
+
+      // 1. Dual Email Notifications (Admin Notification & Client Receipt)
+      const { sendEmail } = require('../services/emailService');
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const crmRefundUrl = `${frontendUrl}/#/super_admin/finance`;
+
+      // Email 1: Send alert to client@aaabusinessconsultancy.com
+      const adminEmailHtml = `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+          <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
+            <h2 style="color: #051A3B; margin: 0;">AAA Business Consultancy</h2>
+            <p style="color: #dc2626; font-weight: 800; margin: 4px 0 0; font-size: 14px;">🚨 ALERT: New Refund Claim Submitted</p>
+          </div>
+          <p style="font-size: 15px; color: #1e293b;">A new 50% Money-Back Guarantee refund claim has been submitted on the Client Portal.</p>
+          <div style="background-color: #FAF6ED; border: 1px solid rgba(197,155,39,0.4); padding: 18px; border-radius: 8px; margin: 20px 0;">
+            <h4 style="margin: 0 0 10px; color: #051A3B;">Claim Summary (#${refund.id.substring(0, 8)})</h4>
+            <p style="margin: 5px 0;"><strong>Client Name:</strong> ${clientName}</p>
+            <p style="margin: 5px 0;"><strong>Client Email:</strong> ${targetClient?.email || 'N/A'}</p>
+            <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
+            <p style="margin: 5px 0;"><strong>Calculated Amount:</strong> <span style="color: #dc2626; font-weight: 800;">€${refundAmount.toLocaleString()}</span></p>
+            <p style="margin: 5px 0;"><strong>Reason/Statement:</strong> ${reason || 'N/A'}</p>
+            ${proofUrl ? `<p style="margin: 5px 0;"><strong>Embassy Proof:</strong> <a href="${proofUrl}" target="_blank" style="color: #0284c7; font-weight: 700;">View Rejection Letter 📄</a></p>` : ''}
+          </div>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${crmRefundUrl}" style="background-color: #051A3B; color: #E5C058; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Audit & Process Payout in CRM Refunds Hub 🏦
+            </a>
+          </div>
+        </div>
+      `;
+
+      sendEmail({
+        to: 'client@aaabusinessconsultancy.com',
+        subject: `🚨 Alert: New Refund Claim Submitted by ${clientName} (€${refundAmount})`,
+        html: adminEmailHtml
+      }).catch(err => console.error('[BG-Email] Admin refund alert email failed:', err.message));
+
+      // Email 2: Send receipt acknowledgment to Client
+      if (targetClient?.email) {
+        const clientEmailHtml = `
+          <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+            <div style="text-align: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
+              <h2 style="color: #051A3B; margin: 0;">AAA Business Consultancy</h2>
+              <p style="color: #C59B27; font-weight: 700; margin: 4px 0 0; font-size: 14px;">Official Guarantee Refund Claim Acknowledgment</p>
+            </div>
+            <p style="font-size: 15px;">Dear <strong>${clientName}</strong>,</p>
+            <p>We have successfully received your refund claim request under our <strong>Spain Visa 50% Money-Back Guarantee Policy</strong>.</p>
+            <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 18px; border-radius: 8px; margin: 20px 0;">
+              <h4 style="margin: 0 0 10px; color: #051A3B;">Ticket Claim Details (#${refund.id.substring(0, 8)})</h4>
+              <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
+              <p style="margin: 5px 0;"><strong>Estimated 50% Amount:</strong> <strong style="color: #dc2626;">€${refundAmount.toLocaleString()}</strong></p>
+              <p style="margin: 5px 0;"><strong>Status:</strong> <span style="background-color: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Review</span></p>
+            </div>
+            <p style="font-size: 14px; color: #475569;">Our audit team is reviewing your submitted embassy rejection documentation. You will be updated once your payout is audited and executed.</p>
+          </div>
+        `;
+
+        sendEmail({
+          to: targetClient.email,
+          subject: `🛡️ Refund Claim Received (#${refund.id.substring(0, 8)}) - AAA Business Consultancy`,
+          html: clientEmailHtml
+        }).catch(err => console.error('[BG-Email] Client refund receipt email failed:', err.message));
+      }
+
+      // 2. Create Internal CRM Notification in DB
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: targetClientId,
+            type: 'REFUND_CLAIM',
+            title: '🛡️ New Refund Claim Registered',
+            message: `Client ${clientName} submitted a 50% refund claim (€${refundAmount.toLocaleString()}). Audit required.`,
+            link: '/super_admin/finance'
+          }
+        });
+      } catch (notifErr) {
+        console.error('Failed to create internal CRM notification:', notifErr.message);
+      }
+
     } catch (auditErr) {
-      console.error('Failed to log refund creation audit:', auditErr.message);
+      console.error('Failed to process refund creation notifications:', auditErr.message);
     }
     
     res.status(201).json(refund);
@@ -465,12 +544,13 @@ const createRefundRequest = async (req, res) => {
 const updateRefundStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, payoutMethod, transactionRef, adminNotes } = req.body;
+    const { status, payoutMethod, transactionRef, adminNotes, amount } = req.body;
     
     const updateData = { status };
     if (payoutMethod) updateData.payoutMethod = payoutMethod;
     if (transactionRef) updateData.transactionRef = transactionRef;
     if (adminNotes !== undefined) updateData.adminNotes = adminNotes;
+    if (amount !== undefined && !isNaN(Number(amount))) updateData.amount = Number(amount);
 
     const refund = await prisma.refundRequest.update({
       where: { id },
