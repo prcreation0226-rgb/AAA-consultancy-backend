@@ -50,7 +50,6 @@ model User {
 
 model Lead {
   id               String   @id @default(uuid())
-  clientCode       String?  @unique // Permanent Unified ID: "CID-12001"
   firstName        String
   lastName         String
   email            String

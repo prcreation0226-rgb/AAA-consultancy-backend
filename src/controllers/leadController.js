@@ -318,7 +318,15 @@ const assignLead = async (req, res) => {
     const { leadId, agentId } = req.body;
     const lead = await prisma.lead.update({
       where: { id: leadId },
-      data: { assignedToId: agentId, assignedAt: new Date() }
+      data: { assignedToId: agentId, assignedAt: new Date() },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        assignedToId: true,
+        assignedAt: true,
+        clientId: true
+      }
     });
 
     // Update consultant on any existing active (non-cancelled) consultation directly in DB
@@ -347,7 +355,15 @@ const updateLeadStatus = async (req, res) => {
     const { leadId, status } = req.body;
     const lead = await prisma.lead.update({
       where: { id: leadId },
-      data: { status }
+      data: { status },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        status: true
+      }
     });
 
     if (status === 'No Show' || status === 'No-Show') {
@@ -397,13 +413,22 @@ const deleteLead = async (req, res) => {
       where: { leadId: id }
     });
 
-    // Delete the lead
+    // Delete the lead with explicit select
     const lead = await prisma.lead.delete({
-      where: { id }
+      where: { id },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        status: true
+      }
     });
 
     res.json({ success: true, message: 'Lead deleted successfully', lead });
   } catch (error) {
+    console.error('Error deleting lead:', error.message);
     res.status(500).json({ message: 'Server error deleting lead', error: error.message });
   }
 };
