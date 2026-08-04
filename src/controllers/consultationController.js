@@ -182,11 +182,16 @@ const createConsultation = async (req, res) => {
 
 const autoConvertLeadToClient = async (leadId) => {
   try {
+    console.log(`[AutoConvert] START for leadId=${leadId}`);
     const lead = await prisma.lead.findUnique({
       where: { id: leadId }
     });
-    if (!lead) return null;
+    if (!lead) {
+      console.log(`[AutoConvert] ABORT: Lead ${leadId} not found in DB`);
+      return null;
+    }
 
+    console.log(`[AutoConvert] Lead found: email=${lead.email} phone=${lead.phone} clientId=${lead.clientId}`);
     const safeEmail = (lead.email || '').trim().toLowerCase();
     let clientRecord = null;
 
@@ -211,8 +216,10 @@ const autoConvertLeadToClient = async (leadId) => {
     const hashedPassword = await bcrypt.hash(plainPassword, salt);
 
     const unifiedClientCode = lead.clientCode || clientRecord?.clientCode || `CID-${12001 + (await prisma.client.count())}`;
+    console.log(`[AutoConvert] clientRecord=${clientRecord ? clientRecord.id : 'null'} unifiedClientCode=${unifiedClientCode} safeEmail=${safeEmail}`);
 
     if (!clientRecord) {
+      console.log(`[AutoConvert] Creating NEW client...`);
       clientRecord = await prisma.client.create({
         data: {
           firstName: lead.firstName || 'Valued',
@@ -305,7 +312,7 @@ const autoConvertLeadToClient = async (leadId) => {
 
     return clientRecord;
   } catch (err) {
-    console.error('[Auto-Convert Helper Exception]:', err.message);
+    console.error('[AutoConvert FAILED] Full error:', err.message, err.stack ? err.stack.split('\n').slice(0,3).join(' | ') : '');
     return null;
   }
 };
@@ -373,12 +380,15 @@ const updateOutcome = async (req, res) => {
 
     // Auto-update associated lead status and auto-convert to client if eligible
     let targetLeadId = consultation.leadId;
+    console.log(`[DEBUG updateOutcome] consultationId=${id} status=${status} eligibilityStr="${eligibilityStr}" consultation.leadId=${consultation.leadId}`);
+    
     if (!targetLeadId) {
       // Reliable fallback: find lead that owns this consultation via DB relation
       const leadWithConsultation = await prisma.lead.findFirst({
         where: { consultations: { some: { id: consultation.id } } }
       });
       if (leadWithConsultation) targetLeadId = leadWithConsultation.id;
+      console.log(`[DEBUG updateOutcome] Fallback leadId lookup: ${targetLeadId || 'NOT FOUND'}`);
     }
 
     if (targetLeadId) {
@@ -399,6 +409,8 @@ const updateOutcome = async (req, res) => {
         newLeadStatus = 'Not Eligible';
       }
 
+      console.log(`[DEBUG updateOutcome] isEligible=${isEligible} isNotEligible=${isNotEligible} newLeadStatus=${newLeadStatus}`);
+
       const updatedLead = await prisma.lead.update({
         where: { id: targetLeadId },
         data: { status: newLeadStatus }
@@ -407,6 +419,7 @@ const updateOutcome = async (req, res) => {
 
       // If Eligible, auto-convert Lead to Client
       if (newLeadStatus === 'Eligible') {
+        console.log(`[DEBUG updateOutcome] Calling autoConvertLeadToClient for leadId=${targetLeadId}`);
         await autoConvertLeadToClient(targetLeadId);
       }
 
