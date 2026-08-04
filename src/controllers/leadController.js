@@ -3,7 +3,40 @@ const prisma = require('../config/db');
 const getLeads = async (req, res) => {
   try {
     const leads = await prisma.lead.findMany({
-      include: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        nationality: true,
+        countryOfResidence: true,
+        preferredLanguage: true,
+        serviceType: true,
+        applicantsCount: true,
+        source: true,
+        campaignId: true,
+        status: true,
+        notes: true,
+        timeline: true,
+        qualificationData: true,
+        dependentsDetails: true,
+        meetingPreferredDate: true,
+        meetingPreferredTime: true,
+        meetingPreferredLanguage: true,
+        meetingNotes: true,
+        formSubmittedAt: true,
+        preferableArea: true,
+        budget: true,
+        sourceLanguage: true,
+        targetLanguage: true,
+        wordCount: true,
+        createdAt: true,
+        updatedAt: true,
+        assignedToId: true,
+        assignedAt: true,
+        nextFollowUpDate: true,
+        clientId: true,
         assignedTo: {
           select: { fullName: true }
         },
@@ -21,7 +54,7 @@ const getLeads = async (req, res) => {
     });
     // Map to frontend expectation
     const mapped = leads.map((l, idx) => {
-      const autoCode = l.clientCode || l.client?.clientCode || `CID-${12001 + (leads.length - 1 - idx)}`;
+      const autoCode = l.client?.clientCode || `CID-${12001 + (leads.length - 1 - idx)}`;
       return {
         ...l,
         createdDate: l.createdAt,
