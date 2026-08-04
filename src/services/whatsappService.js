@@ -30,7 +30,7 @@ if (isConfigured) {
  * @param {Array} [options.components=[]] - Template components containing parameters (header, body, buttons)
  * @returns {Promise<{success: boolean, messageId?: string, dryRun?: boolean}>}
  */
-exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', components = [] }) => {
+exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', components = [], externalProviderId = null, nameOverride = null }) => {
   // Clean phone number format for Twilio: must start with '+' and be prefixed with 'whatsapp:'
   let cleanTo = to.trim();
   if (cleanTo.startsWith('whatsapp:')) {
@@ -62,6 +62,7 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
     google_review: 'HXceaff82353f36a4766549d38d53825bf',
     aaa_meeting_reminder_24h: 'HX2f47579af995ae8f89e0995030cd7d75',
     aaa_meeting_reminder_1h: 'HX745752fa78cb0a8a2675e376fe385330',
+    aaa_greeting: 'HX6b1ea0ace7653a738bfe260ff6077194',
     // --- REQUIRED NEW TEMPLATES FOR NOTIFICATION FLOW ---
     // If these are missing in Twilio, Twilio will reject the fallback text outside 24h window
     meeting_cancelled: process.env.TWILIO_TEMPLATE_MEETING_CANCELLED || null,
@@ -111,7 +112,8 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           consultation_no_show_cancelled: 'Hello {{1}}, your Free Eligibility Assessment has been cancelled because you did not join within 10 minutes of the scheduled time. Due to high demand, missed appointments cannot be rescheduled.',
           payment_pending_reminder: 'Hi {{1}}, this is a reminder that payment is pending for Invoice #{{2}}.',
           payment_drip_discount: 'Hello {{1}}, use discount code CEO24H to complete your payment for Invoice #{{2}} with a special discount! Valid for 24 hours only.',
-          google_review: 'We hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!',
+          google_review: 'Hello, \n\nWe hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!',
+          aaa_greeting: 'Hello, welcome to AAA Business Consultancy! 🇪🇸\n\nThank you for reaching out to us regarding Spain Visa & Residency Services. Our immigration specialists are here to assist you with complete eligibility assessment and document processing.\n\nHow can we help you today?',
           payment_reminder_2h: 'Hello {{1}},\n\nWe noticed that you started setting up your Spain Visa / Relocation application but haven\'t completed the payment yet.\n\nTo secure your assigned immigration specialist and begin processing today, please complete your payment:\n\n🔗 Payment Link: {{2}}\n\nIf you have any questions, please reply directly. We are here to help!\n\nBest regards,\nAAA Business Consultancy Team',
           payment_reminder_24h: 'Hello {{1}},\n\nThis is a gentle reminder that your relocation package invoice is still pending. It has been 24 hours since your account initialization.\n\nTo avoid losing your slot and priority file review, please finalize your payment using the link below:\n\n🔗 Complete Payment: {{2}}\n\nOur team is ready to begin your visa submission steps as soon as payment is confirmed.\n\nBest regards,\nAAA Business Consultancy Team',
           payment_reminder_48h: 'Hello {{1}},\n\nWe would like to remind you that your invoice has been pending for 2 days.\n\nIf you are ready to relocate or secure your Spanish visa/residency, please complete the final steps of your application fee payment:\n\n🔗 Final Payment Link: {{2}}\n\nBest regards,\nAAA Business Consultancy Team'
@@ -182,10 +184,10 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           data: {
             clientId: clientRecord ? clientRecord.id : null,
             phone: cleanTo,
-            name: clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client',
+            name: nameOverride || (clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client'),
             channel: 'WHATSAPP',
             direction: 'OUTBOUND',
-            externalProviderId: templateName,
+            externalProviderId: externalProviderId || templateName,
             content: resolvedBody,
             deliveryStatus: deliveryStatus,
             failureReason: failureReason
@@ -551,6 +553,8 @@ exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, 
       to: cleanPh,
       templateName: 'google_review',
       languageCode: 'en',
+      externalProviderId: `google_review_${triggerStage}`,
+      nameOverride: targetName,
       components: [
         {
           type: 'body',
@@ -560,34 +564,6 @@ exports.sendGoogleReviewRequestWhatsApp = async ({ phone, clientName, clientId, 
         }
       ]
     });
-
-    // Fetch dynamic template from DB or fallback to resolve log content accurately
-    let dbTpl = null;
-    try {
-      dbTpl = await prisma.template.findUnique({ where: { id: 'google_review' } });
-    } catch (_) {}
-
-    const fallbackReview = 'We hope your consultation with AAA Business Consultancy was helpful! 🇪🇸\n\nIf you enjoyed your experience with our advisors, could you please spare 30 seconds to share your feedback on Google? Your review means the world to us and helps others find us.\n\n⭐ Leave your Google Review here:\nhttps://g.page/r/CXugL6bqOJCXEAI/review\n\nThank you so much for your support!';
-    const rawContent = (dbTpl && dbTpl.body) ? dbTpl.body : fallbackReview;
-    const fullReviewText = rawContent.includes('{{1}}') ? rawContent.replaceAll('{{1}}', targetName) : rawContent;
-
-    // Record stage log in CommunicationLog
-    try {
-      await prisma.communicationLog.create({
-        data: {
-          clientId: targetClientId,
-          phone: cleanPh,
-          name: targetName,
-          channel: 'WHATSAPP',
-          direction: 'OUTBOUND',
-          externalProviderId: `google_review_${triggerStage}`,
-          content: fullReviewText,
-          deliveryStatus: result.success ? 'SENT' : 'FAILED'
-        }
-      });
-    } catch (logErr) {
-      console.warn('[Google Review WhatsApp] CommunicationLog record warning:', logErr.message);
-    }
 
     console.log(`[Google Review WhatsApp] Successfully dispatched ${triggerStage} review request template to ${cleanPh}`);
     return result;
