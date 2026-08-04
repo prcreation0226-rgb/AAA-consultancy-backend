@@ -531,7 +531,9 @@ async function getTranslationRate(sourceLanguage) {
 
   // Try to load dynamic rates from DB settings
   try {
-    const settings = await prisma.companySetting.findFirst();
+    const settings = await prisma.companySetting.findFirst({
+      select: { swornTranslationRates: true }
+    }).catch(() => null);
     if (settings && settings.swornTranslationRates) {
       const rates = typeof settings.swornTranslationRates === 'string'
         ? JSON.parse(settings.swornTranslationRates)

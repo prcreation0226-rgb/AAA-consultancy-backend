@@ -223,7 +223,9 @@ const createLead = async (req, res) => {
     } else {
       // Normal assignment for non-property leads
       let ruleMatched = false;
-      const settings = await prisma.companySetting.findFirst();
+      const settings = await prisma.companySetting.findFirst({
+        select: { routingRules: true }
+      }).catch(() => null);
       if (settings && settings.routingRules && Array.isArray(settings.routingRules)) {
         const leadNat = (nationality || '').toLowerCase();
         const leadCountry = (countryOfResidence || '').toLowerCase();
