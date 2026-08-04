@@ -117,12 +117,12 @@ const processPaymentEvent = async (event) => {
           const updatedClient = await tx.client.update({
             where: { id: payment.clientId },
             data: {
-              documentUploadAllowed: !isNoShowAssessment, // Keep locked if it's only €250 case assessment
+              documentUploadAllowed: true, // Allow document upload when Option A or full package is paid
               packageId: packageId || undefined,
               additionalApplicants: isNoShowAssessment ? 0 : additionalApplicantsCount,
               status: isNoShowAssessment 
                 ? 'Partially Paid' 
-                : (isTranslation ? 'Under Process' : 'Payment Received'),
+                : (isTranslation ? 'Under Process' : 'Payment Completed'),
               visaStatus: isNoShowAssessment
                 ? 'Not Started'
                 : (isTranslation ? 'Under Process' : 'Document Preparation')
@@ -426,7 +426,7 @@ module.exports = {
           vatRate: 5,
           refundable: true,
           refundPercent: 50,
-          creditEligible: true
+          creditEligible: dbPackage.code !== 'OPTION_A' && dbPackage.code !== 'opt_a'
         };
       }
     }
@@ -452,15 +452,21 @@ module.exports = {
     let creditApplied = 0;
     let assessmentPaymentId = null;
 
-    if (packageConfig.creditEligible) {
+    const isNonOptionA = packageId !== 'OPTION_A' && packageId !== 'opt_a';
+
+    if (packageConfig.creditEligible || isNonOptionA) {
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       const activeCredit = await prisma.payment.findFirst({
         where: {
           clientId: clientId,
-          packageType: 'OPTION_A',
           status: 'Paid',
           assessmentCreditUsed: false,
           paidAt: { gte: fourteenDaysAgo },
+          OR: [
+            { packageType: 'OPTION_A' },
+            { amount: 250 },
+            { amount: 262.5 }
+          ],
           OR: [
             { creditReservedForPaymentId: null },
             { creditReservedUntil: { lt: new Date() } }
@@ -469,7 +475,7 @@ module.exports = {
       });
 
       if (activeCredit) {
-        creditApplied = 250.00;
+        creditApplied = Number(activeCredit.amount) || 250.00;
         assessmentPaymentId = activeCredit.id;
       }
     }
