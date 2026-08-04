@@ -114,17 +114,36 @@ let DEFAULT_CUSTOMIZATION = {
 };
 
 const getCustomizationSettings = async (req, res) => {
-  res.json(DEFAULT_CUSTOMIZATION);
+  try {
+    const setting = await prisma.companySetting.findFirst();
+    if (setting && setting.customizationSettings) {
+      const merged = { ...DEFAULT_CUSTOMIZATION, ...setting.customizationSettings };
+      DEFAULT_CUSTOMIZATION = merged;
+      return res.json(merged);
+    }
+    res.json(DEFAULT_CUSTOMIZATION);
+  } catch (error) {
+    res.json(DEFAULT_CUSTOMIZATION);
+  }
 };
 
 const updateCustomizationSettings = async (req, res) => {
   try {
     const { settings } = req.body;
     
-    // In a real database, you'd save this to a RolePermissions table.
-    // Here we update the in-memory object for demonstration.
     if (settings) {
       DEFAULT_CUSTOMIZATION = { ...DEFAULT_CUSTOMIZATION, ...settings };
+      let setting = await prisma.companySetting.findFirst();
+      if (!setting) {
+        await prisma.companySetting.create({
+          data: { customizationSettings: DEFAULT_CUSTOMIZATION }
+        });
+      } else {
+        await prisma.companySetting.update({
+          where: { id: setting.id },
+          data: { customizationSettings: DEFAULT_CUSTOMIZATION }
+        });
+      }
     }
 
     // BROADCAST the change using Socket.io to all affected users
