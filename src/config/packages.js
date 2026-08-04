@@ -27,7 +27,7 @@ module.exports = {
     additionalApplicantPrice: 500,
     vatRate: 5,
     refundable: false,
-    creditEligible: false,
+    creditEligible: true,
   },
   OPTION_D: {
     id: 'OPTION_D',

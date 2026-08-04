@@ -928,12 +928,13 @@ const verifyStripeCheckoutSession = async (req, res) => {
             }
           });
 
+          const isOptionA = payment.packageType === 'OPTION_A' || payment.packageType === 'option_a';
           const client = await prisma.client.update({
             where: { id: payment.clientId },
             data: {
               documentUploadAllowed: true,
-              status: 'Payment Received',
-              visaStatus: 'Document Preparation'
+              status: isOptionA ? 'Partially Paid' : 'Payment Completed',
+              visaStatus: isOptionA ? 'Not Started' : 'Document Preparation'
             }
           });
 
@@ -1012,13 +1013,14 @@ const verifyStripeCheckoutSession = async (req, res) => {
             }
           });
 
+          const isOptionA = payment.packageType === 'OPTION_A' || payment.packageType === 'option_a' || packageId === 'OPTION_A' || packageId === 'option_a';
           const client = await prisma.client.update({
             where: { id: metadataClientId || payment.clientId },
             data: {
               packageId: packageId || undefined,
               documentUploadAllowed: true,
-              status: 'Payment Received',
-              visaStatus: 'Document Preparation'
+              status: isOptionA ? 'Partially Paid' : 'Payment Completed',
+              visaStatus: isOptionA ? 'Not Started' : 'Document Preparation'
             }
           });
 
