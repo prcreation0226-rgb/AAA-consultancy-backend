@@ -8,7 +8,13 @@ const getLeads = async (req, res) => {
           select: { fullName: true }
         },
         client: {
-          select: { id: true, clientCode: true, documents: true }
+          select: {
+            id: true,
+            clientCode: true,
+            documents: {
+              select: { id: true, name: true, status: true, url: true }
+            }
+          }
         }
       },
       orderBy: { createdAt: 'desc' }
