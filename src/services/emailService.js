@@ -45,7 +45,9 @@ const getCleanPackageName = (rawPackageName, serviceType) => {
 if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
   console.log('Email Service: Initializing Resend client');
   resendClient = new Resend(RESEND_API_KEY);
-} else if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
+}
+
+if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
   console.log(`Email Service: Initializing SMTP transporter to ${SMTP_HOST}:${SMTP_PORT}`);
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
@@ -59,7 +61,9 @@ if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
       rejectUnauthorized: false
     }
   });
-} else {
+}
+
+if (!resendClient && !transporter) {
   console.warn('Email Service: Neither Resend nor SMTP credentials configured. Running in local DRY-RUN/Sandbox mode.');
 }
 
@@ -101,7 +105,24 @@ exports.sendEmail = async ({ to, subject, html, text }) => {
       console.log(`Email sent successfully via Resend to ${to}. Message ID: ${response.data?.id}`);
       return { success: true, messageId: response.data?.id, dryRun: false };
     } catch (error) {
-      console.error(`Failed to send email via Resend to ${to}:`, error);
+      console.error(`Failed to send email via Resend to ${to}:`, error.message || error);
+      if (transporter) {
+        console.log(`Resend dispatch failed for ${to}. Attempting automatic SMTP fallback...`);
+        try {
+          const info = await transporter.sendMail({
+            from: SMTP_FROM,
+            to,
+            subject,
+            text: text || html.replace(/<[^>]*>/g, ''),
+            html
+          });
+          console.log(`Email sent successfully via SMTP fallback to ${to}. Message ID: ${info.messageId}`);
+          return { success: true, messageId: info.messageId, dryRun: false };
+        } catch (smtpErr) {
+          console.error(`SMTP fallback also failed for ${to}:`, smtpErr.message || smtpErr);
+          throw smtpErr;
+        }
+      }
       throw error;
     }
   } else if (transporter) {
