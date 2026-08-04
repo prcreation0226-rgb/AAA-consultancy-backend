@@ -407,7 +407,7 @@ const getRefundRequests = async (req, res) => {
 
 const createRefundRequest = async (req, res) => {
   try {
-    const { clientId: bodyClientId, category, reason, amount, proofUrl, bankAccountName, bankIban, bankSwift } = req.body;
+    const { clientId: bodyClientId, clientEmail: bodyClientEmail, category, reason, amount, proofUrl, bankAccountName, bankIban, bankSwift } = req.body;
     const targetClientId = bodyClientId || req.user?.id;
 
     if (!targetClientId) {
@@ -447,6 +447,9 @@ const createRefundRequest = async (req, res) => {
       if (targetClientId) {
         targetClient = await prisma.client.findUnique({ where: { id: targetClientId } }).catch(() => null);
       }
+      if (!targetClient && bodyClientEmail) {
+        targetClient = await prisma.client.findUnique({ where: { email: bodyClientEmail } }).catch(() => null);
+      }
       if (!targetClient && req.user?.email) {
         targetClient = await prisma.client.findUnique({ where: { email: req.user.email } }).catch(() => null);
       }
@@ -454,7 +457,7 @@ const createRefundRequest = async (req, res) => {
         targetClient = await prisma.client.findUnique({ where: { id: req.user.id } }).catch(() => null);
       }
 
-      const clientEmail = targetClient?.email || req.user?.email;
+      const clientEmail = bodyClientEmail || targetClient?.email || req.user?.email;
       const clientName = targetClient
         ? `${targetClient.firstName} ${targetClient.lastName}`
         : (req.user?.fullName || req.user?.name || req.user?.email?.split('@')[0] || 'Valued Client');
