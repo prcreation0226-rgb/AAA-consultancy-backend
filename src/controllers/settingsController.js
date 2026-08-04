@@ -115,7 +115,7 @@ let DEFAULT_CUSTOMIZATION = {
 
 const getCustomizationSettings = async (req, res) => {
   try {
-    const setting = await prisma.companySetting.findFirst();
+    const setting = await prisma.companySetting.findFirst().catch(() => null);
     if (setting && setting.customizationSettings) {
       const merged = { ...DEFAULT_CUSTOMIZATION, ...setting.customizationSettings };
       DEFAULT_CUSTOMIZATION = merged;
@@ -133,33 +133,42 @@ const updateCustomizationSettings = async (req, res) => {
     
     if (settings) {
       DEFAULT_CUSTOMIZATION = { ...DEFAULT_CUSTOMIZATION, ...settings };
-      let setting = await prisma.companySetting.findFirst();
-      if (!setting) {
-        await prisma.companySetting.create({
-          data: { customizationSettings: DEFAULT_CUSTOMIZATION }
-        });
-      } else {
-        await prisma.companySetting.update({
-          where: { id: setting.id },
-          data: { customizationSettings: DEFAULT_CUSTOMIZATION }
-        });
+      try {
+        let setting = await prisma.companySetting.findFirst();
+        if (!setting) {
+          await prisma.companySetting.create({
+            data: { customizationSettings: DEFAULT_CUSTOMIZATION }
+          });
+        } else {
+          await prisma.companySetting.update({
+            where: { id: setting.id },
+            data: { customizationSettings: DEFAULT_CUSTOMIZATION }
+          });
+        }
+      } catch (dbErr) {
+        console.warn('[updateCustomizationSettings DB Save Warning]:', dbErr.message);
       }
     }
 
     // BROADCAST the change using Socket.io to all affected users
-    const io = req.app.get('io');
-    if (io && settings) {
-      Object.keys(settings).forEach(key => {
-        if (key !== 'allowAdminCustomOverrides') {
-          console.log(`Emitting permissions_updated to room: role:${key} and user:${key}`);
-          io.to(`role:${key}`).emit('permissions_updated', settings[key]);
-          io.to(`user:${key}`).emit('permissions_updated', settings[key]);
-        }
-      });
+    try {
+      const io = req.app.get('io');
+      if (io && settings) {
+        Object.keys(settings).forEach(key => {
+          if (key !== 'allowAdminCustomOverrides') {
+            console.log(`Emitting permissions_updated to room: role:${key} and user:${key}`);
+            io.to(`role:${key}`).emit('permissions_updated', settings[key]);
+            io.to(`user:${key}`).emit('permissions_updated', settings[key]);
+          }
+        });
+      }
+    } catch (ioErr) {
+      console.warn('[Socket Broadcast Warning]:', ioErr.message);
     }
 
     res.json({ success: true, message: 'Permissions updated successfully', data: DEFAULT_CUSTOMIZATION });
   } catch (error) {
+    console.error('Error updating customization settings:', error);
     res.status(500).json({ error: error.message });
   }
 };
