@@ -12,15 +12,41 @@ const getPayments = async (req, res) => {
 
     const payments = await prisma.payment.findMany({
       where: whereClause,
-      include: {
-        client: { select: { firstName: true, lastName: true, assignedToId: true } }
+      select: {
+        id: true,
+        clientId: true,
+        applicationId: true,
+        amount: true,
+        discount: true,
+        totalPaid: true,
+        commissionRate: true,
+        status: true,
+        refundStatus: true,
+        refundEligibility: true,
+        refundAmount: true,
+        refundReason: true,
+        refundRejectionReason: true,
+        refundProcessedAt: true,
+        refundProcessedBy: true,
+        paymentMethod: true,
+        transactionId: true,
+        gatewayId: true,
+        billingDate: true,
+        dueDate: true,
+        packageType: true,
+        paymentPurpose: true,
+        additionalApplicants: true,
+        assessmentCreditUsed: true,
+        client: { select: { id: true, firstName: true, lastName: true, assignedToId: true } }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { billingDate: 'desc' }
     });
     
     const mapped = payments.map(p => ({
       ...p,
-      clientName: p.client ? `${p.client.firstName} ${p.client.lastName}` : 'Unknown'
+      createdDate: p.billingDate,
+      createdAt: p.billingDate,
+      clientName: p.client ? `${p.client.firstName || ''} ${p.client.lastName || ''}`.trim() : 'Unknown'
     }));
     
     res.json(mapped);

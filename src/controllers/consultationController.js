@@ -19,9 +19,27 @@ const getConsultations = async (req, res) => {
 
     const consultations = await prisma.consultation.findMany({
       where: whereClause,
-      include: {
-        lead: { select: { firstName: true, lastName: true, email: true, clientId: true, preferredLanguage: true } },
-        consultant: { select: { fullName: true } }
+      select: {
+        id: true,
+        date: true,
+        timeSlot: true,
+        durationMinutes: true,
+        meetingLink: true,
+        zoomMeetingId: true,
+        recordingUrl: true,
+        status: true,
+        eligibility: true,
+        recommendedService: true,
+        recommendedPackageId: true,
+        internalNotes: true,
+        type: true,
+        createdAt: true,
+        updatedAt: true,
+        leadId: true,
+        consultantId: true,
+        assignedAt: true,
+        lead: { select: { id: true, firstName: true, lastName: true, email: true, clientId: true, preferredLanguage: true } },
+        consultant: { select: { id: true, fullName: true } }
       },
       orderBy: { createdAt: 'desc' }
     });

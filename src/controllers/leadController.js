@@ -425,13 +425,50 @@ const getLeadById = async (req, res) => {
     const { id } = req.params;
     const lead = await prisma.lead.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        nationality: true,
+        countryOfResidence: true,
+        preferredLanguage: true,
+        serviceType: true,
+        applicantsCount: true,
+        source: true,
+        campaignId: true,
+        status: true,
+        notes: true,
+        timeline: true,
+        qualificationData: true,
+        dependentsDetails: true,
+        meetingPreferredDate: true,
+        meetingPreferredTime: true,
+        meetingPreferredLanguage: true,
+        meetingNotes: true,
+        formSubmittedAt: true,
+        preferableArea: true,
+        budget: true,
+        sourceLanguage: true,
+        targetLanguage: true,
+        wordCount: true,
+        createdAt: true,
+        updatedAt: true,
+        assignedToId: true,
+        assignedAt: true,
+        nextFollowUpDate: true,
+        clientId: true,
         assignedTo: {
-          select: { fullName: true }
+          select: { id: true, fullName: true }
         },
         client: {
-          include: {
-            documents: true
+          select: {
+            id: true,
+            clientCode: true,
+            documents: {
+              select: { id: true, name: true, status: true, url: true }
+            }
           }
         }
       }
@@ -440,10 +477,10 @@ const getLeadById = async (req, res) => {
       return res.status(404).json({ message: 'Lead not found' });
     }
 
-    const autoCode = lead.clientCode || lead.client?.clientCode || `CID-${12001}`;
+    const autoCode = lead.client?.clientCode || `CID-12001`;
     const mapped = {
       ...lead,
-      name: `${lead.firstName} ${lead.lastName}`,
+      name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
       serviceId: lead.serviceType,
       assignedConsultantId: lead.assignedToId,
       assignedConsultantName: lead.assignedTo?.fullName,
@@ -453,6 +490,7 @@ const getLeadById = async (req, res) => {
     };
     res.json(mapped);
   } catch (error) {
+    console.error('[getLeadById Error]:', error.message);
     res.status(500).json({ message: 'Server error fetching lead details', error: error.message });
   }
 };
