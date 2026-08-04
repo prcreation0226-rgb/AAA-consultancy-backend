@@ -314,18 +314,77 @@ exports.getMessagesByPhone = async (req, res) => {
  */
 exports.sendSocialMessage = async (req, res) => {
   try {
-    const { phone, text, mediaUrl } = req.body;
+    const { phone, text, mediaUrl, templateName } = req.body;
     if (!phone) {
       return res.status(400).json({ message: 'Phone is required' });
+    }
+
+    const cleanPh = cleanPhoneNumber(phone);
+    const twilioTo = `whatsapp:${cleanPh}`;
+    const numberPart = cleanPh.replace('+', '');
+
+    const clientRecord = await prisma.client.findFirst({
+      where: { phone: { contains: numberPart } }
+    });
+
+    const staffUserId = req.user?.id || null;
+    const staffName = req.user?.fullName || 'Agent';
+    const staffRole = req.user?.role || 'consultant';
+
+    // If templateName is provided (e.g. 'aaa_greeting'), send official Twilio Content Template via whatsappService
+    if (templateName) {
+      const { sendWhatsAppMessage } = require('../services/whatsappService');
+      const targetName = clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client';
+
+      const result = await sendWhatsAppMessage({
+        to: cleanPh,
+        templateName: templateName,
+        nameOverride: staffName,
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: targetName }
+            ]
+          }
+        ]
+      });
+
+      const log = await prisma.communicationLog.findFirst({
+        where: { phone: { contains: numberPart }, direction: 'OUTBOUND' },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          respondedByUser: {
+            select: { id: true, fullName: true, role: true, avatar: true }
+          }
+        }
+      });
+
+      const respondedByObj = log?.respondedByUser ? {
+        id: log.respondedByUser.id,
+        name: log.respondedByUser.fullName,
+        role: log.respondedByUser.role,
+        avatar: log.respondedByUser.avatar
+      } : { name: staffName, role: staffRole };
+
+      return res.status(200).json({
+        success: true,
+        message: 'Template sent successfully via Content SID',
+        log: log ? {
+          id: log.id,
+          sender: 'agent',
+          text: parseMessageContent(log.content).text,
+          mediaUrl: parseMessageContent(log.content).mediaUrl,
+          timestamp: log.createdAt,
+          respondedBy: respondedByObj
+        } : null
+      });
     }
     
     // If there is a mediaUrl but no text, allow it (WhatsApp allows media-only)
     if (!text && !mediaUrl) {
       return res.status(400).json({ message: 'Text or media is required' });
     }
-
-    const cleanPh = cleanPhoneNumber(phone);
-    const twilioTo = `whatsapp:${cleanPh}`;
 
     const displayContent = `${text || ''}${mediaUrl ? `\n[FILE: ${mediaUrl}]` : ''}`.trim();
     console.log(`Sending manual WhatsApp message to ${twilioTo}: ${displayContent}`);
@@ -351,18 +410,6 @@ exports.sendSocialMessage = async (req, res) => {
     } else {
       console.log(`[MANUAL TWILIO DRY-RUN] To: ${twilioTo}, Text: ${text}`);
     }
-
-    const numberPart = cleanPh.replace('+', '');
-
-    // 2. Check if Client exists for linking
-    const clientRecord = await prisma.client.findFirst({
-      where: { phone: { contains: numberPart } }
-    });
-
-    const staffUserId = req.user?.id || null;
-    const staffName = req.user?.fullName || 'Agent';
-    const staffRole = req.user?.role || 'consultant';
-
     // 3. Log OUTBOUND message to Database
     const log = await prisma.communicationLog.create({
       data: {
