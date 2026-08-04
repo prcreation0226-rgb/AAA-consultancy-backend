@@ -368,6 +368,15 @@ const updateLeadStatus = async (req, res) => {
       }
     });
 
+    if (status === 'Eligible') {
+      try {
+        const { autoConvertLeadToClient } = require('./consultationController');
+        await autoConvertLeadToClient(lead.id);
+      } catch (convErr) {
+        console.error('[updateLeadStatus] Failed autoConvertLeadToClient:', convErr.message);
+      }
+    }
+
     if (status === 'No Show' || status === 'No-Show') {
       try {
         await prisma.blacklistedClient.upsert({

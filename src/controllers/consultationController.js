@@ -180,6 +180,136 @@ const createConsultation = async (req, res) => {
   }
 };
 
+const autoConvertLeadToClient = async (leadId) => {
+  try {
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId }
+    });
+    if (!lead) return null;
+
+    const safeEmail = (lead.email || '').trim().toLowerCase();
+    let clientRecord = null;
+
+    // 1. Check existing Client by clientId OR by email
+    if (lead.clientId) {
+      clientRecord = await prisma.client.findUnique({
+        where: { id: lead.clientId }
+      });
+    }
+    if (!clientRecord && safeEmail) {
+      clientRecord = await prisma.client.findUnique({
+        where: { email: safeEmail }
+      });
+    }
+
+    const bcrypt = require('bcrypt');
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let plainPassword = '';
+    for (let i = 0; i < 6; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(plainPassword, salt);
+
+    const unifiedClientCode = lead.clientCode || clientRecord?.clientCode || `CID-${12001 + (await prisma.client.count())}`;
+
+    if (!clientRecord) {
+      clientRecord = await prisma.client.create({
+        data: {
+          firstName: lead.firstName || 'Valued',
+          lastName: lead.lastName || 'Client',
+          email: safeEmail || `client_${Date.now()}@aaaconsultancy.com`,
+          phone: lead.phone || '',
+          nationality: lead.nationality,
+          countryOfResidence: lead.countryOfResidence,
+          preferredLanguage: lead.preferredLanguage || 'English',
+          clientCode: unifiedClientCode,
+          serviceType: lead.serviceType || 'spain_visa',
+          assignedToId: lead.assignedToId,
+          assignedAt: lead.assignedToId ? new Date() : undefined,
+          applicantsCount: String(lead.applicantsCount || 'Main Only'),
+          dependentsDetails: lead.dependentsDetails || undefined,
+          status: 'Waiting for Payment',
+          password: hashedPassword,
+          isTemporaryPassword: true
+        }
+      });
+
+      // Link Lead to newly created Client
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: { clientId: clientRecord.id }
+      });
+      console.log(`[Auto-Convert] Converted Lead ${lead.id} to Client ${clientRecord.id} (${unifiedClientCode})`);
+    } else {
+      // Update existing client record with temp password & active status
+      clientRecord = await prisma.client.update({
+        where: { id: clientRecord.id },
+        data: {
+          status: 'Waiting for Payment',
+          password: hashedPassword,
+          isTemporaryPassword: true,
+          clientCode: clientRecord.clientCode || unifiedClientCode
+        }
+      });
+
+      // Always ensure Lead is linked to this Client
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: { clientId: clientRecord.id }
+      });
+      console.log(`[Auto-Convert] Linked Lead ${lead.id} to existing Client ${clientRecord.id}`);
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const portalUrl = `${frontendUrl}/#/portal/login`;
+
+    // Dispatch Credentials Email
+    if (clientRecord.email) {
+      try {
+        const { sendEmail } = require('../services/emailService');
+        sendEmail({
+          to: clientRecord.email,
+          subject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #2d3748;">
+              <h2 style="color: #4f46e5;">Welcome to AAA Business Consultancy! 🎉</h2>
+              <p>Dear <strong>${clientRecord.firstName} ${clientRecord.lastName}</strong>,</p>
+              <p>Congratulations! Based on your consultation assessment, you are <strong>ELIGIBLE</strong> for your Spain Visa / Residency package.</p>
+              <div style="background: #f7fafc; border-left: 4px solid #4f46e5; padding: 16px; margin: 20px 0;">
+                <h4 style="margin: 0 0 8px; color: #4f46e5;">Your Portal Credentials</h4>
+                <p><strong>Portal URL:</strong> <a href="${portalUrl}">${portalUrl}</a></p>
+                <p><strong>Username:</strong> ${clientRecord.email}</p>
+                <p><strong>Temporary Password:</strong> <code style="background: #edf2f7; padding: 2px 6px; color: #e11d48;">${plainPassword}</code></p>
+              </div>
+              <p>Please log in to select your preferred package and complete your application.</p>
+            </div>
+          `
+        }).catch(err => console.error('[Auto-Convert Email Error]:', err.message));
+      } catch (emailErr) {
+        console.error('[Auto-Convert Email Exception]:', emailErr.message);
+      }
+    }
+
+    // Dispatch Single Clean WhatsApp Credentials Message
+    if (clientRecord.phone) {
+      try {
+        const { sendCustomWhatsApp } = require('../services/chatbotService');
+        const credsMsg = `Hello *${clientRecord.firstName} ${clientRecord.lastName}*, welcome to AAA Business Consultancy! 🇪🇸\n\nYour Spain Relocation profile has been initialized. 🎉\n\n🔑 *Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\n📦 *Service Packages:*\nYou can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.\n\nThank you for choosing AAA Business Consultancy!`;
+        
+        await sendCustomWhatsApp(clientRecord.phone, credsMsg).catch(err => console.error('[Auto-Convert WA Creds Error]:', err.message));
+        console.log(`[Auto-Convert WA Creds Sent] Dispatched WhatsApp credentials message to ${clientRecord.phone}`);
+      } catch (waCredErr) {
+        console.error('[Auto-Convert WA Creds Exception]:', waCredErr.message);
+      }
+    }
+
+    return clientRecord;
+  } catch (err) {
+    console.error('[Auto-Convert Helper Exception]:', err.message);
+    return null;
+  }
+};
+
 const updateOutcome = async (req, res) => {
   try {
     const { id } = req.params;
@@ -242,7 +372,21 @@ const updateOutcome = async (req, res) => {
     });
 
     // Auto-update associated lead status and auto-convert to client if eligible
-    if (consultation.leadId) {
+    let targetLeadId = consultation.leadId;
+    if (!targetLeadId) {
+      // Find lead by consultation details
+      const matchedLead = await prisma.lead.findFirst({
+        where: {
+          OR: [
+            ...(req.body.email ? [{ email: req.body.email }] : []),
+            ...(req.body.phone ? [{ phone: req.body.phone }] : [])
+          ]
+        }
+      });
+      if (matchedLead) targetLeadId = matchedLead.id;
+    }
+
+    if (targetLeadId) {
       let isEligible = false;
       let isNotEligible = false;
 
@@ -261,167 +405,49 @@ const updateOutcome = async (req, res) => {
       }
 
       const updatedLead = await prisma.lead.update({
-        where: { id: consultation.leadId },
+        where: { id: targetLeadId },
         data: { status: newLeadStatus }
       });
-      console.log(`[Outcome Status Trigger] Lead ${consultation.leadId} status updated to: ${newLeadStatus}`);
+      console.log(`[Outcome Status Trigger] Lead ${targetLeadId} status updated to: ${newLeadStatus}`);
 
-        // If Eligible, auto-convert Lead to Client and send WhatsApp credentials + package options
-        if (newLeadStatus === 'Eligible') {
-          try {
-            const safeEmail = (updatedLead.email || '').trim().toLowerCase();
-            let clientRecord = null;
+      // If Eligible, auto-convert Lead to Client
+      if (newLeadStatus === 'Eligible') {
+        await autoConvertLeadToClient(targetLeadId);
+      }
 
-            // 1. Check existing Client by clientId OR by email
-            if (updatedLead.clientId) {
-              clientRecord = await prisma.client.findUnique({
-                where: { id: updatedLead.clientId }
-              });
-            }
-            if (!clientRecord && safeEmail) {
-              clientRecord = await prisma.client.findUnique({
-                where: { email: safeEmail }
-              });
-            }
+      // Schedule €250 Drip follow-ups (3 days & 7 days later) if remindersQueue is active
+      try {
+        if (remindersQueue && remindersQueue.add && updatedLead) {
+          // Schedule Drip #2 (3 days)
+          await remindersQueue.add('consultation-completed-drip', {
+            leadId: updatedLead.id,
+            clientId: updatedLead.clientId,
+            email: updatedLead.email,
+            phone: updatedLead.phone,
+            firstName: updatedLead.firstName,
+            lastName: updatedLead.lastName,
+            dripIndex: 2
+          }, {
+            delay: 3 * 24 * 60 * 60 * 1000 // 3 days
+          });
 
-            const bcrypt = require('bcrypt');
-            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-            let plainPassword = '';
-            for (let i = 0; i < 6; i++) plainPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-
-            const salt = await bcrypt.genSalt(10);
-            const hashedPassword = await bcrypt.hash(plainPassword, salt);
-
-            const unifiedClientCode = updatedLead.clientCode || clientRecord?.clientCode || `CID-${12001 + (await prisma.client.count())}`;
-
-            if (!clientRecord) {
-              clientRecord = await prisma.client.create({
-                data: {
-                  firstName: updatedLead.firstName || 'Valued',
-                  lastName: updatedLead.lastName || 'Client',
-                  email: safeEmail || `client_${Date.now()}@aaaconsultancy.com`,
-                  phone: updatedLead.phone || '',
-                  nationality: updatedLead.nationality,
-                  countryOfResidence: updatedLead.countryOfResidence,
-                  preferredLanguage: updatedLead.preferredLanguage || 'English',
-                  clientCode: unifiedClientCode,
-                  serviceType: updatedLead.serviceType || 'spain_visa',
-                  assignedToId: updatedLead.assignedToId,
-                  assignedAt: updatedLead.assignedToId ? new Date() : undefined,
-                  applicantsCount: String(updatedLead.applicantsCount || 'Main Only'),
-                  dependentsDetails: updatedLead.dependentsDetails || undefined,
-                  status: 'Waiting for Payment',
-                  password: hashedPassword,
-                  isTemporaryPassword: true
-                }
-              });
-
-              // Link Lead to newly created Client
-              await prisma.lead.update({
-                where: { id: updatedLead.id },
-                data: { clientId: clientRecord.id }
-              });
-              console.log(`[Auto-Convert] Converted Lead ${updatedLead.id} to Client ${clientRecord.id} (${unifiedClientCode})`);
-            } else {
-              // Update existing client record with temp password & active status
-              clientRecord = await prisma.client.update({
-                where: { id: clientRecord.id },
-                data: {
-                  status: 'Waiting for Payment',
-                  password: hashedPassword,
-                  isTemporaryPassword: true,
-                  clientCode: clientRecord.clientCode || unifiedClientCode
-                }
-              });
-
-              // Always ensure Lead is linked to this Client
-              await prisma.lead.update({
-                where: { id: updatedLead.id },
-                data: { clientId: clientRecord.id }
-              });
-              console.log(`[Auto-Convert] Updated existing Client ${clientRecord.id} with new temp credentials for Eligible outcome`);
-            }
-
-            const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
-            const portalUrl = `${frontendUrl}/#/portal/login`;
-
-            // Dispatch Credentials Email
-            if (clientRecord.email) {
-              try {
-                const { sendEmail } = require('../services/emailService');
-                sendEmail({
-                  to: clientRecord.email,
-                  subject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
-                  html: `
-                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #2d3748;">
-                      <h2 style="color: #4f46e5;">Welcome to AAA Business Consultancy! 🎉</h2>
-                      <p>Dear <strong>${clientRecord.firstName} ${clientRecord.lastName}</strong>,</p>
-                      <p>Congratulations! Based on your consultation assessment, you are <strong>ELIGIBLE</strong> for your Spain Visa / Residency package.</p>
-                      <div style="background: #f7fafc; border-left: 4px solid #4f46e5; padding: 16px; margin: 20px 0;">
-                        <h4 style="margin: 0 0 8px; color: #4f46e5;">Your Portal Credentials</h4>
-                        <p><strong>Portal URL:</strong> <a href="${portalUrl}">${portalUrl}</a></p>
-                        <p><strong>Username:</strong> ${clientRecord.email}</p>
-                        <p><strong>Temporary Password:</strong> <code style="background: #edf2f7; padding: 2px 6px; color: #e11d48;">${plainPassword}</code></p>
-                      </div>
-                      <p>Please log in to select your preferred package and complete your application.</p>
-                    </div>
-                  `
-                }).catch(err => console.error('[Auto-Convert Email Error]:', err.message));
-              } catch (emailErr) {
-                console.error('[Auto-Convert Email Exception]:', emailErr.message);
-              }
-            }
-
-            // Dispatch Single Clean WhatsApp Credentials Message
-            if (clientRecord.phone) {
-              try {
-                const { sendCustomWhatsApp } = require('../services/chatbotService');
-                const credsMsg = `Hello *${clientRecord.firstName} ${clientRecord.lastName}*, welcome to AAA Business Consultancy! 🇪🇸\n\nYour Spain Relocation profile has been initialized. 🎉\n\n🔑 *Client Portal Login Credentials:*\n🔗 *Login URL:* ${portalUrl}\n👤 *Username:* ${clientRecord.email}\n🔑 *Temp Password:* ${plainPassword}\n\n📦 *Service Packages:*\nYou can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.\n\nThank you for choosing AAA Business Consultancy!`;
-                
-                await sendCustomWhatsApp(clientRecord.phone, credsMsg).catch(err => console.error('[Auto-Convert WA Creds Error]:', err.message));
-                console.log(`[Auto-Convert WA Creds Sent] Dispatched WhatsApp credentials message to ${clientRecord.phone}`);
-              } catch (waCredErr) {
-                console.error('[Auto-Convert WA Creds Exception]:', waCredErr.message);
-              }
-            }
-          } catch (autoConvErr) {
-            console.error('[Auto-Convert Error]:', autoConvErr.message);
-          }
+          // Schedule Drip #3 (7 days / 1 week)
+          await remindersQueue.add('consultation-completed-drip', {
+            leadId: updatedLead.id,
+            clientId: updatedLead.clientId,
+            email: updatedLead.email,
+            phone: updatedLead.phone,
+            firstName: updatedLead.firstName,
+            lastName: updatedLead.lastName,
+            dripIndex: 3
+          }, {
+            delay: 7 * 24 * 60 * 60 * 1000 // 7 days
+          });
+          console.log(`[Auto-Completed] Scheduled €250 assessment drips for lead ${updatedLead.id}`);
         }
-
-        // Schedule €250 Drip follow-ups (3 days & 7 days later) if remindersQueue is active
-        try {
-          if (remindersQueue && remindersQueue.add) {
-            // Schedule Drip #2 (3 days)
-            await remindersQueue.add('consultation-completed-drip', {
-              leadId: updatedLead.id,
-              clientId: updatedLead.clientId,
-              email: updatedLead.email,
-              phone: updatedLead.phone,
-              firstName: updatedLead.firstName,
-              lastName: updatedLead.lastName,
-              dripIndex: 2
-            }, {
-              delay: 3 * 24 * 60 * 60 * 1000 // 3 days
-            });
-
-            // Schedule Drip #3 (7 days / 1 week)
-            await remindersQueue.add('consultation-completed-drip', {
-              leadId: updatedLead.id,
-              clientId: updatedLead.clientId,
-              email: updatedLead.email,
-              phone: updatedLead.phone,
-              firstName: updatedLead.firstName,
-              lastName: updatedLead.lastName,
-              dripIndex: 3
-            }, {
-              delay: 7 * 24 * 60 * 60 * 1000 // 7 days
-            });
-            console.log(`[Auto-Completed] Scheduled €250 assessment drips for lead ${updatedLead.id}`);
-          }
-        } catch (queueErr) {
-          console.warn('[Queue Schedule Warning]: Could not schedule drips:', queueErr.message);
-        }
+      } catch (queueErr) {
+        console.warn('[Queue Schedule Warning]: Could not schedule drips:', queueErr.message);
+      }
     }
 
     // Trigger automated post-consultation Google Review WhatsApp messages (Immediate + 3d + 7d drips)
@@ -1447,6 +1473,7 @@ module.exports = {
   getConsultations,
   createConsultation,
   updateOutcome,
+  autoConvertLeadToClient,
   respondToConsultation,
   createConsultationForLead,
   reassignConsultant,
