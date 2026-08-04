@@ -356,33 +356,37 @@ const updateOutcome = async (req, res) => {
         }
 
         // Schedule €250 Drip follow-ups (3 days & 7 days later) if remindersQueue is active
-        if (remindersQueue && remindersQueue.add) {
-          // Schedule Drip #2 (3 days)
-          await remindersQueue.add('consultation-completed-drip', {
-            leadId: updatedLead.id,
-            clientId: updatedLead.clientId,
-            email: updatedLead.email,
-            phone: updatedLead.phone,
-            firstName: updatedLead.firstName,
-            lastName: updatedLead.lastName,
-            dripIndex: 2
-          }, {
-            delay: 3 * 24 * 60 * 60 * 1000 // 3 days
-          });
+        try {
+          if (remindersQueue && remindersQueue.add) {
+            // Schedule Drip #2 (3 days)
+            await remindersQueue.add('consultation-completed-drip', {
+              leadId: updatedLead.id,
+              clientId: updatedLead.clientId,
+              email: updatedLead.email,
+              phone: updatedLead.phone,
+              firstName: updatedLead.firstName,
+              lastName: updatedLead.lastName,
+              dripIndex: 2
+            }, {
+              delay: 3 * 24 * 60 * 60 * 1000 // 3 days
+            });
 
-          // Schedule Drip #3 (7 days / 1 week)
-          await remindersQueue.add('consultation-completed-drip', {
-            leadId: updatedLead.id,
-            clientId: updatedLead.clientId,
-            email: updatedLead.email,
-            phone: updatedLead.phone,
-            firstName: updatedLead.firstName,
-            lastName: updatedLead.lastName,
-            dripIndex: 3
-          }, {
-            delay: 7 * 24 * 60 * 60 * 1000 // 7 days
-          });
-          console.log(`[Auto-Completed] Scheduled €250 assessment drips for lead ${updatedLead.id}`);
+            // Schedule Drip #3 (7 days / 1 week)
+            await remindersQueue.add('consultation-completed-drip', {
+              leadId: updatedLead.id,
+              clientId: updatedLead.clientId,
+              email: updatedLead.email,
+              phone: updatedLead.phone,
+              firstName: updatedLead.firstName,
+              lastName: updatedLead.lastName,
+              dripIndex: 3
+            }, {
+              delay: 7 * 24 * 60 * 60 * 1000 // 7 days
+            });
+            console.log(`[Auto-Completed] Scheduled €250 assessment drips for lead ${updatedLead.id}`);
+          }
+        } catch (queueErr) {
+          console.warn('[Queue Schedule Warning]: Could not schedule drips:', queueErr.message);
         }
     }
 

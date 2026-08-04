@@ -150,6 +150,24 @@ exports.getConversations = async (req, res) => {
 
       const unreadCount = messagesLogs.filter(m => m.direction === 'INBOUND' && !m.readStatus).length;
 
+      // 24-Hour WhatsApp Customer Session Window calculation (Safe against null/invalid dates)
+      const latestInboundLog = messagesLogs.slice().reverse().find(m => m.direction === 'INBOUND');
+      const lastInboundAt = latestInboundLog ? latestInboundLog.createdAt : null;
+      const windowMillis = 24 * 60 * 60 * 1000;
+      let isWindowOpen = false;
+      let windowExpiresAt = null;
+      let remainingMinutes = 0;
+
+      if (lastInboundAt) {
+        const inboundTime = new Date(lastInboundAt).getTime();
+        if (!isNaN(inboundTime)) {
+          isWindowOpen = (Date.now() - inboundTime) <= windowMillis;
+          const expireTime = inboundTime + windowMillis;
+          windowExpiresAt = new Date(expireTime).toISOString();
+          remainingMinutes = isWindowOpen ? Math.max(0, Math.floor((expireTime - Date.now()) / (1000 * 60))) : 0;
+        }
+      }
+
       return {
         id: `conv_phone_${cleanPh.replace(/[^\d]/g, '')}`,
         phone: cleanPh,
@@ -163,7 +181,11 @@ exports.getConversations = async (req, res) => {
         clientId: client ? client.id : null,
         messages: messages,
         latestMessage: latestLog ? parseMessageContent(latestLog.content).text : '',
-        timestamp: latestLog ? latestLog.createdAt : new Date()
+        timestamp: latestLog ? latestLog.createdAt : new Date(),
+        isWindowOpen: isWindowOpen,
+        lastInboundAt: lastInboundAt,
+        windowExpiresAt: windowExpiresAt,
+        remainingMinutes: remainingMinutes,
       };
     });
 

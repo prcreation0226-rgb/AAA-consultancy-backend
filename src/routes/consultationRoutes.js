@@ -17,6 +17,8 @@ const router = express.Router();
 router.patch('/public/reschedule', publicRescheduleConsultation);
 router.patch('/public/cancel', publicCancelConsultation);
 router.get('/public/:id', getPublicConsultationDetails);
+router.get('/details/:id', authMiddleware, getPublicConsultationDetails);
+router.get('/:id', authMiddleware, getPublicConsultationDetails);
 
 router.route('/')
   .get(authMiddleware, getConsultations)
