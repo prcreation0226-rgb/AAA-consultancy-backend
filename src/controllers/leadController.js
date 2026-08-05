@@ -688,6 +688,7 @@ async function updateMeetingPreference(req, res) {
     const {
       firstName,
       lastName,
+      email,
       phone,
       nationality,
       preferredLanguage,
