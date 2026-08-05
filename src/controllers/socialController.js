@@ -144,7 +144,7 @@ exports.getConversations = async (req, res) => {
             name: m.respondedByUser.fullName,
             role: m.respondedByUser.role,
             avatar: m.respondedByUser.avatar
-          } : (m.direction === 'OUTBOUND' ? { name: m.name || 'Agent' } : null)
+          } : (m.direction === 'OUTBOUND' ? { name: 'AI Bot', role: 'Automation' } : null)
         };
       });
 
