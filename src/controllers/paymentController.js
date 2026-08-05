@@ -457,7 +457,7 @@ const createRefundRequest = async (req, res) => {
         targetClient = await prisma.client.findUnique({ where: { id: req.user.id } }).catch(() => null);
       }
 
-      const clientEmail = bodyClientEmail || targetClient?.email || req.user?.email;
+      const clientEmail = targetClient?.email || bodyClientEmail || req.user?.email;
       const clientName = targetClient
         ? `${targetClient.firstName} ${targetClient.lastName}`
         : (req.user?.fullName || req.user?.name || req.user?.email?.split('@')[0] || 'Valued Client');
@@ -465,8 +465,9 @@ const createRefundRequest = async (req, res) => {
       await prisma.auditLog.create({
         data: {
           action: `Refund Request Created by ${creatorRole.toUpperCase()} (${creatorName})`,
-          performedBy: creatorName,
-          details: `Refund Request #${refund.id.substring(0, 8)} created for ${clientName}. Category: ${category}, Amount: €${refundAmount}. Raised by: ${creatorName} (${creatorRole}).`
+          actorName: creatorName,
+          actorRole: creatorRole,
+          description: `Refund Request #${refund.id.substring(0, 8)} created for ${clientName}. Category: ${category}, Amount: €${refundAmount}. Raised by: ${creatorName} (${creatorRole}).`
         }
       });
 
@@ -543,8 +544,7 @@ const createRefundRequest = async (req, res) => {
             userId: targetClientId,
             type: 'REFUND_CLAIM',
             title: '🛡️ New Refund Claim Registered',
-            message: `Client ${clientName} submitted a 50% refund claim (€${refundAmount.toLocaleString()}). Audit required.`,
-            link: '/super_admin/finance'
+            body: `Client ${clientName} submitted a 50% refund claim (€${refundAmount.toLocaleString()}). Audit required.`
           }
         });
       } catch (notifErr) {
