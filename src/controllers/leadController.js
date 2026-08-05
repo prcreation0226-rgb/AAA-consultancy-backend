@@ -597,11 +597,13 @@ const updateLead = async (req, res) => {
 async function getPublicLeadDetails(req, res) {
   try {
     const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ message: 'Lead ID is required' });
-    }
-    const lead = await prisma.lead.findUnique({
-      where: { id },
+    let lead = await prisma.lead.findFirst({
+      where: {
+        OR: [
+          { id: id },
+          { clientId: id }
+        ]
+      },
       select: {
         id: true,
         firstName: true,
@@ -609,36 +611,73 @@ async function getPublicLeadDetails(req, res) {
         email: true,
         phone: true,
         nationality: true,
+        countryOfResidence: true,
         preferredLanguage: true,
         serviceType: true,
         meetingPreferredDate: true,
         meetingPreferredTime: true,
         meetingPreferredLanguage: true,
         meetingNotes: true,
-        formSubmittedAt: true
+        formSubmittedAt: true,
+        clientId: true
       }
     });
+
     if (!lead) {
-      return res.status(404).json({ message: 'No lead found with this ID' });
+      const clientObj = await prisma.client.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          nationality: true,
+          countryOfResidence: true,
+          preferredLanguage: true,
+          serviceType: true
+        }
+      });
+
+      if (clientObj) {
+        return res.json({
+          id: clientObj.id,
+          clientId: clientObj.id,
+          firstName: clientObj.firstName,
+          lastName: clientObj.lastName,
+          email: clientObj.email,
+          phone: clientObj.phone,
+          nationality: clientObj.nationality,
+          countryOfResidence: clientObj.countryOfResidence,
+          preferredLanguage: clientObj.preferredLanguage,
+          serviceType: clientObj.serviceType,
+          isClient: true
+        });
+      }
+
+      return res.status(404).json({ message: 'No lead or client found with this ID' });
     }
-    // Return only safe fields to the public form
+
     res.json({
       id: lead.id,
+      clientId: lead.clientId || lead.id,
       firstName: lead.firstName,
       lastName: lead.lastName,
       email: lead.email,
       phone: lead.phone,
       nationality: lead.nationality,
+      countryOfResidence: lead.countryOfResidence,
       preferredLanguage: lead.preferredLanguage,
       serviceType: lead.serviceType,
       meetingPreferredDate: lead.meetingPreferredDate,
       meetingPreferredTime: lead.meetingPreferredTime,
       meetingPreferredLanguage: lead.meetingPreferredLanguage,
       meetingNotes: lead.meetingNotes,
-      formSubmittedAt: lead.formSubmittedAt
+      formSubmittedAt: lead.formSubmittedAt,
+      isClient: !!lead.clientId
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error fetching lead details', error: error.message });
+    res.status(500).json({ message: 'Server error fetching details', error: error.message });
   }
 }
 
@@ -670,6 +709,81 @@ async function updateMeetingPreference(req, res) {
           message: 'Booking date must be at least the next calendar day.'
         });
       }
+    }
+
+    // Check if ID belongs to an existing converted Client
+    const clientObj = await prisma.client.findUnique({
+      where: { id },
+      include: { lead: true }
+    });
+
+    if (clientObj) {
+      let meetingLink = 'https://zoom.us/j/' + Math.floor(100000000 + Math.random() * 900000000);
+      let zoomMeetingId = null;
+
+      const zoomService = require('../services/zoomService');
+      if (zoomService.isConfigured) {
+        try {
+          let startTimeISO = new Date().toISOString();
+          if (meetingPreferredDate) {
+            const timeStr = meetingPreferredTime && meetingPreferredTime.includes(':') ? meetingPreferredTime : '10:00';
+            const dateObj = new Date(`${meetingPreferredDate}T${timeStr}`);
+            if (!isNaN(dateObj.getTime())) {
+              startTimeISO = dateObj.toISOString();
+            }
+          }
+          const zoomMeeting = await zoomService.createZoomMeeting({
+            topic: `Follow-up Consultation for ${clientObj.firstName} ${clientObj.lastName}`,
+            startTime: startTimeISO,
+            durationMinutes: 30
+          });
+          if (zoomMeeting && zoomMeeting.joinUrl) {
+            meetingLink = zoomMeeting.joinUrl;
+            zoomMeetingId = zoomMeeting.meetingId;
+          }
+        } catch (zErr) {
+          console.error('[ZOOM] Failed creating rebook Zoom link:', zErr.message);
+        }
+      }
+
+      const consultation = await prisma.consultation.create({
+        data: {
+          clientId: clientObj.id,
+          leadId: clientObj.lead?.id || null,
+          date: meetingPreferredDate,
+          timeSlot: meetingPreferredTime,
+          durationMinutes: 30,
+          type: 'follow_up',
+          status: 'Scheduled',
+          consultantId: clientObj.assignedToId || undefined,
+          internalNotes: meetingNotes || 'Client Follow-up Rebook Meeting',
+          meetingLink,
+          zoomMeetingId
+        }
+      });
+
+      const { sendCustomWhatsApp } = require('../services/chatbotService');
+      const dayjs = require('dayjs');
+      const formattedDate = meetingPreferredDate.includes('-') ? dayjs(meetingPreferredDate).format('DD/MM/YYYY') : meetingPreferredDate;
+      const waMsg = `✈️ *Follow-up Consultation Confirmed!*
+
+Dear *${clientObj.firstName} ${clientObj.lastName}*,
+
+Your follow-up consultation with your Case Officer has been scheduled successfully! 🎉
+
+📅 *Date:* ${formattedDate}
+⏰ *Time:* ${meetingPreferredTime} (UAE)
+🔗 *Meeting Join Link:* ${meetingLink}
+
+_AAA Business Consultancy_`;
+
+      sendCustomWhatsApp(clientObj.phone, waMsg).catch(e => console.error('[REBOOK WA Error]:', e.message));
+
+      return res.json({
+        success: true,
+        message: 'Follow-up meeting booked successfully!',
+        consultation
+      });
     }
 
     const lead = await prisma.lead.update({
