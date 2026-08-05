@@ -383,12 +383,33 @@ const updateOutcome = async (req, res) => {
     console.log(`[DEBUG updateOutcome] consultationId=${id} status=${status} eligibilityStr="${eligibilityStr}" consultation.leadId=${consultation.leadId}`);
     
     if (!targetLeadId) {
-      // Reliable fallback: find lead that owns this consultation via DB relation
+      // Reliable fallback 1: find lead that owns this consultation via DB relation
       const leadWithConsultation = await prisma.lead.findFirst({
         where: { consultations: { some: { id: consultation.id } } }
       });
       if (leadWithConsultation) targetLeadId = leadWithConsultation.id;
-      console.log(`[DEBUG updateOutcome] Fallback leadId lookup: ${targetLeadId || 'NOT FOUND'}`);
+      console.log(`[DEBUG updateOutcome] Fallback 1 leadId lookup: ${targetLeadId || 'NOT FOUND'}`);
+    }
+
+    if (!targetLeadId && consultation.clientId) {
+      // Reliable fallback 2: find lead via clientId
+      const leadByClientId = await prisma.lead.findFirst({
+        where: { clientId: consultation.clientId }
+      });
+      if (leadByClientId) targetLeadId = leadByClientId.id;
+      console.log(`[DEBUG updateOutcome] Fallback 2 leadId lookup via clientId: ${targetLeadId || 'NOT FOUND'}`);
+    }
+
+    if (!targetLeadId) {
+      // Reliable fallback 3: fetch consultation with lead include
+      const consFull = await prisma.consultation.findUnique({
+        where: { id: consultation.id },
+        include: { lead: true }
+      });
+      if (consFull?.lead?.id) {
+        targetLeadId = consFull.lead.id;
+        console.log(`[DEBUG updateOutcome] Fallback 3 leadId lookup via consFull: ${targetLeadId}`);
+      }
     }
 
     if (targetLeadId) {
@@ -396,9 +417,9 @@ const updateOutcome = async (req, res) => {
       let isNotEligible = false;
 
       const lowerElig = eligibilityStr.toLowerCase();
-      if (lowerElig.includes('not eligible') || lowerElig.includes('not_eligible')) {
+      if (lowerElig.includes('not eligible') || lowerElig.includes('not_eligible') || lowerElig.includes('ineligible')) {
         isNotEligible = true;
-      } else if (lowerElig.includes('eligible')) {
+      } else if (lowerElig.includes('eligible') || lowerElig.includes('approved') || lowerElig.includes('yes')) {
         isEligible = true;
       }
 
