@@ -251,6 +251,7 @@ exports.clearChat = async (req, res) => {
 exports.getMessagesByPhone = async (req, res) => {
   try {
     const { phone } = req.params;
+    const cleanPh = cleanPhoneNumber(phone);
     const numberPart = cleanPh.replace(/\D/g, '');
 
     // 1. Fetch all logs for this phone number (matching with or without + prefix)
@@ -276,7 +277,8 @@ exports.getMessagesByPhone = async (req, res) => {
         OR: [
           { phone: cleanPh },
           { phone: numberPart },
-          { phone: `+${numberPart}` }
+          { phone: `+${numberPart}` },
+          ...(numberPart ? [{ phone: { contains: numberPart } }] : [])
         ],
         direction: 'INBOUND',
         readStatus: false
