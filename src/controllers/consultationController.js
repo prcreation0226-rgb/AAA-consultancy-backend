@@ -1329,8 +1329,9 @@ async function publicRescheduleConsultation(req, res) {
     const clientName = lead ? `${lead.firstName} ${lead.lastName}` : (client ? `${client.firstName} ${client.lastName}` : 'Client');
     const email = lead?.email || client?.email || null;
     const phone = lead?.phone || client?.phone || null;
-    const link = updatedConsultation.meetingLink || consultation.meetingLink || 'https://zoom.us';
+    const link = updatedConsultation.meetingLink || consultation.meetingLink || `https://zoom.us/j/${Math.floor(100000000 + Math.random() * 900000000)}`;
 
+    const consultationId = consultation.id;
     const dayjs = require('dayjs');
     const formattedDate = date ? (date.includes('-') ? dayjs(date).format('DD/MM/YYYY') : date) : date;
 
@@ -1362,7 +1363,7 @@ Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled 
 
 _Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
 
-        sendCustomWhatsApp(phone, waMsg).catch(waErr => console.error('Reschedule WhatsApp error:', waErr.message));
+        await sendCustomWhatsApp(phone, waMsg).catch(waErr => console.error('Reschedule WhatsApp error:', waErr.message));
         console.log(`[Reschedule WA Sent] Dispatched WhatsApp reschedule message to ${phone}`);
       } catch (waErr) {
         console.error('Reschedule WhatsApp error:', waErr.message);
@@ -1378,8 +1379,9 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           date,
           timeSlot,
           meetingLink: link,
-          consultationId
+          consultationId: consultationId
         });
+        console.log(`[Reschedule Email Sent] Dispatched confirmation email to ${email}`);
       } catch (emailErr) {
         console.error('Reschedule Email error:', emailErr.message);
       }
@@ -1388,11 +1390,12 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
     return res.status(200).json({
       success: true,
       message: 'Meeting rescheduled successfully',
+      meetingLink: link,
       data: {
         bookingId: updatedConsultation.id,
         date: updatedConsultation.date,
         time: updatedConsultation.timeSlot,
-        meetingLink: updatedConsultation.meetingLink,
+        meetingLink: link,
         consultation: updatedConsultation
       }
     });
