@@ -37,6 +37,9 @@ const getPayments = async (req, res) => {
         paymentPurpose: true,
         additionalApplicants: true,
         assessmentCreditUsed: true,
+        paidAt: true,
+        createdAt: true,
+        updatedAt: true,
         client: { select: { id: true, firstName: true, lastName: true, assignedToId: true } }
       },
       orderBy: { billingDate: 'desc' }
@@ -246,7 +249,8 @@ const updatePaymentStatus = async (req, res) => {
         paymentMethod, 
         transactionId,
         totalPaid: status === 'Paid' ? (payment.amount - (payment.discount || 0)) : payment.totalPaid,
-        commissionRate: status === 'Paid' ? snapshotRate : undefined
+        commissionRate: status === 'Paid' ? snapshotRate : undefined,
+        paidAt: (status === 'Paid' && !payment.paidAt) ? new Date() : undefined
       }
     });
     
@@ -1219,13 +1223,26 @@ const getClientPackages = async (req, res) => {
     const activeCredit = await prisma.payment.findFirst({
       where: {
         clientId: clientId,
-        packageType: 'OPTION_A',
         status: 'Paid',
         assessmentCreditUsed: false,
-        paidAt: { gte: fourteenDaysAgo },
         OR: [
-          { creditReservedForPaymentId: null },
-          { creditReservedUntil: { lt: new Date() } }
+          { packageType: 'OPTION_A' },
+          { amount: 250 },
+          { amount: 262.5 }
+        ],
+        AND: [
+          {
+            OR: [
+              { paidAt: { gte: fourteenDaysAgo } },
+              { AND: [{ paidAt: null }, { createdAt: { gte: fourteenDaysAgo } }] }
+            ]
+          },
+          {
+            OR: [
+              { creditReservedForPaymentId: null },
+              { creditReservedUntil: { lt: new Date() } }
+            ]
+          }
         ]
       }
     });
@@ -1236,7 +1253,7 @@ const getClientPackages = async (req, res) => {
       credit: {
         hasCredit: !!activeCredit,
         creditAmount: activeCredit ? 250 : 0,
-        expiresAt: activeCredit ? new Date(activeCredit.paidAt.getTime() + 14 * 24 * 60 * 60 * 1000) : null
+        expiresAt: activeCredit ? new Date((activeCredit.paidAt || activeCredit.createdAt).getTime() + 14 * 24 * 60 * 60 * 1000) : null
       }
     });
   } catch (error) {
