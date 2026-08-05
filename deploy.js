@@ -132,6 +132,26 @@ async function ensurePhase2Schema() {
       console.log(`[Deploy] Column \`application_cycles.${col.name}\`: OK`);
     }
   }
+
+  // 4. Ensure consultations table columns exist
+  const consultationCols = [
+    { name: 'clientId', sql: 'ALTER TABLE `consultations` ADD COLUMN `clientId` VARCHAR(191) NULL;' }
+  ];
+
+  for (const col of consultationCols) {
+    const exists = await columnExists('consultations', col.name);
+    if (!exists) {
+      console.log(`[Deploy] Adding column \`consultations.${col.name}\`...`);
+      try {
+        await prisma.$executeRawUnsafe(col.sql);
+        console.log(`[Deploy] Column \`consultations.${col.name}\` added.`);
+      } catch (err) {
+        console.log(`[Deploy] Note on \`consultations.${col.name}\`: ${err.message}`);
+      }
+    } else {
+      console.log(`[Deploy] Column \`consultations.${col.name}\`: OK`);
+    }
+  }
 }
 
 async function main() {
