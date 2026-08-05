@@ -711,9 +711,14 @@ async function updateMeetingPreference(req, res) {
       }
     }
 
-    // Check if ID belongs to an existing converted Client
-    const clientObj = await prisma.client.findUnique({
-      where: { id },
+    // Check if ID belongs to an existing converted Client (match by Client ID or linked Lead ID)
+    const clientObj = await prisma.client.findFirst({
+      where: {
+        OR: [
+          { id: id },
+          { lead: { id: id } }
+        ]
+      },
       include: { lead: true }
     });
 
