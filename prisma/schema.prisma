@@ -148,6 +148,7 @@ model Client {
   refundRequests   RefundRequest[]
   communications   CommunicationLog[]
   discountCodes    DiscountCode[]
+  consultations    Consultation[]
 
   @@map("clients")
 }
@@ -167,12 +168,15 @@ model Consultation {
   recommendedPackageId String?
   internalNotes    String?  @db.Text
 
-  type             String   @default("eligibility") // eligibility, property_guidance, general
+  type             String   @default("eligibility") // eligibility, property_guidance, general, follow_up
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   leadId           String?
   lead             Lead?    @relation(fields: [leadId], references: [id])
+
+  clientId         String?
+  client           Client?  @relation(fields: [clientId], references: [id])
 
   consultantId     String?
   consultant       User?    @relation("AgentConsultations", fields: [consultantId], references: [id])
