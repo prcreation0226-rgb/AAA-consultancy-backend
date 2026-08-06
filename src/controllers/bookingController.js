@@ -589,8 +589,18 @@ exports.uploadTranslationDocument = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Only PDF files are supported' });
     }
 
+    // Obtain file buffer from RAM (memoryStorage) or disk (diskStorage)
+    const fs = require('fs');
+    let fileBuffer = req.file.buffer;
+    if (!fileBuffer && req.file.path && fs.existsSync(req.file.path)) {
+      fileBuffer = fs.readFileSync(req.file.path);
+    }
+    if (!fileBuffer) {
+      fileBuffer = new Uint8Array(0);
+    }
+
     // Parse PDF using unpdf extractText with a 5-second timeout protection
-    const extractPromise = extractText(new Uint8Array(req.file.buffer));
+    const extractPromise = extractText(new Uint8Array(fileBuffer));
     const timeoutPromise = new Promise((_, reject) => 
       setTimeout(() => reject(new Error('PDF text extraction timed out (5s limit)')), 5000)
     );
