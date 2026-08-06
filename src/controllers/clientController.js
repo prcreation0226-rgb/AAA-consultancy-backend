@@ -336,7 +336,8 @@ const createClient = async (req, res) => {
             serviceType: client.serviceType,
             checkoutUrl: finalCheckoutUrl,
             portalUrl,
-            tempPassword: plainPassword
+            tempPassword: plainPassword,
+            note: profileSummary || client.profileSummary
           }).catch(err => console.error('[Client Init Invoice WA Error]:', err.message));
         }
       } catch (invErr) {

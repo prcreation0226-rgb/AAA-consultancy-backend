@@ -394,7 +394,7 @@ Please log into your client portal to upload your documents and track your order
 /**
  * Sends automated Invoice & Portal Account WhatsApp message.
  */
-exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serviceType, checkoutUrl, portalUrl, tempPassword }) => {
+exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serviceType, checkoutUrl, portalUrl, tempPassword, note, notes }) => {
   try {
     if (!client || !client.phone) {
       console.warn('[Invoice WhatsApp] client or client.phone is missing');
@@ -461,6 +461,9 @@ exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serv
     const { sendCustomWhatsApp } = require('./chatbotService');
     const loginUrl = portalUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
     const clientName = `${client.firstName} ${client.lastName}`.trim();
+    
+    const activeNote = (note || notes || client.notes || client.profileSummary || '').trim();
+    const noteSection = activeNote ? `📝 *Note:* ${activeNote}\n\n` : '';
 
     const message = `Hello *${clientName}*, welcome to AAA Business Consultancy! 🇪🇸
 
@@ -474,7 +477,7 @@ Your Spain Relocation profile has been initialized. 🎉
 📦 *Service Packages:*
 You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.
 
-📅 Need to book another consultation?
+${noteSection}📅 Need to book another consultation?
 Simply reply with "rebook" in this chat, and we'll send you a new meeting booking link.
 
 Thank you for choosing AAA Business Consultancy!`;
