@@ -52,6 +52,7 @@ app.use(cors({
 app.use(morgan('dev'));
 
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/api/v1/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;

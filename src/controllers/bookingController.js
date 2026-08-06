@@ -616,25 +616,39 @@ exports.uploadTranslationDocument = async (req, res) => {
     const sourceLang = sourceLanguage || 'English';
     const priceDetails = await calculateSwornTranslationPrice(wordCount, sourceLang);
 
-    // Save/Update Client & Lead in CRM database upon requesting quote
+    // Save/Update Lead in CRM database upon requesting quote (Sworn Translation stays in Lead)
     if (firstName && lastName && email && phone) {
       try {
-        const bcrypt = require('bcrypt');
-        const crypto = require('crypto');
-        
-        let client = await prisma.client.findUnique({
-          where: { email: email.toLowerCase() }
+        const filename = req.file?.filename || req.file?.key || `${Date.now()}-${req.file?.originalname || 'document.pdf'}`;
+        const fileUrl = req.file?.location || `/uploads/${filename}`;
+        const fileSizeMb = req.file?.size ? (req.file.size / 1024 / 1024).toFixed(2) : '0.10';
+
+        const docObj = {
+          documentName: req.file?.originalname || 'Translation Document.pdf',
+          documentUrl: fileUrl,
+          documentSize: `${fileSizeMb} MB`,
+          wordCount,
+          sourceLanguage: sourceLang,
+          targetLanguage: targetLanguage || 'Spanish',
+          estimatedPrice: priceDetails.total,
+          uploadedAt: new Date().toISOString()
+        };
+
+        let lead = await prisma.lead.findFirst({
+          where: {
+            OR: [
+              { email: email.toLowerCase() },
+              { phone: phone }
+            ]
+          }
         });
 
-        if (!client) {
-          const generatedPassword = crypto.randomBytes(8).toString('hex');
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash(generatedPassword, salt);
+        if (!lead) {
+          const totalLeads = await prisma.lead.count();
+          const totalClients = await prisma.client.count();
+          const autoClientCode = `CID-${12001 + totalLeads + totalClients}`;
 
-          const clientCount = await prisma.client.count();
-          const autoClientCode = `CID-${12001 + clientCount}`;
-
-          client = await prisma.client.create({
+          await prisma.lead.create({
             data: {
               clientCode: autoClientCode,
               firstName,
@@ -643,54 +657,34 @@ exports.uploadTranslationDocument = async (req, res) => {
               phone,
               nationality: nationality || null,
               serviceType: 'Spanish Sworn Translation',
-              password: hashedPassword,
-              isTemporaryPassword: true,
               status: 'Payment Not Completed',
               sourceLanguage: sourceLang,
               targetLanguage: targetLanguage || 'Spanish',
-              wordCount: wordCount
+              wordCount: wordCount,
+              qualificationData: {
+                serviceType: 'Spanish Sworn Translation',
+                ...docObj
+              }
             }
           });
         } else {
-          client = await prisma.client.update({
-            where: { id: client.id },
-            data: {
-              phone: phone || undefined,
-              nationality: nationality || undefined,
-              sourceLanguage: sourceLang,
-              targetLanguage: targetLanguage || 'Spanish',
-              wordCount: wordCount
-            }
-          });
-        }
-
-        // Create or update Lead for CRM Inbox visibility
-        let lead = await prisma.lead.findUnique({ where: { clientId: client.id } });
-        if (!lead) {
-          await prisma.lead.create({
-            data: {
-              firstName,
-              lastName,
-              email: email.toLowerCase(),
-              phone,
-              nationality: nationality || null,
-              serviceType: 'Spanish Sworn Translation',
-              status: 'Payment Not Completed',
-              clientId: client.id,
-              sourceLanguage: sourceLang,
-              targetLanguage: targetLanguage || 'Spanish',
-              wordCount: wordCount
-            }
-          });
-        } else {
+          let existingQual = lead.qualificationData || {};
+          if (typeof existingQual !== 'object') existingQual = {};
           await prisma.lead.update({
             where: { id: lead.id },
             data: {
+              serviceType: 'Spanish Sworn Translation',
+              status: 'Payment Not Completed',
               phone: phone || undefined,
               nationality: nationality || undefined,
               sourceLanguage: sourceLang,
               targetLanguage: targetLanguage || 'Spanish',
-              wordCount: wordCount
+              wordCount: wordCount,
+              qualificationData: {
+                ...existingQual,
+                serviceType: 'Spanish Sworn Translation',
+                ...docObj
+              }
             }
           });
         }
@@ -742,59 +736,30 @@ exports.checkoutTranslationDocument = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing required client details' });
     }
 
-    // 1. Find or create Client
-    let client = await prisma.client.findUnique({
-      where: { email: email.toLowerCase() }
+    // 1. Find or create Lead (Sworn Translation stays strictly in Lead section)
+    let lead = await prisma.lead.findFirst({
+      where: {
+        OR: [
+          { email: email.toLowerCase() },
+          { phone: phone }
+        ]
+      }
     });
 
-    let generatedPassword = '';
-    if (!client) {
-      generatedPassword = crypto.randomBytes(8).toString('hex');
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(generatedPassword, salt);
-
-      let autoClientCode;
-      let suffix = 0;
-      let isUnique = false;
-      while (!isUnique) {
-        const totalLeads = await prisma.lead.count();
-        const totalClients = await prisma.client.count();
-        autoClientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
-        const checkClient = await prisma.client.findFirst({ where: { clientCode: autoClientCode } });
-        const checkLead = await prisma.lead.findFirst({ where: { clientCode: autoClientCode } });
-        if (!checkClient && !checkLead) isUnique = true;
-        else suffix++;
-      }
-
-      client = await prisma.client.create({
-        data: {
-          clientCode: autoClientCode,
-          firstName,
-          lastName,
-          email: email.toLowerCase(),
-          phone,
-          nationality: nationality || null,
-          serviceType: 'Spanish Sworn Translation',
-          password: hashedPassword,
-          isTemporaryPassword: true,
-          status: 'Payment Not Completed',
-          sourceLanguage: sourceLanguage || 'English',
-          targetLanguage: targetLanguage || 'Spanish',
-          wordCount: parseInt(wordCount, 10) || 0
-        }
-      });
-    } else {
-      client = await prisma.client.update({
-        where: { id: client.id },
-        data: {
-          sourceLanguage: sourceLanguage || undefined,
-          targetLanguage: targetLanguage || undefined,
-          wordCount: wordCount ? parseInt(wordCount, 10) : undefined
-        }
-      });
+    let autoClientCode;
+    let suffix = 0;
+    let isUnique = false;
+    while (!isUnique) {
+      const totalLeads = await prisma.lead.count();
+      const totalClients = await prisma.client.count();
+      autoClientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
+      const checkClient = await prisma.client.findFirst({ where: { clientCode: autoClientCode } });
+      const checkLead = await prisma.lead.findFirst({ where: { clientCode: autoClientCode } });
+      if (!checkClient && !checkLead) isUnique = true;
+      else suffix++;
     }
 
-    // 2. Save Document record
+    // 2. Prepare uploaded document details
     let category = req.body.category || 'Translation Input';
     if (category.startsWith('Other: ')) {
       category = category.replace('Other: ', '');
@@ -804,28 +769,6 @@ exports.checkoutTranslationDocument = async (req, res) => {
     const fileUrl = req.file.location || `/uploads/${filename}`;
     const fileSizeMb = req.file.size ? (req.file.size / 1024 / 1024).toFixed(2) : '0.10';
 
-    await prisma.document.create({
-      data: {
-        clientId: client.id,
-        name: req.file.originalname || 'Translation Document.pdf',
-        category: category,
-        url: fileUrl,
-        size: `${fileSizeMb} MB`,
-        status: 'Pending Verification',
-        belongsTo: 'Main Applicant'
-      }
-    });
-
-    // 3. Create Case Cycle (ApplicationCycle)
-    const applicationCycle = await prisma.applicationCycle.create({
-      data: {
-        clientId: client.id,
-        serviceType: 'sworn_translation',
-        status: 'Documents Under Review'
-      }
-    });
-
-    // 4. Create Payment Record
     const parsedWordCount = parseInt(wordCount, 10) || 0;
     const priceDetails = await calculateSwornTranslationPrice(parsedWordCount, sourceLanguage || 'English');
     let finalPrice = priceDetails.total || 15.00;
@@ -836,86 +779,82 @@ exports.checkoutTranslationDocument = async (req, res) => {
       }
     }
 
-    // Check if Stripe is configured
-    const stripeSecret = process.env.STRIPE_SECRET_KEY;
-    const isRealStripe = stripeSecret && !stripeSecret.includes('your_stripe');
+    const docObj = {
+      name: req.file.originalname || 'Translation Document.pdf',
+      category: category,
+      url: fileUrl,
+      size: `${fileSizeMb} MB`,
+      wordCount: parsedWordCount,
+      sourceLanguage: sourceLanguage || 'English',
+      targetLanguage: targetLanguage || 'Spanish',
+      estimatedPrice: finalPrice,
+      uploadedAt: new Date().toISOString()
+    };
 
-    const payment = await prisma.payment.create({
-      data: {
-        clientId: client.id,
-        applicationId: applicationCycle.id,
-        amount: finalPrice,
-        totalPaid: isRealStripe ? 0 : finalPrice, // 0 paid initially for real Stripe
-        status: isRealStripe ? 'Pending' : 'Paid',
-        paymentMethod: isRealStripe ? 'Stripe' : 'Stripe Mock Auto',
-        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-      }
-    });
-
-    // 5. Generate Stripe Mock Link (Direct portal redirect for local testing)
-    const frontendUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
-    let paymentUrl = `${frontendUrl}/#/portal/login?success=true&clientId=${client.id}&tempPassword=${generatedPassword || 'Pre-existing'}`;
-    let gatewayId = `sess_${payment.id}`;
-
-    if (isRealStripe) {
-      try {
-        const stripe = require('stripe')(stripeSecret);
-        const session = await stripe.checkout.sessions.create({
-          payment_method_types: ['card'],
-          line_items: [{
-            price_data: {
-              currency: 'eur',
-              product_data: {
-                name: 'Spanish Sworn Translation Certification',
-                description: `Sworn translation of documents. Source: ${sourceLanguage || 'English'}. Words: ${wordCount || 0}. (5% VAT Included)`,
-              },
-              unit_amount: Math.round(finalPrice * 100), // finalPrice is total including 5% VAT
-            },
-            quantity: 1,
-          }],
-          mode: 'payment',
-          success_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login?success=true&clientId=${client.id}&tempPassword=${generatedPassword || 'Pre-existing'}&session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/translation?cancel=true`,
-          metadata: {
-            clientId: client.id,
-            paymentId: payment.id,
-            serviceType: 'sworn_translation'
+    if (!lead) {
+      lead = await prisma.lead.create({
+        data: {
+          clientCode: autoClientCode,
+          firstName,
+          lastName,
+          email: email.toLowerCase(),
+          phone,
+          nationality: nationality || null,
+          serviceType: 'Spanish Sworn Translation',
+          status: 'Payment Not Completed',
+          sourceLanguage: sourceLanguage || 'English',
+          targetLanguage: targetLanguage || 'Spanish',
+          wordCount: parsedWordCount,
+          qualificationData: {
+            serviceType: 'Spanish Sworn Translation',
+            documentName: docObj.name,
+            documentUrl: docObj.url,
+            documentSize: docObj.size,
+            wordCount: docObj.wordCount,
+            sourceLanguage: docObj.sourceLanguage,
+            targetLanguage: docObj.targetLanguage,
+            estimatedPrice: docObj.estimatedPrice,
+            uploadedAt: docObj.uploadedAt
           }
-        });
-        paymentUrl = session.url;
-        gatewayId = session.id;
-      } catch (stripeErr) {
-        console.error('Failed to create Stripe Session for Translation Checkout:', stripeErr);
-      }
-    }
-
-    // Update payment record with gateway details
-    await prisma.payment.update({
-      where: { id: payment.id },
-      data: { gatewayId }
-    });
-
-    // Trigger automated WhatsApp receipt & portal credentials notification
-    try {
-      const { sendPaymentSuccessWhatsApp } = require('../services/whatsappService');
-      await sendPaymentSuccessWhatsApp({
-        client,
-        paymentId: payment.id,
-        amount: finalPrice,
-        serviceType: 'Spanish Sworn Translation',
-        generatedPassword: generatedPassword || null
+        }
       });
-    } catch (waErr) {
-      console.error('Failed to trigger WhatsApp payment receipt:', waErr.message);
+    } else {
+      let existingQual = lead.qualificationData || {};
+      if (typeof existingQual !== 'object') existingQual = {};
+      lead = await prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          serviceType: 'Spanish Sworn Translation',
+          status: 'Payment Not Completed',
+          sourceLanguage: sourceLanguage || 'English',
+          targetLanguage: targetLanguage || 'Spanish',
+          wordCount: parsedWordCount,
+          qualificationData: {
+            ...existingQual,
+            serviceType: 'Spanish Sworn Translation',
+            documentName: docObj.name,
+            documentUrl: docObj.url,
+            documentSize: docObj.size,
+            wordCount: docObj.wordCount,
+            sourceLanguage: docObj.sourceLanguage,
+            targetLanguage: docObj.targetLanguage,
+            estimatedPrice: docObj.estimatedPrice,
+            uploadedAt: docObj.uploadedAt
+          }
+        }
+      });
     }
+
+    const frontendUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
+    let paymentUrl = `${frontendUrl}/#/public/translation?success=true&leadId=${lead.id}`;
 
     return res.status(201).json({
       success: true,
-      message: 'Checkout initialized successfully',
+      message: 'Sworn translation document lead submitted successfully',
       data: {
-        clientId: client.id,
+        leadId: lead.id,
         paymentUrl,
-        tempPassword: generatedPassword || null
+        estimatedPrice: finalPrice
       }
     });
 
