@@ -474,6 +474,9 @@ Your Spain Relocation profile has been initialized. 🎉
 📦 *Service Packages:*
 You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.
 
+📅 Need to book another consultation?
+Simply reply with "rebook" in this chat, and we'll send you a new meeting booking link.
+
 Thank you for choosing AAA Business Consultancy!`;
 
     await sendCustomWhatsApp(client.phone, message);
