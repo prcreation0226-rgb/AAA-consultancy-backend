@@ -36,6 +36,7 @@ const getConsultations = async (req, res) => {
         createdAt: true,
         updatedAt: true,
         leadId: true,
+        clientId: true,
         consultantId: true,
         assignedAt: true,
         lead: { select: { id: true, firstName: true, lastName: true, email: true, clientId: true, preferredLanguage: true } },

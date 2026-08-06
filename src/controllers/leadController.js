@@ -688,6 +688,7 @@ async function updateMeetingPreference(req, res) {
     const {
       firstName,
       lastName,
+      email,
       phone,
       nationality,
       preferredLanguage,
@@ -711,9 +712,14 @@ async function updateMeetingPreference(req, res) {
       }
     }
 
-    // Check if ID belongs to an existing converted Client
-    const clientObj = await prisma.client.findUnique({
-      where: { id },
+    // Check if ID belongs to an existing converted Client (match by Client ID or linked Lead ID)
+    const clientObj = await prisma.client.findFirst({
+      where: {
+        OR: [
+          { id: id },
+          { lead: { id: id } }
+        ]
+      },
       include: { lead: true }
     });
 
@@ -763,26 +769,59 @@ async function updateMeetingPreference(req, res) {
       });
 
       const { sendCustomWhatsApp } = require('../services/chatbotService');
+      const { sendAppointmentConfirmationEmail } = require('../services/emailService');
       const dayjs = require('dayjs');
+
       const formattedDate = meetingPreferredDate.includes('-') ? dayjs(meetingPreferredDate).format('DD/MM/YYYY') : meetingPreferredDate;
-      const waMsg = `✈️ *Follow-up Consultation Confirmed!*
+      const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+      const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
+      const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultation.id}`;
+      const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
-Dear *${clientObj.firstName} ${clientObj.lastName}*,
+      const clientFullName = `${clientObj.firstName || ''} ${clientObj.lastName || ''}`.trim() || 'Client';
+      const targetPhone = phone || clientObj.phone || clientObj.lead?.phone;
+      const targetEmail = email || clientObj.email || clientObj.lead?.email;
 
-Your follow-up consultation with your Case Officer has been scheduled successfully! 🎉
+      const waMsg = `✈️ *Spain Visa Follow-up Consultation Confirmed!*
+
+Dear *${clientFullName}*,
+
+Thank you for rebooking your consultation meeting with *AAA Business Consultancy*! 🎉
 
 📅 *Date:* ${formattedDate}
 ⏰ *Time:* ${meetingPreferredTime} (UAE)
 🔗 *Meeting Join Link:* ${meetingLink}
 
-_AAA Business Consultancy_`;
+─────────────
+👇 *Quick Action Links:*
+• 🔄 *Reschedule Booking:* ${rescheduleUrl}
+• ❌ *Cancel Booking:* ${cancelUrl}
+• 📦 *View Visa Packages:* ${packagesUrl}
 
-      sendCustomWhatsApp(clientObj.phone, waMsg).catch(e => console.error('[REBOOK WA Error]:', e.message));
+_Note: Please join on time (within 10 minutes of appointment time to avoid automatic cancellation)._`;
+
+      if (targetPhone) {
+        sendCustomWhatsApp(targetPhone, waMsg).catch(e => console.error('[REBOOK WA Error]:', e.message));
+        console.log(`[REBOOK WA Sent] Dispatched WhatsApp follow-up confirmation to ${targetPhone}`);
+      }
+
+      if (targetEmail) {
+        sendAppointmentConfirmationEmail({
+          to: targetEmail,
+          firstName: clientObj.firstName || 'Client',
+          date: meetingPreferredDate,
+          timeSlot: meetingPreferredTime,
+          meetingLink,
+          consultationId: consultation.id
+        }).catch(e => console.error('[REBOOK EMAIL Error]:', e.message));
+        console.log(`[REBOOK Email Sent] Dispatched Email follow-up confirmation to ${targetEmail}`);
+      }
 
       return res.json({
         success: true,
         message: 'Follow-up meeting booked successfully!',
-        consultation
+        consultation,
+        meetingLink
       });
     }
 
