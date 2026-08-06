@@ -654,13 +654,8 @@ exports.uploadTranslationDocument = async (req, res) => {
         });
 
         if (!lead) {
-          const totalLeads = await prisma.lead.count();
-          const totalClients = await prisma.client.count();
-          const autoClientCode = `CID-${12001 + totalLeads + totalClients}`;
-
           await prisma.lead.create({
             data: {
-              clientCode: autoClientCode,
               firstName,
               lastName,
               email: email.toLowerCase(),
@@ -756,18 +751,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       }
     });
 
-    let autoClientCode;
-    let suffix = 0;
-    let isUnique = false;
-    while (!isUnique) {
-      const totalLeads = await prisma.lead.count();
-      const totalClients = await prisma.client.count();
-      autoClientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
-      const checkClient = await prisma.client.findFirst({ where: { clientCode: autoClientCode } });
-      const checkLead = await prisma.lead.findFirst({ where: { clientCode: autoClientCode } });
-      if (!checkClient && !checkLead) isUnique = true;
-      else suffix++;
-    }
+
 
     // 2. Prepare uploaded document details
     let category = req.body.category || 'Translation Input';
@@ -804,7 +788,6 @@ exports.checkoutTranslationDocument = async (req, res) => {
     if (!lead) {
       lead = await prisma.lead.create({
         data: {
-          clientCode: autoClientCode,
           firstName,
           lastName,
           email: email.toLowerCase(),
