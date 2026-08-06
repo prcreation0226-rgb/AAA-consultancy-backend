@@ -140,6 +140,11 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       try {
         const contentSid = TEMPLATE_CONTENT_SIDS[templateName];
         
+        let fromNum = TWILIO_WHATSAPP_FROM;
+        if (fromNum && !fromNum.startsWith('whatsapp:')) {
+          fromNum = `whatsapp:${fromNum}`;
+        }
+
         if (contentSid) {
           // Use official Twilio Content Template API (contentSid + contentVariables)
           // This is required for outbound messages outside the 24-hour WhatsApp window
@@ -152,10 +157,15 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           }
 
           const msgOptions = {
-            from: TWILIO_WHATSAPP_FROM,
             to: twilioTo,
             contentSid: contentSid
           };
+          if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+            msgOptions.messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+          } else if (fromNum) {
+            msgOptions.from = fromNum;
+          }
+
           if (Object.keys(contentVars).length > 0) {
             msgOptions.contentVariables = JSON.stringify(contentVars);
           }
@@ -167,7 +177,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           // Send as plain body text (for custom DB templates or templates without Content SID)
           const message = await client.messages.create({
             body: resolvedBody,
-            from: TWILIO_WHATSAPP_FROM,
+            from: fromNum,
             to: twilioTo
           });
           msgSid = message.sid;
