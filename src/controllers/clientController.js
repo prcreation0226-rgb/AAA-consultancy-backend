@@ -712,10 +712,14 @@ const updateClientDependents = async (req, res) => {
       return res.status(403).json({ message: 'Access denied. You cannot modify family profiles for other clients.' });
     }
 
+    const count = Array.isArray(dependents) ? dependents.length : 0;
+    const applicantsCountStr = count > 0 ? `Main + ${count}` : 'Main Only';
+
     const client = await prisma.client.update({
       where: { id },
       data: {
-        dependentsDetails: dependents
+        dependentsDetails: dependents,
+        applicantsCount: applicantsCountStr
       }
     });
 
