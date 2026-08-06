@@ -144,9 +144,12 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           // Use official Twilio Content Template API (contentSid + contentVariables)
           // This is required for outbound messages outside the 24-hour WhatsApp window
           const contentVars = {};
-          bodyComponents.forEach((param, index) => {
-            contentVars[String(index + 1)] = param.text || '';
-          });
+          // Only send contentVariables if the template definition contains placeholders like {{1}}
+          if (templateText && templateText.includes('{{1}}')) {
+            bodyComponents.forEach((param, index) => {
+              contentVars[String(index + 1)] = param.text || '';
+            });
+          }
 
           const msgOptions = {
             from: TWILIO_WHATSAPP_FROM,

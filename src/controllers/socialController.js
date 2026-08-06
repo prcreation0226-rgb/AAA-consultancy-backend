@@ -352,6 +352,13 @@ exports.sendSocialMessage = async (req, res) => {
         ]
       });
 
+      if (result && !result.success) {
+        return res.status(400).json({
+          success: false,
+          message: result.error || 'Failed to dispatch template via Twilio WhatsApp API'
+        });
+      }
+
       const log = await prisma.communicationLog.findFirst({
         where: { phone: { contains: numberPart }, direction: 'OUTBOUND' },
         orderBy: { createdAt: 'desc' },
