@@ -139,9 +139,8 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       
       try {
         const contentSid = TEMPLATE_CONTENT_SIDS[templateName];
-        const templateHasPlaceholder = templateText ? templateText.includes('{{1}}') : true;
         
-        if (contentSid && templateHasPlaceholder) {
+        if (contentSid) {
           // Use official Twilio Content Template API (contentSid + contentVariables)
           // This is required for outbound messages outside the 24-hour WhatsApp window
           const contentVars = {};
@@ -149,12 +148,16 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
             contentVars[String(index + 1)] = param.text || '';
           });
 
-          const message = await client.messages.create({
+          const msgOptions = {
             from: TWILIO_WHATSAPP_FROM,
             to: twilioTo,
-            contentSid: contentSid,
-            contentVariables: JSON.stringify(contentVars)
-          });
+            contentSid: contentSid
+          };
+          if (Object.keys(contentVars).length > 0) {
+            msgOptions.contentVariables = JSON.stringify(contentVars);
+          }
+
+          const message = await client.messages.create(msgOptions);
           msgSid = message.sid;
           console.log(`[WhatsApp] ✅ Sent template "${templateName}" via Content SID ${contentSid} to ${twilioTo}. SID: ${message.sid}`);
         } else {

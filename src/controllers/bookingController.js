@@ -753,8 +753,18 @@ exports.checkoutTranslationDocument = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(generatedPassword, salt);
 
-      const clientCount = await prisma.client.count();
-      const autoClientCode = `CID-${12001 + clientCount}`;
+      let autoClientCode;
+      let suffix = 0;
+      let isUnique = false;
+      while (!isUnique) {
+        const totalLeads = await prisma.lead.count();
+        const totalClients = await prisma.client.count();
+        autoClientCode = `CID-${12001 + totalLeads + totalClients + suffix}`;
+        const checkClient = await prisma.client.findFirst({ where: { clientCode: autoClientCode } });
+        const checkLead = await prisma.lead.findFirst({ where: { clientCode: autoClientCode } });
+        if (!checkClient && !checkLead) isUnique = true;
+        else suffix++;
+      }
 
       client = await prisma.client.create({
         data: {
@@ -790,13 +800,17 @@ exports.checkoutTranslationDocument = async (req, res) => {
       category = category.replace('Other: ', '');
     }
 
+    const filename = req.file.filename || req.file.key || `${Date.now()}-${req.file.originalname || 'document.pdf'}`;
+    const fileUrl = req.file.location || `/uploads/${filename}`;
+    const fileSizeMb = req.file.size ? (req.file.size / 1024 / 1024).toFixed(2) : '0.10';
+
     await prisma.document.create({
       data: {
         clientId: client.id,
-        name: req.file.originalname,
+        name: req.file.originalname || 'Translation Document.pdf',
         category: category,
-        url: `/uploads/${req.file.filename}`,
-        size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
+        url: fileUrl,
+        size: `${fileSizeMb} MB`,
         status: 'Pending Verification',
         belongsTo: 'Main Applicant'
       }
@@ -812,8 +826,9 @@ exports.checkoutTranslationDocument = async (req, res) => {
     });
 
     // 4. Create Payment Record
-    const priceDetails = await calculateSwornTranslationPrice(Number(wordCount) || 0, sourceLanguage || 'English');
-    let finalPrice = priceDetails.total;
+    const parsedWordCount = parseInt(wordCount, 10) || 0;
+    const priceDetails = await calculateSwornTranslationPrice(parsedWordCount, sourceLanguage || 'English');
+    let finalPrice = priceDetails.total || 15.00;
     if (estimatedPrice) {
       const parsedReqPrice = parseFloat(estimatedPrice);
       if (!isNaN(parsedReqPrice) && parsedReqPrice > 0) {
