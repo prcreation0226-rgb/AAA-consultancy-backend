@@ -276,6 +276,7 @@ async function sendCustomWhatsApp(phone, messageBody) {
         to: twilioTo
       });
       console.log(`[Twilio WA Outbound Success] Sent to ${twilioTo}. SID: ${res.sid}, Status: ${res.status}`);
+      await logCommunication(phone, messageBody, "OUTBOUND", 'Agent', res?.sid);
       return res;
     } catch (err) {
       console.error(`[Twilio WA Outbound Error] Failed to ${twilioTo}: ${err.code} - ${err.message}`);
@@ -287,10 +288,8 @@ async function sendCustomWhatsApp(phone, messageBody) {
     console.log(`To:       ${twilioTo}`);
     console.log(`Body:     ${messageBody}`);
     console.log('------------------------------------------------------------');
+    await logCommunication(phone, messageBody, "OUTBOUND");
   }
-
-  // Log to database communications log
-  await logCommunication(phone, messageBody, "OUTBOUND");
 }
 
 /**

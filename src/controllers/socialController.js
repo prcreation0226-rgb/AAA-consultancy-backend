@@ -260,7 +260,8 @@ exports.getMessagesByPhone = async (req, res) => {
         OR: [
           { phone: cleanPh },
           { phone: numberPart },
-          { phone: `+${numberPart}` }
+          { phone: `+${numberPart}` },
+          ...(numberPart ? [{ phone: { contains: numberPart } }] : [])
         ]
       },
       orderBy: { createdAt: 'asc' },
