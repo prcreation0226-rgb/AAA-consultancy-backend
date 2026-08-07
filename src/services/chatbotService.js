@@ -122,7 +122,7 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
     console.warn("[CHATBOT] Error checking existing client:", clientDbErr.message);
   }
 
-  // 2b. Rebook / Follow-up Meeting Request Command
+  // 2b. Rebook / Follow-up Meeting Request Command (ONLY for registered Clients)
   const isRebookCommand = cleanMessage === 'rebook' || cleanMessage === 'rebook meeting' || cleanMessage === 'rebook consultation' || cleanMessage === 'schedule meeting' || cleanMessage === 'rebook call';
   if (isRebookCommand) {
     const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
@@ -136,9 +136,7 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
       console.log(`[REBOOK CHATBOT] Dispatched client rebooking link to ${cleanPhone} (${clientName})`);
       return;
     } else {
-      const leadRebookUrl = `${frontendUrl}/#/public/lead-form?rebook=true`;
-      const leadMsg = `📅 *Schedule Consultation Meeting*\n\nClick the link below to select your consultation appointment slot:\n\n🔗 ${leadRebookUrl}\n\n_AAA Business Consultancy_`;
-      await sendCustomWhatsApp(cleanPhone, leadMsg);
+      console.log(`[REBOOK CHATBOT] Ignored rebook command from ${cleanPhone} (Sender not in Client table).`);
       return;
     }
   }
