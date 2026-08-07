@@ -215,24 +215,26 @@ const createDocumentNotification = async ({ userId, clientName: inputClientName,
 
     const adminEmailRecipients = Array.from(staffEmails);
     if (adminEmailRecipients.length > 0) {
-      sendEmail({
-        to: adminEmailRecipients.join(','),
-        subject: `[CRM ALERT] New Document Uploaded by ${clientName} 📄`,
-        html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <h3 style="color: #051A3B;">Hello Team,</h3>
-            <p>Client <b>${clientName}</b> has uploaded a new document for review:</p>
-            <ul>
-              <li><b>Document Name:</b> ${documentName}</li>
-              <li><b>Category:</b> ${category || 'General'}</li>
-              <li><b>Client Email:</b> ${clientEmail || 'N/A'}</li>
-            </ul>
-            <p>Please log in to the CRM admin panel to review and verify this document.</p>
-            <br/>
-            <p>AAA Visa CRM System</p>
-          </div>
-        `
-      }).catch(err => console.error('[DocUpload Email Staff Error]:', err.message));
+      adminEmailRecipients.forEach(staffEmail => {
+        sendEmail({
+          to: staffEmail,
+          subject: `[CRM ALERT] New Document Uploaded by ${clientName} 📄`,
+          html: `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+              <h3 style="color: #051A3B;">Hello Team,</h3>
+              <p>Client <b>${clientName}</b> has uploaded a new document for review:</p>
+              <ul>
+                <li><b>Document Name:</b> ${documentName}</li>
+                <li><b>Category:</b> ${category || 'General'}</li>
+                <li><b>Client Email:</b> ${clientEmail || 'N/A'}</li>
+              </ul>
+              <p>Please log in to the CRM admin panel to review and verify this document.</p>
+              <br/>
+              <p>AAA Visa CRM System</p>
+            </div>
+          `
+        }).catch(err => console.error(`[DocUpload Email Staff Error for ${staffEmail}]:`, err.message));
+      });
     }
 
   } catch (error) {
