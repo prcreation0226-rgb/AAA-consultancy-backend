@@ -976,7 +976,7 @@ async function sendConsultationNotifications(consultation) {
 
 Dear *${name}*,
 
-Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${date}
 ⏰ *Time:* ${time} (UAE)
@@ -1352,7 +1352,7 @@ async function publicRescheduleConsultation(req, res) {
 
 Dear *${clientName}*,
 
-Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${formattedDate}
 ⏰ *Time:* ${timeSlot} (UAE)

@@ -1042,7 +1042,7 @@ async function syncLeadConsultation(leadId, reqApp = null) {
 
 Dear *${clientName}*,
 
-Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${formattedDate}
 ⏰ *Time:* ${meetingTime} (UAE)
