@@ -16,13 +16,15 @@ const {
   updateEmailTemplates,
   getWhatsappTemplates,
   updateWhatsappTemplates,
-  purgeAllData
+  purgeAllData,
+  purgeFinanceData
 } = require('../controllers/settingsController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
 router.delete('/purge-all-data', authMiddleware, purgeAllData);
+router.delete('/purge-finance', authMiddleware, purgeFinanceData);
 
 router.route('/customization')
   .get(getCustomizationSettings)

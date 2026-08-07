@@ -528,6 +528,29 @@ const purgeAllData = async (req, res) => {
   }
 };
 
+const purgeFinanceData = async (req, res) => {
+  try {
+    console.log('[PURGE] Wiping Finance & Payment records...');
+    await prisma.payment.deleteMany({});
+    await prisma.refundRequest.deleteMany({}).catch(() => {});
+    await prisma.client.updateMany({
+      data: {
+        status: 'Waiting for Payment',
+        packageId: null,
+        documentUploadAllowed: false
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Finance and revenue metrics have been completely reset to €0.'
+    });
+  } catch (error) {
+    console.error('[PURGE FINANCE ERROR]:', error);
+    res.status(500).json({ success: false, message: 'Finance purge failed', error: error.message });
+  }
+};
+
 module.exports = { 
   getCustomizationSettings, 
   updateCustomizationSettings,
@@ -546,5 +569,6 @@ module.exports = {
   updateEmailTemplates,
   getWhatsappTemplates,
   updateWhatsappTemplates,
-  purgeAllData
+  purgeAllData,
+  purgeFinanceData
 };
