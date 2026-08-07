@@ -45,7 +45,13 @@ const getConsultations = async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
     
-    const mapped = consultations.map(c => {
+    const mapped = consultations
+      .filter(c => {
+        // Filter out orphan consultations where leadId was deleted and no clientId exists
+        if (c.leadId && !c.lead && !c.clientId) return false;
+        return true;
+      })
+      .map(c => {
       let parsedOutcome = null;
       try {
         if (c.eligibility && c.eligibility.startsWith('{')) {
@@ -1504,6 +1510,55 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
   }
 }
 
+const cleanupTestConsultations = async (req, res) => {
+  try {
+    const allConsultations = await prisma.consultation.findMany({
+      include: {
+        lead: true
+      }
+    });
+
+    const idsToDelete = [];
+    const testKeywords = [
+      'soju sa', 'efjkj', 'frr fkkr', 'hgh weq', 'testing la', 'testshow', 
+      'sjhjsnj', 'asdlfk', 'jhnfjncn', 'ksjkxm', 'dhjnx', 'cds `cdw', 'demotest', 
+      'test', 'dummy', 'asdf', 'qwe', 'junk'
+    ];
+
+    allConsultations.forEach((c) => {
+      // Condition 1: Orphan consultation (leadId provided but lead deleted and no clientId)
+      if (c.leadId && !c.lead && !c.clientId) {
+        idsToDelete.push(c.id);
+        return;
+      }
+
+      // Condition 2: Dummy test names or notes created during testing
+      const leadName = c.lead ? `${c.lead.firstName} ${c.lead.lastName}`.toLowerCase() : '';
+      const notesStr = (c.internalNotes || '').toLowerCase();
+      
+      const isDummy = testKeywords.some(kw => leadName.includes(kw) || notesStr.includes(kw));
+      if (isDummy) {
+        idsToDelete.push(c.id);
+      }
+    });
+
+    if (idsToDelete.length > 0) {
+      await prisma.consultation.deleteMany({
+        where: { id: { in: idsToDelete } }
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Cleaned up ${idsToDelete.length} test/orphan consultation records.`,
+      cleanedCount: idsToDelete.length
+    });
+  } catch (error) {
+    console.error('Error in cleanupTestConsultations:', error);
+    return res.status(500).json({ success: false, message: 'Failed to cleanup test consultations.' });
+  }
+};
+
 module.exports = {
   getConsultations,
   createConsultation,
@@ -1516,6 +1571,7 @@ module.exports = {
   publicCancelConsultation,
   getPublicConsultationDetails,
   generateBookingToken,
-  resolveConsultationId
+  resolveConsultationId,
+  cleanupTestConsultations
 };
 
