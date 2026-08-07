@@ -278,10 +278,83 @@ const getZohoInvoicePdfBuffer = async (invoiceId) => {
   }
 };
 
+/**
+ * Marks an existing Zoho Invoice as PAID by recording a customer payment in Zoho Books.
+ */
+const markZohoInvoiceAsPaid = async ({ invoiceId, amount, email, name, phone }) => {
+  const token = await getAccessToken();
+  const orgId = process.env.ZOHO_ORGANIZATION_ID;
+  const apiUrl = process.env.ZOHO_API_URL || 'https://www.zohoapis.com/invoice/v3';
+
+  if (!token || !orgId || !invoiceId || String(invoiceId).startsWith('zoho-mock-') || String(invoiceId).startsWith('zoho-err-')) {
+    console.log(`[Zoho Invoice Service] Skipping live payment record for mock/invalid invoiceId: ${invoiceId}`);
+    return { success: true, isMock: true };
+  }
+
+  try {
+    const { contactId } = await createOrGetContact({ name, email, phone });
+    let finalAmount = Number(amount || 0);
+
+    try {
+      const invDetailRes = await axios.get(`${apiUrl}/invoices/${invoiceId}`, {
+        headers: {
+          Authorization: `Zoho-oauthtoken ${token}`,
+          'X-com-zoho-invoice-organizationid': orgId
+        },
+        params: { organization_id: orgId }
+      });
+      if (invDetailRes.data?.invoice) {
+        const inv = invDetailRes.data.invoice;
+        finalAmount = (typeof inv.balance === 'number' && inv.balance > 0) ? inv.balance : (inv.total || finalAmount);
+        console.log(`[Zoho Invoice Service] Invoice ${inv.invoice_number} fetched. Balance Due: ${inv.balance}, Total: ${inv.total}`);
+      }
+    } catch (fetchErr) {
+      console.warn('[Zoho Fetch Invoice Detail Warning]:', fetchErr.response?.data || fetchErr.message);
+    }
+
+    try {
+      await axios.post(`${apiUrl}/invoices/${invoiceId}/status/sent?organization_id=${orgId}`, {}, {
+        headers: {
+          Authorization: `Zoho-oauthtoken ${token}`,
+          'X-com-zoho-invoice-organizationid': orgId
+        }
+      });
+    } catch (sentErr) {
+      // Ignore if already sent
+    }
+
+    const payRes = await axios.post(`${apiUrl}/customerpayments?organization_id=${orgId}`, {
+      customer_id: contactId,
+      payment_mode: 'Stripe',
+      amount: finalAmount,
+      date: new Date().toISOString().split('T')[0],
+      invoices: [
+        {
+          invoice_id: invoiceId,
+          amount_applied: finalAmount
+        }
+      ]
+    }, {
+      headers: {
+        Authorization: `Zoho-oauthtoken ${token}`,
+        'X-com-zoho-invoice-organizationid': orgId,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    console.log(`[Zoho Invoice Service] Recorded payment of ${finalAmount} for Zoho Invoice ID ${invoiceId}. Status: PAID.`);
+    return { success: true, paymentId: payRes.data?.payment?.payment_id };
+  } catch (err) {
+    console.error('[Zoho Invoice Service] Error marking Zoho invoice as paid:', err.response?.data || err.message);
+    return { success: false, error: err.message };
+  }
+};
+
 module.exports = {
   isConfigured,
   getAccessToken,
   createOrGetContact,
   createZohoInvoice,
+  markZohoInvoiceAsPaid,
   getZohoInvoicePdfBuffer
 };

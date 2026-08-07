@@ -154,25 +154,40 @@ const processPaymentEvent = async (event) => {
             }
           }
 
-          // Auto-Generate Official Zoho Invoice upon Payment Completion
+          // Auto-Sync Official Zoho Invoice & Mark as PAID upon Payment Completion
           let zohoInvoiceUrl = null;
           let zohoInvoiceId = null;
           try {
             const zohoInvoiceService = require('./zohoInvoiceService');
-            const zohoRes = await zohoInvoiceService.createZohoInvoice({
-              client: updatedClient,
-              amount: totalPaid,
-              netAmount: totalPaid,
-              serviceType: updatedClient.serviceType || packageId || 'Spain Visa Service',
-              isPaid: true
-            });
-            if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
-              zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
-              zohoInvoiceId = zohoRes.invoiceId;
-              console.log(`[Auto-Zoho Payment Webhook] Created & Paid Zoho Invoice ${zohoRes.invoiceNumber}. URL: ${zohoInvoiceUrl}`);
+            const existingZohoId = updatedClient.zohoInvoiceId || (paymentRecord?.invoiceSnapshot && paymentRecord.invoiceSnapshot.zohoInvoiceId);
+            
+            if (existingZohoId) {
+              console.log(`[Auto-Zoho Payment Webhook] Marking existing Zoho Invoice ${existingZohoId} as PAID...`);
+              await zohoInvoiceService.markZohoInvoiceAsPaid({
+                invoiceId: existingZohoId,
+                amount: totalPaid,
+                email: updatedClient.email,
+                name: `${updatedClient.firstName} ${updatedClient.lastName}`.trim(),
+                phone: updatedClient.phone
+              });
+              zohoInvoiceId = existingZohoId;
+              zohoInvoiceUrl = updatedClient.zohoInvoiceUrl || null;
+            } else {
+              const zohoRes = await zohoInvoiceService.createZohoInvoice({
+                client: updatedClient,
+                amount: totalPaid,
+                netAmount: totalPaid,
+                serviceType: updatedClient.serviceType || packageId || 'Spain Visa Service',
+                isPaid: true
+              });
+              if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
+                zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
+                zohoInvoiceId = zohoRes.invoiceId;
+                console.log(`[Auto-Zoho Payment Webhook] Created & Paid Zoho Invoice ${zohoRes.invoiceNumber}. URL: ${zohoInvoiceUrl}`);
+              }
             }
           } catch (zohoErr) {
-            console.error('[Auto-Zoho Payment Webhook] Failed to create Zoho Invoice:', zohoErr.message);
+            console.error('[Auto-Zoho Payment Webhook] Failed to sync Zoho Invoice payment:', zohoErr.message);
           }
 
           // Send Automated Payment Receipt & Credentials WhatsApp Message
