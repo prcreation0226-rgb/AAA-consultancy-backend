@@ -81,6 +81,8 @@ const generatePaymentLink = async (req, res) => {
     // 1. Stripe Live Checkout Session Generator
     if (stripe && (gateway === 'stripe' || !gateway)) {
       try {
+        const clientRec = await prisma.client.findUnique({ where: { id: clientId }, select: { clientCode: true } }).catch(() => null);
+        const cidDisplay = clientRec?.clientCode || clientId;
         const session = await stripe.checkout.sessions.create({
           payment_method_types: ['card'],
           line_items: [{
@@ -88,7 +90,7 @@ const generatePaymentLink = async (req, res) => {
               currency: 'eur',
               product_data: {
                 name: 'Spain Relocation Legal & Consulting Package',
-                description: `Payment for client ID: ${clientId}`
+                description: `Payment for Customer ID: ${cidDisplay}`
               },
               unit_amount: Math.round(finalAmount * 100) // in cents
             },
@@ -952,6 +954,8 @@ const createStripeCheckoutSession = async (req, res) => {
     const frontendUrl = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
     const safePackageId = (packageId || 'custom').toString().toUpperCase();
     const safeAmount = Number(amount) || enforcedAmount || 0;
+    const clientRec = await prisma.client.findUnique({ where: { id: clientId }, select: { clientCode: true } }).catch(() => null);
+    const customerIdDisplay = clientRec?.clientCode || clientId;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -960,7 +964,7 @@ const createStripeCheckoutSession = async (req, res) => {
           currency: 'eur',
           product_data: {
             name: `Spain Relocation Package - ${safePackageId}`,
-            description: `Certified Spain visa relocation & administrative services support`,
+            description: `Certified Spain visa relocation & administrative services support for Customer ID: ${customerIdDisplay}`,
           },
           unit_amount: Math.max(50, Math.round(safeAmount * 1.05 * 100)), // + 5% VAT included (min 50 cents)
         },
@@ -1337,6 +1341,8 @@ const createPackageCheckout = async (req, res) => {
     let paymentUrl = `${frontendUrl}/#/portal/documents/${clientId}`;
 
     if (stripe) {
+      const clientRec = await prisma.client.findUnique({ where: { id: clientId }, select: { clientCode: true } }).catch(() => null);
+      const customerIdDisplay = clientRec?.clientCode || clientId;
       const stripeAmount = Math.round(invoice.total * 100); // convert EUR to integer cents
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -1345,7 +1351,7 @@ const createPackageCheckout = async (req, res) => {
             currency: 'eur',
             product_data: {
               name: invoice.packageName,
-              description: `Residency package checkout for Client ID: ${clientId}`
+              description: `Residency package checkout for Customer ID: ${customerIdDisplay}`
             },
             unit_amount: stripeAmount
           },

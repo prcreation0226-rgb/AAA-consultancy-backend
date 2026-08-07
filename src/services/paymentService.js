@@ -345,7 +345,7 @@ module.exports = {
           currency: 'eur',
           product_data: {
             name: packageConfig.name,
-            description: 'No-Show Fee for Free Spain Visa Eligibility Assessment',
+            description: `No-Show Fee for Free Spain Visa Eligibility Assessment | Customer ID: ${client.clientCode || client.id}`,
           },
           unit_amount: stripeAmount,
         },
