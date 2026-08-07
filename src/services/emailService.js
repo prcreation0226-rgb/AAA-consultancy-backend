@@ -42,6 +42,34 @@ const getCleanPackageName = (rawPackageName, serviceType) => {
   return input;
 };
 
+/**
+ * Helper function to format any Date object or string (YYYY-MM-DD, ISO, timestamp) into DD/MM/YYYY
+ */
+const formatDateDDMMYYYY = (dateInput) => {
+  if (!dateInput) return '';
+  const str = String(dateInput).trim();
+  
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+    return str;
+  }
+  
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const clean = str.split('T')[0];
+    const parts = clean.split('-');
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  
+  const d = new Date(dateInput);
+  if (!isNaN(d.getTime())) {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  
+  return str;
+};
+
 if (RESEND_API_KEY && RESEND_API_KEY !== 'your_resend_api_key_here') {
   console.log('Email Service: Initializing Resend client');
   resendClient = new Resend(RESEND_API_KEY);
@@ -231,7 +259,7 @@ exports.sendVisaChecklist = async (to, clientName, serviceType, paymentData = {}
   const clientCode = paymentData.clientCode || 'N/A';
   const amountPaid = paymentData.amount ? `€${Number(paymentData.amount).toFixed(2)}` : 'N/A';
   const packageName = getCleanPackageName(paymentData.packageName, serviceType);
-  const dateStr = paymentData.dateStr || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const dateStr = formatDateDDMMYYYY(paymentData.dateStr || new Date());
   const invoiceUrl = paymentData.invoiceUrl || `${frontendUrl}/#/portal/login?zoho_fallback=true`;
   const portalUrl = `${frontendUrl}/#/portal/login`;
 
@@ -300,6 +328,7 @@ exports.sendVisaChecklist = async (to, clientName, serviceType, paymentData = {}
  * Sends branded Appointment Confirmation email with Reschedule, Cancel, and Packages action buttons.
  */
 exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlot, time, meetingLink, link, consultationId, rescheduleLink, cancelLink }) => {
+  const formattedDate = formatDateDDMMYYYY(date);
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const finalTime = timeSlot || time || 'TBD';
   const joinUrl = meetingLink || link || 'https://zoom.us';
@@ -322,7 +351,7 @@ exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlo
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin: 20px 0;">
           <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📅 Appointment Details:</h4>
           <ul style="margin: 0; padding-left: 20px; color: #334155; line-height: 1.8;">
-            <li><b>Date:</b> ${date}</li>
+            <li><b>Date:</b> ${formattedDate}</li>
             <li><b>Time:</b> ${finalTime} (UAE)</li>
             <li><b>Duration:</b> 20 Minutes</li>
             <li><b>Meeting Link:</b> <a href="${joinUrl}" style="color: #2563eb; font-weight: 600;">Click to Join Zoom Meeting</a></li>
@@ -601,6 +630,7 @@ exports.sendPaymentSuccessEmail = async ({ to, clientName, customerId, serviceTy
 };
 
 exports.sendMeetingCancelledEmail = async ({ to, firstName, date, time, rebookLink }) => {
+  const formattedDate = formatDateDDMMYYYY(date);
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
       <div style="background: linear-gradient(135deg, #0f0c29, #302b63); padding: 24px; text-align: center; color: #ffffff;">
@@ -611,7 +641,7 @@ exports.sendMeetingCancelledEmail = async ({ to, firstName, date, time, rebookLi
       <div style="padding: 28px;">
         <h3 style="color: #e53e3e; margin-top: 0; font-size: 18px;">❌ Appointment Cancelled</h3>
         <p style="color: #4a5568; line-height: 1.6;">Dear <b>${firstName}</b>,</p>
-        <p style="color: #4a5568; line-height: 1.6;">Your Spain Visa Eligibility Assessment scheduled for <b>${date}</b> at <b>${time}</b> (UAE) has been successfully cancelled.</p>
+        <p style="color: #4a5568; line-height: 1.6;">Your Spain Visa Eligibility Assessment scheduled for <b>${formattedDate}</b> at <b>${time}</b> (UAE) has been successfully cancelled.</p>
         
         <p style="color: #4a5568; line-height: 1.6;">If you would like to schedule another appointment, please use the button below to rebook at your convenience:</p>
 
@@ -633,6 +663,7 @@ exports.sendMeetingCancelledEmail = async ({ to, firstName, date, time, rebookLi
 };
 
 exports.sendMeetingRescheduledEmail = async ({ to, firstName, date, time, link, rescheduleLink, cancelLink }) => {
+  const formattedDate = formatDateDDMMYYYY(date);
   const html = `
     <div style="font-family: Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
       <div style="background: linear-gradient(135deg, #0f0c29, #302b63); padding: 24px; text-align: center; color: #ffffff;">
@@ -648,7 +679,7 @@ exports.sendMeetingRescheduledEmail = async ({ to, firstName, date, time, link, 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin: 20px 0;">
           <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📅 New Appointment Details:</h4>
           <ul style="margin: 0; padding-left: 20px; color: #334155; line-height: 1.8;">
-            <li><b>Date:</b> ${date}</li>
+            <li><b>Date:</b> ${formattedDate}</li>
             <li><b>Time:</b> ${time} (UAE)</li>
             <li><b>Duration:</b> 20 Minutes</li>
             <li><b>Meeting Link:</b> <a href="${link}" style="color: #2563eb; font-weight: 600;">Click to Join Zoom Meeting</a></li>
@@ -674,7 +705,7 @@ exports.sendMeetingRescheduledEmail = async ({ to, firstName, date, time, link, 
   `;
   return exports.sendEmail({
     to,
-    subject: `Appointment Rescheduled: Spain Visa Eligibility Assessment 🔄`,
+    subject: `Appointment Rescheduled: Spain Visa Eligibility Assessment (${formattedDate} at ${time}) 🔄`,
     html
   });
 };
