@@ -3,16 +3,82 @@ const prisma = new PrismaClient();
 const { sendEmail } = require('./emailService');
 const { sendCustomWhatsApp } = require('./chatbotService');
 
-const startReminderScheduler = () => {
-  console.log('[Reminder Scheduler] Starting periodic payment reminders engine...');
+/**
+ * Helper to parse a date string (YYYY-MM-DD or DD/MM/YYYY) and time string (e.g. "12:00 PM - 01:00 PM") into a JS Date object
+ */
+function parseMeetingDateTime(dateStr, timeSlotStr) {
+  if (!dateStr) return null;
   
-  // Run check every 30 minutes
+  let yyyy = '', mm = '', dd = '';
+  const s = String(dateStr).trim();
+  
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const parts = s.split('-');
+    yyyy = parts[0];
+    mm = parts[1];
+    dd = parts[2];
+  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+    const parts = s.split('/');
+    dd = parts[0];
+    mm = parts[1];
+    yyyy = parts[2];
+  } else {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return null;
+    yyyy = d.getFullYear();
+    mm = String(d.getMonth() + 1).padStart(2, '0');
+    dd = String(d.getDate()).padStart(2, '0');
+  }
+
+  let startTime = '09:00 AM';
+  if (timeSlotStr && typeof timeSlotStr === 'string') {
+    const parts = timeSlotStr.split('-');
+    startTime = parts[0].trim();
+  }
+
+  let hours = 9, minutes = 0;
+  const timeMatch = startTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (timeMatch) {
+    hours = parseInt(timeMatch[1], 10);
+    minutes = parseInt(timeMatch[2], 10);
+    const ampm = timeMatch[3] ? timeMatch[3].toUpperCase() : null;
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+  }
+
+  return new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10), hours, minutes, 0);
+}
+
+/**
+ * Format any date value into DD/MM/YYYY
+ */
+function formatDDMMYYYY(dateVal) {
+  if (!dateVal) return '';
+  const s = String(dateVal).trim();
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const p = s.split('-');
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  }
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return s;
+}
+
+const startReminderScheduler = () => {
+  console.log('[Reminder Scheduler] Starting periodic reminders engine...');
+  
+  // Run check every 10 minutes
   setInterval(async () => {
     try {
-      console.log('[Reminder Scheduler] Running check for pending payments...');
       const now = new Date();
       
-      // Fetch all clients waiting for payment
+      // SECTION A: Check Payment Reminders
       const pendingClients = await prisma.client.findMany({
         where: { status: 'Waiting for Payment' }
       });
@@ -21,7 +87,6 @@ const startReminderScheduler = () => {
         const timeDiffMs = now.getTime() - new Date(client.createdAt).getTime();
         const hoursElapsed = timeDiffMs / (1000 * 60 * 60);
         
-        // 1. Check 2 Hours Reminder
         if (hoursElapsed >= 2 && hoursElapsed < 24) {
           const sentLog = await prisma.reminderLog.findFirst({
             where: { clientId: client.id, type: '2h' }
@@ -33,7 +98,6 @@ const startReminderScheduler = () => {
           }
         }
         
-        // 2. Check 24 Hours Reminder
         if (hoursElapsed >= 24 && hoursElapsed < 48) {
           const sentLog = await prisma.reminderLog.findFirst({
             where: { clientId: client.id, type: '24h' }
@@ -45,7 +109,6 @@ const startReminderScheduler = () => {
           }
         }
         
-        // 3. Check 2 Days Reminder
         if (hoursElapsed >= 48 && hoursElapsed < 120) {
           const sentLog = await prisma.reminderLog.findFirst({
             where: { clientId: client.id, type: '2d' }
@@ -57,7 +120,6 @@ const startReminderScheduler = () => {
           }
         }
 
-        // 4. Check 5 Days CEO Discount Reminder
         if (hoursElapsed >= 120) {
           const sentLog = await prisma.reminderLog.findFirst({
             where: { clientId: client.id, type: '5d' }
@@ -81,7 +143,6 @@ const startReminderScheduler = () => {
       for (const cons of cancelledConsultations) {
         if (!cons.lead) continue;
         
-        // Check if client has already rebooked
         const hasRebooked = await prisma.consultation.findFirst({
           where: {
             leadId: cons.leadId,
@@ -94,7 +155,6 @@ const startReminderScheduler = () => {
         const hoursElapsed = timeDiffMs / (1000 * 60 * 60);
 
         if (hoursElapsed >= 24) {
-          // Check if reminder was already sent
           const sentLog = await prisma.reminderLog.findFirst({
             where: {
               clientId: cons.lead.clientId || cons.leadId,
@@ -102,9 +162,7 @@ const startReminderScheduler = () => {
             }
           });
           if (!sentLog) {
-            // Send 24h Cancelled Rebook Reminder
             try {
-              // Log first to prevent race condition
               await prisma.reminderLog.create({
                 data: {
                   clientId: cons.lead.clientId || cons.leadId,
@@ -114,12 +172,10 @@ const startReminderScheduler = () => {
 
               const rebookLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form?id=${cons.lead.id}&rebook=true`;
 
-              // Send WhatsApp
               if (cons.lead.phone) {
                 await sendCustomWhatsApp(cons.lead.phone, `🔔 *Reminder: Rebook your Spain Visa Consultation*\n\nDear ${cons.lead.firstName},\n\nThis is a reminder to rebook your Free Spain Visa Eligibility Assessment. Spots are filling up quickly.\n\nClick the link to book now:\n🔗 ${rebookLink}`);
               }
 
-              // Send Email
               if (cons.lead.email) {
                 await sendEmail({
                   to: cons.lead.email,
@@ -157,7 +213,6 @@ const startReminderScheduler = () => {
           });
           if (!sentLog) {
             try {
-              // Log to DB first
               await prisma.reminderLog.create({
                 data: { clientId: client.id, type: 'additional_docs_48h' }
               });
@@ -165,7 +220,6 @@ const startReminderScheduler = () => {
               const portalUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
               const clientName = `${client.firstName} ${client.lastName}`;
 
-              // Send Email
               if (client.email) {
                 await sendEmail({
                   to: client.email,
@@ -181,7 +235,6 @@ const startReminderScheduler = () => {
                 });
               }
 
-              // Send WhatsApp
               if (client.phone) {
                 await sendCustomWhatsApp(client.phone, `🔔 *Reminder: Pending Additional Documents Required*\n\nHello *${clientName}*,\n\nWe haven't received your requested additional documents yet. Please upload them here:\n\n🔗 ${portalUrl}`);
               }
@@ -192,22 +245,162 @@ const startReminderScheduler = () => {
           }
         }
       }
+
+      // SECTION D: Check 24h & 1h Meeting Reminders for Scheduled Consultations
+      const scheduledConsultations = await prisma.consultation.findMany({
+        where: { status: 'Scheduled' },
+        include: {
+          lead: true
+        }
+      });
+
+      for (const cons of scheduledConsultations) {
+        const phone = cons.lead?.phone;
+        const email = cons.lead?.email;
+        const firstName = cons.lead?.firstName || 'Valued Client';
+        if (!phone && !email) continue;
+
+        const meetingDateObj = parseMeetingDateTime(cons.date, cons.timeSlot);
+        if (!meetingDateObj || isNaN(meetingDateObj.getTime())) continue;
+
+        const diffMs = meetingDateObj.getTime() - now.getTime();
+        const diffHours = diffMs / (1000 * 60 * 60);
+
+        const formattedDateStr = formatDDMMYYYY(cons.date);
+        const displayDateTime = `${formattedDateStr} at ${cons.timeSlot || 'Scheduled Time'} (UAE)`;
+        const zoomLink = cons.meetingLink || 'https://zoom.us';
+
+        // 1. Check 24 Hours Meeting Reminder (diffHours between 22h and 26h)
+        if (diffHours >= 22 && diffHours <= 26) {
+          const sentLog = await prisma.reminderLog.findFirst({
+            where: {
+              clientId: cons.lead?.clientId || cons.leadId,
+              type: `meeting_reminder_24h_${cons.id}`
+            }
+          });
+
+          if (!sentLog) {
+            console.log(`[Reminder Scheduler] Triggering 24h meeting reminder for consultation ${cons.id} (${formattedDateStr})`);
+            await prisma.reminderLog.create({
+              data: {
+                clientId: cons.lead?.clientId || cons.leadId,
+                type: `meeting_reminder_24h_${cons.id}`
+              }
+            });
+
+            if (phone) {
+              const { sendWhatsAppMessage } = require('./whatsappService');
+              await sendWhatsAppMessage({
+                to: phone,
+                templateName: 'aaa_meeting_reminder_24h',
+                components: [
+                  {
+                    type: 'body',
+                    parameters: [
+                      { type: 'text', text: firstName },
+                      { type: 'text', text: displayDateTime },
+                      { type: 'text', text: zoomLink }
+                    ]
+                  }
+                ]
+              }).catch(err => console.error('[24h WhatsApp Reminder Err]:', err.message));
+            }
+
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: `⏰ Reminder: Spain Visa Assessment Tomorrow (${formattedDateStr})`,
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px;">
+                    <h3 style="color: #2563eb;">⏰ Spain Visa Assessment Reminder (24 Hours)</h3>
+                    <p>Dear <b>${firstName}</b>,</p>
+                    <p>This is a gentle reminder that your Free 20-Minute Spain Visa Eligibility Assessment is scheduled for tomorrow.</p>
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                      <p style="margin: 4px 0;"><b>📅 Date:</b> ${formattedDateStr}</p>
+                      <p style="margin: 4px 0;"><b>⏰ Time:</b> ${cons.timeSlot || 'Scheduled Time'} (UAE)</p>
+                      <p style="margin: 4px 0;"><b>🎥 Meeting Link:</b> <a href="${zoomLink}">${zoomLink}</a></p>
+                    </div>
+                    <p>Best regards,<br/>AAA Business Consultancy Team</p>
+                  </div>
+                `
+              }).catch(err => console.error('[24h Email Reminder Err]:', err.message));
+            }
+          }
+        }
+
+        // 2. Check 1 Hour Meeting Reminder (diffHours between 0.25h and 1.5h)
+        if (diffHours >= 0.25 && diffHours <= 1.5) {
+          const sentLog = await prisma.reminderLog.findFirst({
+            where: {
+              clientId: cons.lead?.clientId || cons.leadId,
+              type: `meeting_reminder_1h_${cons.id}`
+            }
+          });
+
+          if (!sentLog) {
+            console.log(`[Reminder Scheduler] Triggering 1h meeting reminder for consultation ${cons.id} (${formattedDateStr})`);
+            await prisma.reminderLog.create({
+              data: {
+                clientId: cons.lead?.clientId || cons.leadId,
+                type: `meeting_reminder_1h_${cons.id}`
+              }
+            });
+
+            if (phone) {
+              const { sendWhatsAppMessage } = require('./whatsappService');
+              await sendWhatsAppMessage({
+                to: phone,
+                templateName: 'aaa_meeting_reminder_1h',
+                components: [
+                  {
+                    type: 'body',
+                    parameters: [
+                      { type: 'text', text: firstName },
+                      { type: 'text', text: displayDateTime },
+                      { type: 'text', text: zoomLink }
+                    ]
+                  }
+                ]
+              }).catch(err => console.error('[1h WhatsApp Reminder Err]:', err.message));
+            }
+
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: `⏳ Assessment Starts in 1 Hour (${formattedDateStr})`,
+                html: `
+                  <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px;">
+                    <h3 style="color: #dc2626;">⏳ Spain Visa Assessment Starts in 1 Hour</h3>
+                    <p>Dear <b>${firstName}</b>,</p>
+                    <p>Your Free 20-Minute Spain Visa Eligibility Assessment is starting in 1 HOUR.</p>
+                    <div style="background: #f8fafc; padding: 15px; border-radius: 8px; margin: 15px 0;">
+                      <p style="margin: 4px 0;"><b>📅 Date:</b> ${formattedDateStr}</p>
+                      <p style="margin: 4px 0;"><b>⏰ Time:</b> ${cons.timeSlot || 'Scheduled Time'} (UAE)</p>
+                      <p style="margin: 4px 0;"><b>🎥 Meeting Link:</b> <a href="${zoomLink}">${zoomLink}</a></p>
+                    </div>
+                    <p>Please be ready to join 5 minutes before start time.</p>
+                    <p>Best regards,<br/>AAA Business Consultancy Team</p>
+                  </div>
+                `
+              }).catch(err => console.error('[1h Email Reminder Err]:', err.message));
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('[Reminder Scheduler] Error running reminders cron:', error);
     }
-  }, 1000 * 60 * 30); // 30 minutes
+  }, 1000 * 60 * 10); // 10 minutes interval
 };
 
 async function sendPaymentReminder(client, type, subject, messageBody) {
   try {
     console.log(`[Reminder Scheduler] Sending ${type} payment reminder to client ${client.email}`);
     
-    // Log to DB first to avoid double triggers in case of async delay
     await prisma.reminderLog.create({
       data: { clientId: client.id, type }
     });
     
-    // Send email
     if (client.email) {
       await sendEmail({
         to: client.email,
@@ -220,7 +413,6 @@ async function sendPaymentReminder(client, type, subject, messageBody) {
       });
     }
     
-    // Send WhatsApp Template
     if (client.phone) {
       const { sendWhatsAppMessage } = require('./whatsappService');
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
