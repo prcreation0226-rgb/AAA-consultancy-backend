@@ -6,10 +6,10 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_WHATSAPP_FROM = process.env.TWILIO_WHATSAPP_FROM;
 
 const isConfigured = !!(
-  TWILIO_ACCOUNT_SID && 
-  TWILIO_ACCOUNT_SID.startsWith('AC') && 
-  TWILIO_AUTH_TOKEN && 
-  TWILIO_AUTH_TOKEN !== 'your_twilio_auth_token_here' && 
+  TWILIO_ACCOUNT_SID &&
+  TWILIO_ACCOUNT_SID.startsWith('AC') &&
+  TWILIO_AUTH_TOKEN &&
+  TWILIO_AUTH_TOKEN !== 'your_twilio_auth_token_here' &&
   TWILIO_WHATSAPP_FROM
 );
 
@@ -96,7 +96,7 @@ exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', co
 
 Dear *{{1}}*,
 
-Your Spain Visa Consultation with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free Spain Visa Eligibility Assessment with AAA Business Consultancy has been scheduled successfully! 🎉
 
 📅 *Date:* {{2}}
 ⏰ *Time:* {{3}} (UAE)
@@ -127,7 +127,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 
       // 3. Extract parameter values from 'components' structure
       const bodyComponents = components.find(c => c.type === 'body')?.parameters || [];
-      
+
       // 4. Interpolate variables (replace {{1}} with param 1, {{2}} with param 2, etc.)
       let resolvedBody = templateText;
       bodyComponents.forEach((param, index) => {
@@ -140,10 +140,10 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       let deliveryStatus = 'SENT';
       let failureReason = null;
       let msgSid = null;
-      
+
       try {
         const contentSid = TEMPLATE_CONTENT_SIDS[templateName];
-        
+
         let fromNum = TWILIO_WHATSAPP_FROM;
         if (fromNum && !fromNum.startsWith('whatsapp:')) {
           fromNum = `whatsapp:${fromNum}`;
@@ -199,7 +199,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
         const clientRecord = await prisma.client.findFirst({
           where: { phone: { contains: numberPart } }
         });
-        
+
         await prisma.communicationLog.create({
           data: {
             clientId: clientRecord ? clientRecord.id : null,
@@ -245,7 +245,7 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
         if (template && template.body) {
           templateText = template.body;
         }
-      } catch (_) {}
+      } catch (_) { }
 
       if (!templateText) {
         const fallbacks = {
@@ -481,7 +481,7 @@ exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serv
     const { sendCustomWhatsApp } = require('./chatbotService');
     const loginUrl = portalUrl || `${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/portal/login`;
     const clientName = `${client.firstName} ${client.lastName}`.trim();
-    
+
     const activeNote = (note || notes || client.notes || client.profileSummary || '').trim();
     const noteSection = activeNote ? `📝 *Note:* ${activeNote}\n\n` : '';
 

@@ -758,6 +758,18 @@ const uploadChecklistDoc = async (req, res) => {
       description: `Uploaded version V${nextVersion} for checklist item "${item.title}".`
     });
 
+    // Trigger central multi-channel document notifications (WhatsApp, Email, CRM)
+    const { createDocumentNotification } = require('./notificationController');
+    createDocumentNotification({
+      userId: client.assignedToId,
+      clientName: client ? `${client.firstName} ${client.lastName}` : 'Client',
+      clientId: client.id,
+      documentId: document.id,
+      documentName: req.file.originalname,
+      category: item.category || 'Checklist Document',
+      reqApp: req.app
+    }).catch(err => console.error('[Checklist Upload Notification Error]:', err.message));
+
     res.status(201).json(document);
   } catch (error) {
     if (req.file) await deleteUploadedOrphanFile(req.file);

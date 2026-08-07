@@ -205,49 +205,16 @@ const uploadDocument = async (req, res) => {
         }
       }
 
-      // 3. Notify the assigned operator (if any)
-      if (client.assignedToId) {
-        await createDocumentNotification({
-          userId: client.assignedToId,
-          clientName,
-          clientId,
-          documentId: document.id,
-          documentName: req.file.originalname,
-          category: category || 'General'
-        });
-
-        // Send email alert to operator
-        if (client.assignedTo && client.assignedTo.email) {
-          const { sendEmail } = require('../services/emailService');
-          sendEmail({
-            to: client.assignedTo.email,
-            subject: `[ALERT] New Document Uploaded by ${clientName} 📄`,
-            html: `
-              <h3>Hello,</h3>
-              <p>Client <b>${clientName}</b> has uploaded a new document for your review:</p>
-              <ul>
-                <li><b>Document Name:</b> ${req.file.originalname}</li>
-                <li><b>Category:</b> ${category || 'General'}</li>
-                <li><b>Belongs To:</b> ${belongsTo || 'Main Applicant'}</li>
-              </ul>
-              <p>Please log in to the admin panel to review and verify this document.</p>
-            `
-          }).then(() => {
-            console.log(`[Notification] Alert email sent to operator: ${client.assignedTo.email}`);
-          }).catch((e) => {
-            console.error('Failed to alert operator via email:', e.message);
-          });
-        }
-
-        // Send WhatsApp alert to operator
-        if (client.assignedTo && client.assignedTo.hotlineNumber) {
-          const { sendCustomWhatsApp } = require('../services/chatbotService');
-          const operatorMsg = `🔔 *[ALERT] New Document Uploaded*\n\nClient: *${clientName}*\nFile: *${req.file.originalname}*\nCategory: *${category || 'General'}*\n\nPlease log in to review.`;
-          sendCustomWhatsApp(client.assignedTo.hotlineNumber, operatorMsg).catch((e) => {
-            console.error('Failed to notify operator via WhatsApp:', e.message);
-          });
-        }
-      }
+      // 3. Trigger central multi-channel document notifications (WhatsApp, Email, CRM)
+      await createDocumentNotification({
+        userId: client.assignedToId,
+        clientName,
+        clientId,
+        documentId: document.id,
+        documentName: req.file.originalname,
+        category: category || 'General',
+        reqApp: req.app
+      });
     }
 
     // Log activity

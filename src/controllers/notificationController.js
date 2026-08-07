@@ -69,37 +69,174 @@ const markAllRead = async (req, res) => {
   }
 };
 
-// Internal helper — called from documentController on upload
-const createDocumentNotification = async ({ userId, clientName, clientId, documentId, documentName, category }) => {
+// Internal helper — called when any document is uploaded (general or checklist)
+const createDocumentNotification = async ({ userId, clientName: inputClientName, clientId, documentId, documentName, category, reqApp }) => {
   try {
-    if (!userId) return;
+    // 1. Fetch client details if clientId is provided
+    let client = null;
+    if (clientId) {
+      client = await prisma.client.findUnique({
+        where: { id: clientId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          assignedToId: true,
+          assignedTo: {
+            select: { id: true, email: true, hotlineNumber: true, fullName: true }
+          }
+        }
+      });
+    }
 
-    await prisma.notification.create({
-      data: {
-        userId,
-        type: 'new_document',
-        title: `📄 New Document from ${clientName}`,
-        body: `${clientName} uploaded "${documentName}" (${category}). Please review and verify.`,
-        clientId,
-        documentId,
-        isRead: false
-      }
+    const clientName = (client ? `${client.firstName} ${client.lastName}`.trim() : inputClientName) || 'Client';
+    const targetUserId = userId || client?.assignedToId;
+
+    // 2. Find ALL relevant staff members (super_admin, admin, operations, plus assigned consultant)
+    const staffMembers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { role: { in: ['super_admin', 'admin', 'operations'] } },
+          ...(targetUserId ? [{ id: targetUserId }] : [])
+        ]
+      },
+      select: { id: true, email: true, hotlineNumber: true, fullName: true, role: true }
     });
 
-    // WhatsApp/Email stub — will activate when API keys are added to .env
-    if (process.env.META_WHATSAPP_TOKEN && process.env.META_WHATSAPP_TOKEN !== 'your_meta_whatsapp_token_here') {
-      console.log(`[WhatsApp STUB] Would send to operator ${userId}: ${clientName} uploaded ${documentName}`);
-      // TODO: integrate Meta WhatsApp Cloud API here
-    } else {
-      console.log(`[Notification Created] Operator ${userId} ← ${clientName} uploaded "${documentName}" (${category})`);
+    // 3. Create internal CRM Notifications in DB for all relevant staff
+    const title = `📄 New Document from ${clientName}`;
+    const body = `${clientName} uploaded "${documentName}" (${category || 'General'}). Please review and verify.`;
+
+    if (staffMembers.length > 0) {
+      const notificationEntries = staffMembers.map(staff => ({
+        userId: staff.id,
+        type: 'new_document',
+        title,
+        body,
+        clientId: clientId || null,
+        documentId: documentId || null,
+        isRead: false
+      }));
+
+      await prisma.notification.createMany({
+        data: notificationEntries,
+        skipDuplicates: true
+      });
     }
 
-    if (process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY !== 'your_sendgrid_key_here') {
-      console.log(`[Email STUB] Would email operator ${userId}: ${clientName} uploaded ${documentName}`);
-      // TODO: integrate SendGrid/SES here
+    // 4. Real-time Socket.io Broadcast to live CRM dashboards
+    if (reqApp) {
+      const io = reqApp.get('io');
+      if (io) {
+        io.emit('new-notification', { title, body, type: 'new_document', clientId, documentId });
+        console.log(`[Document Notification] 📡 Socket.io broadcast sent for document: ${documentName}`);
+      }
     }
+
+    // 5. WhatsApp Notifications (Client + Staff + Central Admin)
+    const { sendCustomWhatsApp } = require('../services/chatbotService');
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+
+    // 5a. Client WhatsApp Confirmation
+    const clientPhone = client?.phone;
+    if (clientPhone) {
+      const clientWaMsg = `📄 *Document Received!*\n\nHello *${client?.firstName || clientName}*,\n\nWe have received your uploaded document:\n• *File:* ${documentName}\n• *Category:* ${category || 'General'}\n\nOur team is reviewing it. You can track your application anytime on your client portal:\n🔗 ${frontendUrl}/#/portal/login`;
+
+      sendCustomWhatsApp(clientPhone, clientWaMsg).catch(err => {
+        console.error('[DocUpload WA Client Error]:', err.message);
+      });
+    }
+
+    // 5b. Staff & Admin WhatsApp Alerts
+    const staffHotlines = new Set();
+    if (client?.assignedTo?.hotlineNumber) {
+      staffHotlines.add(client.assignedTo.hotlineNumber);
+    }
+    staffMembers.forEach(staff => {
+      if (staff.hotlineNumber) staffHotlines.add(staff.hotlineNumber);
+    });
+    if (process.env.ADMIN_WHATSAPP) {
+      staffHotlines.add(process.env.ADMIN_WHATSAPP);
+    }
+
+    const staffWaMsg = `🔔 *[ALERT] New Document Uploaded*\n\nClient: *${clientName}*\nFile: *${documentName}*\nCategory: *${category || 'General'}*\n\nPlease log in to the CRM to review and verify.`;
+
+    staffHotlines.forEach(phone => {
+      sendCustomWhatsApp(phone, staffWaMsg).catch(err => {
+        console.error(`[DocUpload WA Staff Error for ${phone}]:`, err.message);
+      });
+    });
+
+    // 6. Email Notifications (Client + Staff + Central Admin)
+    const { sendEmail } = require('../services/emailService');
+
+    // 6a. Client Email Receipt
+    const clientEmail = client?.email;
+    if (clientEmail) {
+      sendEmail({
+        to: clientEmail,
+        subject: `📄 Document Received: ${documentName} - AAA Business Consultancy`,
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <h3 style="color: #051A3B;">Hello ${client?.firstName || clientName},</h3>
+            <p>We have successfully received your uploaded document:</p>
+            <ul>
+              <li><b>Document Name:</b> ${documentName}</li>
+              <li><b>Category:</b> ${category || 'General'}</li>
+              <li><b>Uploaded Date:</b> ${new Date().toLocaleDateString('en-US', { dateStyle: 'medium' })}</li>
+            </ul>
+            <p>Our document verification team is reviewing your file. You can track your application status anytime on your client portal.</p>
+            <p style="margin-top: 20px;">
+              <a href="${frontendUrl}/#/portal/login" 
+                 style="background-color: #051A3B; color: #E5C058; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                 Go to Client Portal
+              </a>
+            </p>
+            <br/>
+            <p>Best regards,<br/><b>AAA Business Consultancy Team</b></p>
+          </div>
+        `
+      }).catch(err => console.error('[DocUpload Email Client Error]:', err.message));
+    }
+
+    // 6b. Staff & Admin Alert Email
+    const staffEmails = new Set();
+    if (client?.assignedTo?.email) {
+      staffEmails.add(client.assignedTo.email);
+    }
+    staffMembers.forEach(staff => {
+      if (staff.email) staffEmails.add(staff.email);
+    });
+    if (process.env.ADMIN_EMAIL) {
+      staffEmails.add(process.env.ADMIN_EMAIL);
+    }
+
+    const adminEmailRecipients = Array.from(staffEmails);
+    if (adminEmailRecipients.length > 0) {
+      sendEmail({
+        to: adminEmailRecipients.join(','),
+        subject: `[CRM ALERT] New Document Uploaded by ${clientName} 📄`,
+        html: `
+          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <h3 style="color: #051A3B;">Hello Team,</h3>
+            <p>Client <b>${clientName}</b> has uploaded a new document for review:</p>
+            <ul>
+              <li><b>Document Name:</b> ${documentName}</li>
+              <li><b>Category:</b> ${category || 'General'}</li>
+              <li><b>Client Email:</b> ${clientEmail || 'N/A'}</li>
+            </ul>
+            <p>Please log in to the CRM admin panel to review and verify this document.</p>
+            <br/>
+            <p>AAA Visa CRM System</p>
+          </div>
+        `
+      }).catch(err => console.error('[DocUpload Email Staff Error]:', err.message));
+    }
+
   } catch (error) {
-    console.error('Error creating notification:', error);
+    console.error('Error creating document notification:', error);
     // Non-fatal — don't throw, just log
   }
 };
