@@ -485,7 +485,7 @@ exports.sendInvoiceWhatsApp = async ({ client, amount, discount, netAmount, serv
     const clientName = `${client.firstName} ${client.lastName}`.trim();
 
     const activeNote = (note || notes || client.notes || client.profileSummary || '').trim();
-    const noteSection = activeNote ? `📝 *Note:* ${activeNote}\n\n` : '';
+    const noteSection = activeNote ? `\n\n📝 *Note:* ${activeNote}` : '';
 
     const message = `Hello *${clientName}*, welcome to AAA Business Consultancy! 🇪🇸
 
@@ -497,9 +497,9 @@ Your Spain Relocation profile has been initialized. 🎉
 🔑 *Temp Password:* ${activeTempPassword}
 
 📦 *Service Packages:*
-You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.
+You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.${noteSection}
 
-${noteSection}📅 Need to book another consultation?
+📅 *Need to book another consultation?*
 Simply reply with "rebook" in this chat, and we'll send you a new meeting booking link.
 
 Thank you for choosing AAA Business Consultancy!`;
