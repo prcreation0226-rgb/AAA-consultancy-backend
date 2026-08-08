@@ -497,7 +497,7 @@ Your Spain Relocation profile has been initialized. 🎉
 🔑 *Temp Password:* ${activeTempPassword}
 
 📦 *Service Packages:*
-You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete processing.${noteSection}
+You can log in to your Client Portal using the link above to view all residency packages, select the package that best fits your needs, and complete your payment.${noteSection}
 
 📅 *Need to book another consultation?*
 Simply reply with "rebook" in this chat, and we'll send you a new meeting booking link.
