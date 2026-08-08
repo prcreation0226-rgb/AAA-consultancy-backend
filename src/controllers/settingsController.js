@@ -80,7 +80,7 @@ let DEFAULT_CUSTOMIZATION = {
     bookingAllowedStart: '09:00',
     bookingAllowedEnd: '18:00',
     bookingWindows: [
-      { startTime: '09:00', endTime: '18:00' }
+      { date: '2026-08-09', startTime: '09:00', endTime: '18:00' }
     ],
     holidays: [],
     welcomeEmailSubject: 'Welcome to AAA Business Consultancy - Your Client Portal is Ready! ✈️',
