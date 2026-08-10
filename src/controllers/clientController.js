@@ -362,11 +362,14 @@ const createClient = async (req, res) => {
 const updateClientStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, visaStatus, nextFollowUpDate, documentUploadAllowed } = req.body;
+    const { status, visaStatus, nextFollowUpDate, documentUploadAllowed, packageId, packageType } = req.body;
     
     const data = {};
     if (status) data.status = status;
     if (visaStatus) data.visaStatus = visaStatus;
+    if (packageId !== undefined || packageType !== undefined) {
+      data.packageId = packageId || packageType || null;
+    }
     if (nextFollowUpDate !== undefined) {
       data.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
     }
@@ -387,6 +390,14 @@ const updateClientStatus = async (req, res) => {
       where: { id },
       data
     });
+
+    // If packageId was updated, sync with client's payment records
+    if (data.packageId) {
+      await prisma.payment.updateMany({
+        where: { clientId: id },
+        data: { packageType: data.packageId }
+      }).catch(err => console.warn('[updateClientStatus] Payment sync warning:', err.message));
+    }
 
     // Check if status is set to Additional Documents Required
     if (status === 'Additional Documents Required') {

@@ -581,37 +581,22 @@ async function calculateSwornTranslationPrice(wordCount, sourceLanguage) {
 
 exports.uploadTranslationDocument = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    const files = req.files && req.files.length > 0 ? req.files : (req.file ? [req.file] : []);
+    if (files.length === 0) {
+      return res.status(400).json({ success: false, message: 'No document uploaded. Please upload at least one PDF.' });
     }
 
-    if (req.file.mimetype !== 'application/pdf') {
-      return res.status(400).json({ success: false, message: 'Only PDF files are supported' });
+    // Parse metadata sent from client for each document (if sent as JSON string or array)
+    let documentsMetadata = [];
+    if (req.body.documentsMetadata) {
+      try {
+        documentsMetadata = typeof req.body.documentsMetadata === 'string'
+          ? JSON.parse(req.body.documentsMetadata)
+          : req.body.documentsMetadata;
+      } catch (e) {
+        console.warn('Error parsing documentsMetadata:', e.message);
+      }
     }
-
-    // Obtain file buffer from RAM (memoryStorage) or disk (diskStorage)
-    const fs = require('fs');
-    let fileBuffer = req.file.buffer;
-    if (!fileBuffer && req.file.path && fs.existsSync(req.file.path)) {
-      fileBuffer = fs.readFileSync(req.file.path);
-    }
-    if (!fileBuffer) {
-      fileBuffer = new Uint8Array(0);
-    }
-
-    // Parse PDF using unpdf extractText with a 5-second timeout protection
-    const extractPromise = extractText(new Uint8Array(fileBuffer));
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('PDF text extraction timed out (5s limit)')), 5000)
-    );
-    const pdfData = await Promise.race([extractPromise, timeoutPromise]).catch(err => {
-      console.warn('[PDF Parse Sworn Translation] Text extraction failed or timed out:', err.message);
-      return { text: '' };
-    });
-    const text = Array.isArray(pdfData.text) ? pdfData.text.join(' ') : (pdfData.text || '');
-
-    // Count words (naive whitespace split)
-    const wordCount = text.trim().split(/\s+/).filter(word => word.length > 0).length;
 
     const {
       firstName,
@@ -619,31 +604,84 @@ exports.uploadTranslationDocument = async (req, res) => {
       email,
       phone,
       nationality,
-      sourceLanguage,
       targetLanguage
     } = req.body;
 
-    const sourceLang = sourceLanguage || 'English';
-    const priceDetails = await calculateSwornTranslationPrice(wordCount, sourceLang);
+    const fs = require('fs');
+    const parsedDocuments = [];
+    let totalWordCount = 0;
+    let totalSubtotal = 0;
+    let totalVat = 0;
+    let grandTotal = 0;
 
-    // Save/Update Lead in CRM database upon requesting quote (Sworn Translation stays in Lead)
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const docMeta = documentsMetadata[i] || {};
+      const docLang = docMeta.documentLanguage || docMeta.sourceLanguage || req.body.documentLanguage || req.body.sourceLanguage || 'English';
+      const docCategory = docMeta.category || req.body.category || 'Passport';
+
+      // Obtain file buffer from RAM or disk
+      let fileBuffer = file.buffer;
+      if (!fileBuffer && file.path && fs.existsSync(file.path)) {
+        fileBuffer = fs.readFileSync(file.path);
+      }
+      if (!fileBuffer) {
+        fileBuffer = new Uint8Array(0);
+      }
+
+      // Parse PDF using unpdf extractText with a 5-second timeout protection
+      let docWordCount = 0;
+      try {
+        const extractPromise = extractText(new Uint8Array(fileBuffer));
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('PDF text extraction timed out (5s limit)')), 5000)
+        );
+        const pdfData = await Promise.race([extractPromise, timeoutPromise]).catch(err => {
+          console.warn(`[PDF Parse Sworn Translation] Text extraction failed for ${file.originalname}:`, err.message);
+          return { text: '' };
+        });
+        const text = Array.isArray(pdfData.text) ? pdfData.text.join(' ') : (pdfData.text || '');
+        docWordCount = text.trim().split(/\s+/).filter(word => word.length > 0).length;
+      } catch (err) {
+        console.warn(`Error extracting text for ${file.originalname}:`, err.message);
+      }
+
+      const priceDetails = await calculateSwornTranslationPrice(docWordCount, docLang);
+
+      const filename = file.filename || file.key || `${Date.now()}-${file.originalname || 'document.pdf'}`;
+      const fileUrl = file.location || `/uploads/${filename}`;
+      const fileSizeMb = file.size ? (file.size / 1024 / 1024).toFixed(2) : '0.10';
+
+      const docObj = {
+        name: file.originalname || `Document_${i + 1}.pdf`,
+        category: docCategory,
+        url: fileUrl,
+        size: `${fileSizeMb} MB`,
+        documentLanguage: docLang,
+        sourceLanguage: docLang,
+        targetLanguage: targetLanguage || 'Spanish',
+        wordCount: docWordCount,
+        rate: priceDetails.rate,
+        subtotal: priceDetails.subtotal,
+        vat: priceDetails.vat,
+        estimatedPrice: priceDetails.total,
+        uploadedAt: new Date().toISOString()
+      };
+
+      parsedDocuments.push(docObj);
+      totalWordCount += docWordCount;
+      totalSubtotal += priceDetails.subtotal;
+      totalVat += priceDetails.vat;
+      grandTotal += priceDetails.total;
+    }
+
+    totalSubtotal = parseFloat(totalSubtotal.toFixed(2));
+    totalVat = parseFloat(totalVat.toFixed(2));
+    grandTotal = parseFloat(grandTotal.toFixed(2));
+
+    // Save/Update Lead in CRM database upon requesting quote
     if (firstName && lastName && email && phone) {
       try {
-        const filename = req.file?.filename || req.file?.key || `${Date.now()}-${req.file?.originalname || 'document.pdf'}`;
-        const fileUrl = req.file?.location || `/uploads/${filename}`;
-        const fileSizeMb = req.file?.size ? (req.file.size / 1024 / 1024).toFixed(2) : '0.10';
-
-        const docObj = {
-          documentName: req.file?.originalname || 'Translation Document.pdf',
-          documentUrl: fileUrl,
-          documentSize: `${fileSizeMb} MB`,
-          wordCount,
-          sourceLanguage: sourceLang,
-          targetLanguage: targetLanguage || 'Spanish',
-          estimatedPrice: priceDetails.total,
-          uploadedAt: new Date().toISOString()
-        };
-
         let lead = await prisma.lead.findFirst({
           where: {
             OR: [
@@ -653,42 +691,48 @@ exports.uploadTranslationDocument = async (req, res) => {
           }
         });
 
+        const primaryDoc = parsedDocuments[0] || {};
+        const primaryDocLang = parsedDocuments.map(d => d.documentLanguage).join(', ');
+
+        const leadData = {
+          firstName,
+          lastName,
+          email: email.toLowerCase(),
+          phone,
+          nationality: nationality || null,
+          serviceType: 'Spanish Sworn Translation',
+          status: 'Payment Not Completed',
+          sourceLanguage: primaryDocLang || 'English',
+          targetLanguage: targetLanguage || 'Spanish',
+          wordCount: totalWordCount,
+          qualificationData: {
+            serviceType: 'Spanish Sworn Translation',
+            documents: parsedDocuments,
+            documentName: parsedDocuments.map(d => d.name).join(', '),
+            documentUrl: primaryDoc.url,
+            documentSize: primaryDoc.size,
+            wordCount: totalWordCount,
+            sourceLanguage: primaryDocLang,
+            targetLanguage: targetLanguage || 'Spanish',
+            subtotal: totalSubtotal,
+            vat: totalVat,
+            estimatedPrice: grandTotal,
+            uploadedAt: new Date().toISOString()
+          }
+        };
+
         if (!lead) {
-          await prisma.lead.create({
-            data: {
-              firstName,
-              lastName,
-              email: email.toLowerCase(),
-              phone,
-              nationality: nationality || null,
-              serviceType: 'Spanish Sworn Translation',
-              status: 'Payment Not Completed',
-              sourceLanguage: sourceLang,
-              targetLanguage: targetLanguage || 'Spanish',
-              wordCount: wordCount,
-              qualificationData: {
-                serviceType: 'Spanish Sworn Translation',
-                ...docObj
-              }
-            }
-          });
+          await prisma.lead.create({ data: leadData });
         } else {
           let existingQual = lead.qualificationData || {};
           if (typeof existingQual !== 'object') existingQual = {};
           await prisma.lead.update({
             where: { id: lead.id },
             data: {
-              serviceType: 'Spanish Sworn Translation',
-              status: 'Payment Not Completed',
-              phone: phone || undefined,
-              nationality: nationality || undefined,
-              sourceLanguage: sourceLang,
-              targetLanguage: targetLanguage || 'Spanish',
-              wordCount: wordCount,
+              ...leadData,
               qualificationData: {
                 ...existingQual,
-                serviceType: 'Spanish Sworn Translation',
-                ...docObj
+                ...leadData.qualificationData
               }
             }
           });
@@ -701,11 +745,13 @@ exports.uploadTranslationDocument = async (req, res) => {
     return res.status(200).json({
       success: true,
       data: {
-        wordCount,
-        rate: priceDetails.rate,
-        subtotal: priceDetails.subtotal,
-        vat: priceDetails.vat,
-        estimatedPrice: priceDetails.total,
+        documents: parsedDocuments,
+        wordCount: totalWordCount,
+        totalWordCount,
+        rate: parsedDocuments[0]?.rate || 0.15,
+        subtotal: totalSubtotal,
+        vat: totalVat,
+        estimatedPrice: grandTotal,
         currency: 'EUR'
       }
     });
@@ -721,9 +767,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
   const bcrypt = require('bcrypt');
 
   try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
+    const files = req.files && req.files.length > 0 ? req.files : (req.file ? [req.file] : []);
 
     const {
       firstName,
@@ -731,7 +775,6 @@ exports.checkoutTranslationDocument = async (req, res) => {
       email,
       phone,
       nationality,
-      sourceLanguage,
       targetLanguage,
       wordCount,
       estimatedPrice
@@ -740,6 +783,63 @@ exports.checkoutTranslationDocument = async (req, res) => {
     if (!firstName || !lastName || !email || !phone) {
       return res.status(400).json({ success: false, message: 'Missing required client details' });
     }
+
+    let documentsMetadata = [];
+    if (req.body.documentsMetadata) {
+      try {
+        documentsMetadata = typeof req.body.documentsMetadata === 'string'
+          ? JSON.parse(req.body.documentsMetadata)
+          : req.body.documentsMetadata;
+      } catch (e) {}
+    }
+
+    const fs = require('fs');
+    const parsedDocuments = [];
+    let calculatedTotalWords = 0;
+    let calculatedTotal = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const docMeta = documentsMetadata[i] || {};
+      const docLang = docMeta.documentLanguage || docMeta.sourceLanguage || 'English';
+      const docCategory = docMeta.category || 'Translation Document';
+      const docWordCount = docMeta.wordCount || 0;
+      const priceDetails = await calculateSwornTranslationPrice(docWordCount, docLang);
+
+      const filename = file.filename || file.key || `${Date.now()}-${file.originalname || 'document.pdf'}`;
+      const fileUrl = file.location || `/uploads/${filename}`;
+      const fileSizeMb = file.size ? (file.size / 1024 / 1024).toFixed(2) : '0.10';
+
+      const docItem = {
+        name: file.originalname || `Document_${i + 1}.pdf`,
+        category: docCategory,
+        url: fileUrl,
+        size: `${fileSizeMb} MB`,
+        documentLanguage: docLang,
+        sourceLanguage: docLang,
+        targetLanguage: targetLanguage || 'Spanish',
+        wordCount: docWordCount,
+        rate: priceDetails.rate,
+        subtotal: priceDetails.subtotal,
+        vat: priceDetails.vat,
+        estimatedPrice: priceDetails.total,
+        uploadedAt: new Date().toISOString()
+      };
+
+      parsedDocuments.push(docItem);
+      calculatedTotalWords += docWordCount;
+      calculatedTotal += priceDetails.total;
+    }
+
+    let finalPrice = calculatedTotal > 0 ? parseFloat(calculatedTotal.toFixed(2)) : 15.00;
+    if (estimatedPrice) {
+      const parsedReqPrice = parseFloat(estimatedPrice);
+      if (!isNaN(parsedReqPrice) && parsedReqPrice > 0) {
+        finalPrice = parsedReqPrice;
+      }
+    }
+
+    const finalWordCount = wordCount ? parseInt(wordCount, 10) : calculatedTotalWords;
 
     // 1. Find or create Lead (Sworn Translation stays strictly in Lead section)
     let lead = await prisma.lead.findFirst({
@@ -751,88 +851,46 @@ exports.checkoutTranslationDocument = async (req, res) => {
       }
     });
 
+    const primaryDoc = parsedDocuments[0] || {};
+    const primaryDocLang = parsedDocuments.map(d => d.documentLanguage).join(', ') || req.body.sourceLanguage || 'English';
 
-
-    // 2. Prepare uploaded document details
-    let category = req.body.category || 'Translation Input';
-    if (category.startsWith('Other: ')) {
-      category = category.replace('Other: ', '');
-    }
-
-    const filename = req.file.filename || req.file.key || `${Date.now()}-${req.file.originalname || 'document.pdf'}`;
-    const fileUrl = req.file.location || `/uploads/${filename}`;
-    const fileSizeMb = req.file.size ? (req.file.size / 1024 / 1024).toFixed(2) : '0.10';
-
-    const parsedWordCount = parseInt(wordCount, 10) || 0;
-    const priceDetails = await calculateSwornTranslationPrice(parsedWordCount, sourceLanguage || 'English');
-    let finalPrice = priceDetails.total || 15.00;
-    if (estimatedPrice) {
-      const parsedReqPrice = parseFloat(estimatedPrice);
-      if (!isNaN(parsedReqPrice) && parsedReqPrice > 0) {
-        finalPrice = parsedReqPrice;
-      }
-    }
-
-    const docObj = {
-      name: req.file.originalname || 'Translation Document.pdf',
-      category: category,
-      url: fileUrl,
-      size: `${fileSizeMb} MB`,
-      wordCount: parsedWordCount,
-      sourceLanguage: sourceLanguage || 'English',
+    const leadPayload = {
+      firstName,
+      lastName,
+      email: email.toLowerCase(),
+      phone,
+      nationality: nationality || null,
+      serviceType: 'Spanish Sworn Translation',
+      status: 'Payment Not Completed',
+      sourceLanguage: primaryDocLang,
       targetLanguage: targetLanguage || 'Spanish',
-      estimatedPrice: finalPrice,
-      uploadedAt: new Date().toISOString()
+      wordCount: finalWordCount,
+      qualificationData: {
+        serviceType: 'Spanish Sworn Translation',
+        documents: parsedDocuments.length > 0 ? parsedDocuments : undefined,
+        documentName: parsedDocuments.map(d => d.name).join(', ') || 'Translation Document.pdf',
+        documentUrl: primaryDoc.url || '',
+        documentSize: primaryDoc.size || '0.10 MB',
+        wordCount: finalWordCount,
+        sourceLanguage: primaryDocLang,
+        targetLanguage: targetLanguage || 'Spanish',
+        estimatedPrice: finalPrice,
+        uploadedAt: new Date().toISOString()
+      }
     };
 
     if (!lead) {
-      lead = await prisma.lead.create({
-        data: {
-          firstName,
-          lastName,
-          email: email.toLowerCase(),
-          phone,
-          nationality: nationality || null,
-          serviceType: 'Spanish Sworn Translation',
-          status: 'Payment Not Completed',
-          sourceLanguage: sourceLanguage || 'English',
-          targetLanguage: targetLanguage || 'Spanish',
-          wordCount: parsedWordCount,
-          qualificationData: {
-            serviceType: 'Spanish Sworn Translation',
-            documentName: docObj.name,
-            documentUrl: docObj.url,
-            documentSize: docObj.size,
-            wordCount: docObj.wordCount,
-            sourceLanguage: docObj.sourceLanguage,
-            targetLanguage: docObj.targetLanguage,
-            estimatedPrice: docObj.estimatedPrice,
-            uploadedAt: docObj.uploadedAt
-          }
-        }
-      });
+      lead = await prisma.lead.create({ data: leadPayload });
     } else {
       let existingQual = lead.qualificationData || {};
       if (typeof existingQual !== 'object') existingQual = {};
       lead = await prisma.lead.update({
         where: { id: lead.id },
         data: {
-          serviceType: 'Spanish Sworn Translation',
-          status: 'Payment Not Completed',
-          sourceLanguage: sourceLanguage || 'English',
-          targetLanguage: targetLanguage || 'Spanish',
-          wordCount: parsedWordCount,
+          ...leadPayload,
           qualificationData: {
             ...existingQual,
-            serviceType: 'Spanish Sworn Translation',
-            documentName: docObj.name,
-            documentUrl: docObj.url,
-            documentSize: docObj.size,
-            wordCount: docObj.wordCount,
-            sourceLanguage: docObj.sourceLanguage,
-            targetLanguage: docObj.targetLanguage,
-            estimatedPrice: docObj.estimatedPrice,
-            uploadedAt: docObj.uploadedAt
+            ...leadPayload.qualificationData
           }
         }
       });
@@ -840,6 +898,48 @@ exports.checkoutTranslationDocument = async (req, res) => {
 
     const frontendUrl = process.env.FRONTEND_URL || req.headers.origin || 'http://localhost:5173';
     let paymentUrl = `${frontendUrl}/#/public/translation?success=true&leadId=${lead.id}`;
+    let stripeSessionId = null;
+
+    const stripeSecret = process.env.STRIPE_SECRET_KEY;
+    if (stripeSecret && stripeSecret.startsWith('sk_')) {
+      try {
+        const stripe = require('stripe')(stripeSecret);
+        const stripeAmount = Math.round(finalPrice * 100);
+
+        const session = await stripe.checkout.sessions.create({
+          payment_method_types: ['card'],
+          line_items: [{
+            price_data: {
+              currency: 'eur',
+              product_data: {
+                name: 'Certified Spanish Sworn Translation',
+                description: `Official Sworn Translation for ${firstName} ${lastName} (${finalWordCount} words)`
+              },
+              unit_amount: stripeAmount,
+            },
+            quantity: 1,
+          }],
+          mode: 'payment',
+          customer_email: email,
+          success_url: `${frontendUrl}/#/public/payment-success?session_id={CHECKOUT_SESSION_ID}&leadId=${lead.id}&type=translation`,
+          cancel_url: `${frontendUrl}/#/public/translation?leadId=${lead.id}&cancelled=true`,
+          client_reference_id: lead.id,
+          metadata: {
+            leadId: lead.id,
+            serviceType: 'Spanish Sworn Translation',
+            wordCount: String(finalWordCount),
+            amount: String(finalPrice)
+          }
+        });
+
+        if (session && session.url) {
+          paymentUrl = session.url;
+          stripeSessionId = session.id;
+        }
+      } catch (stripeErr) {
+        console.error('[Stripe Session Creation Error]:', stripeErr.message);
+      }
+    }
 
     return res.status(201).json({
       success: true,
@@ -847,6 +947,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       data: {
         leadId: lead.id,
         paymentUrl,
+        stripeSessionId,
         estimatedPrice: finalPrice
       }
     });

@@ -4,6 +4,7 @@ const stripe = process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.i
   : null;
 const packagesConfig = require('../config/packages');
 const paymentService = require('../services/paymentService');
+const { validateIBAN, maskIBAN } = require('../utils/ibanValidator');
 
 const getPayments = async (req, res) => {
   try {
@@ -417,7 +418,21 @@ const createRefundRequest = async (req, res) => {
     const targetClientId = bodyClientId || req.user?.id;
 
     if (!targetClientId) {
-      return res.status(400).json({ message: 'Client ID is required' });
+      return res.status(400).json({ success: false, message: 'Client ID is required' });
+    }
+
+    // Strict IBAN structural & checksum validation
+    let normalizedIban = null;
+    if (bankIban && typeof bankIban === 'string' && bankIban.trim().length > 0) {
+      const ibanValidation = validateIBAN(bankIban);
+      if (!ibanValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid IBAN for your refund.',
+          error: ibanValidation.error
+        });
+      }
+      normalizedIban = ibanValidation.normalizedIBAN;
     }
 
     let refundAmount = Number(amount) || 0;
@@ -438,7 +453,7 @@ const createRefundRequest = async (req, res) => {
         amount: refundAmount,
         proofUrl: proofUrl || null,
         bankAccountName: bankAccountName || null,
-        bankIban: bankIban || null,
+        bankIban: normalizedIban || null,
         bankSwift: bankSwift || null,
         status: 'Pending Review'
       }

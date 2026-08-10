@@ -333,6 +333,19 @@ exports.handleStripeWebhook = async (req, res) => {
     } catch (err) {
       console.error('Error handling no_show_case_assessment webhook event:', err);
     }
+  } else if (event.type === 'checkout.session.completed' && session?.metadata?.serviceType === 'Spanish Sworn Translation') {
+    const leadId = session.metadata.leadId;
+    if (leadId) {
+      try {
+        await prisma.lead.update({
+          where: { id: leadId },
+          data: { status: 'Meeting Completed' }
+        });
+        console.log(`[Stripe Webhook] Sworn translation payment confirmed for lead ${leadId}`);
+      } catch (leadErr) {
+        console.warn('[Stripe Webhook] Translation lead status update failed:', leadErr.message);
+      }
+    }
   } else {
     // Enqueue payment event (We can handle this later in Payment State Machine)
     await processPaymentEvent(event).catch(console.error);
