@@ -1558,6 +1558,54 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
       }
     }
 
+    // Create CRM Notifications for Super Admin, Admin, Operations & Assigned Staff
+    try {
+      const adminUsers = await prisma.user.findMany({
+        where: { role: { in: ['super_admin', 'admin', 'operations'] } },
+        select: { id: true }
+      });
+      const recipientIds = new Set(adminUsers.map(u => u.id));
+      if (consultation.assignedToId) {
+        recipientIds.add(consultation.assignedToId);
+      }
+
+      const notifRows = Array.from(recipientIds).map(userId => ({
+        userId,
+        type: 'meeting_cancelled',
+        title: 'Meeting Cancelled ❌',
+        body: `Appointment for ${clientName} scheduled for ${consultation.date} at ${consultation.timeSlot} was cancelled by the client.`,
+        clientId: consultation.clientId || null
+      }));
+
+      if (notifRows.length > 0) {
+        await prisma.notification.createMany({ data: notifRows });
+      }
+
+      // Record CRM AuditLog entry
+      await prisma.auditLog.create({
+        data: {
+          action: `Meeting Cancelled by Client (${clientName})`,
+          performedBy: clientName,
+          details: `Client cancelled Spain Visa appointment scheduled for ${consultation.date} at ${consultation.timeSlot}. Lead status updated to 'Meeting Cancelled'.`
+        }
+      }).catch(err => console.warn('[AuditLog Warning] Could not record cancellation audit:', err.message));
+
+      // Emit Real-time Socket.IO notification to CRM UI
+      const io = req.app ? req.app.get('io') : null;
+      if (io) {
+        io.to('role:super_admin').to('role:admin').to('role:operations').emit('meeting_cancelled', {
+          consultationId: consultation.id,
+          clientName,
+          date: consultation.date,
+          timeSlot: consultation.timeSlot,
+          message: `Appointment for ${clientName} on ${consultation.date} at ${consultation.timeSlot} was cancelled by the client.`
+        });
+        io.to('role:super_admin').to('role:admin').to('role:operations').emit('new_notification');
+      }
+    } catch (notifErr) {
+      console.error('[CRM Notification Warning] Failed to dispatch cancellation notification:', notifErr.message);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Consultation cancelled successfully',
