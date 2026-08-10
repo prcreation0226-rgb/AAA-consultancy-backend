@@ -4,6 +4,26 @@ const { sendEmail } = require('../services/emailService');
 const { sendWhatsAppMessage, sendGoogleReviewRequestWhatsApp } = require('../services/whatsappService');
 const { remindersQueue } = require('../queues/queueSetup');
 
+function getSortableTimestamp(dateStr, timeSlotStr) {
+  if (!dateStr) return 9999999999999;
+  let timeStr = '00:00';
+  if (timeSlotStr && typeof timeSlotStr === 'string') {
+    const rawTime = timeSlotStr.split('-')[0].trim();
+    const match = rawTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (match) {
+      let hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const ampm = match[3] ? match[3].toUpperCase() : null;
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+  }
+  const dateISO = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+  const d = new Date(`${dateISO}T${timeStr}:00`);
+  return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
+}
+
 const getConsultations = async (req, res) => {
   try {
     let whereClause = {};
@@ -39,7 +59,8 @@ const getConsultations = async (req, res) => {
         clientId: true,
         consultantId: true,
         assignedAt: true,
-        lead: { select: { id: true, firstName: true, lastName: true, email: true, clientId: true, preferredLanguage: true } },
+        lead: { select: { id: true, firstName: true, lastName: true, email: true, clientId: true, preferredLanguage: true, serviceType: true, nationality: true, countryOfResidence: true } },
+        client: { select: { id: true, firstName: true, lastName: true, email: true, serviceType: true, nationality: true, countryOfResidence: true } },
         consultant: { select: { id: true, fullName: true } }
       },
       orderBy: { createdAt: 'desc' }
@@ -47,35 +68,64 @@ const getConsultations = async (req, res) => {
     
     const mapped = consultations
       .filter(c => {
-        // Filter out orphan consultations where leadId was deleted and no clientId exists
         if (c.leadId && !c.lead && !c.clientId) return false;
         return true;
       })
       .map(c => {
-      let parsedOutcome = null;
-      try {
-        if (c.eligibility && c.eligibility.startsWith('{')) {
-          parsedOutcome = JSON.parse(c.eligibility);
-        }
-      } catch (e) {}
-      
-      return {
-        ...c,
-        outcome: parsedOutcome,
-        meetingDate: c.date,
-        meetingTime: c.timeSlot,
-        assignedAt: c.assignedAt || c.createdAt,
-        clientName: c.lead ? `${c.lead.firstName} ${c.lead.lastName}` : 'Unknown',
-        clientLanguage: c.lead?.preferredLanguage || 'N/A',
-        agentName: c.consultant?.fullName || 'Unassigned',
-        assignedConsultantName: c.consultant?.fullName || 'Unassigned',
-        assignedConsultantId: c.consultantId
-      };
+        let parsedOutcome = null;
+        try {
+          if (c.eligibility && c.eligibility.startsWith('{')) {
+            parsedOutcome = JSON.parse(c.eligibility);
+          }
+        } catch (e) {}
+        
+        return {
+          ...c,
+          outcome: parsedOutcome,
+          meetingDate: c.date,
+          meetingTime: c.timeSlot,
+          assignedAt: c.assignedAt || c.createdAt,
+          clientName: c.lead ? `${c.lead.firstName} ${c.lead.lastName}` : (c.client ? `${c.client.firstName} ${c.client.lastName}` : 'Unknown'),
+          clientLanguage: c.lead?.preferredLanguage || c.client?.preferredLanguage || 'N/A',
+          visaType: c.lead?.serviceType || c.client?.serviceType || c.recommendedService || 'Spain Visa',
+          nationality: c.lead?.nationality || c.client?.nationality || 'N/A',
+          countryOfResidence: c.lead?.countryOfResidence || c.client?.countryOfResidence || 'N/A',
+          agentName: c.consultant?.fullName || 'Unassigned',
+          assignedConsultantName: c.consultant?.fullName || 'Unassigned',
+          assignedConsultantId: c.consultantId
+        };
+      });
+
+    mapped.sort((a, b) => {
+      const tA = getSortableTimestamp(a.meetingDate || a.date, a.meetingTime || a.timeSlot);
+      const tB = getSortableTimestamp(b.meetingDate || b.date, b.meetingTime || b.timeSlot);
+      return tA - tB;
     });
     
     res.json(mapped);
   } catch (error) {
     res.status(500).json({ message: 'Server error fetching consultations' });
+  }
+};
+
+const getPublicBookedSlots = async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.json({ bookedSlots: [] });
+    }
+    const booked = await prisma.consultation.findMany({
+      where: {
+        date: date,
+        status: { notIn: ['Cancelled', 'No Show'] }
+      },
+      select: { timeSlot: true }
+    });
+    const bookedSlots = booked.map(b => b.timeSlot).filter(Boolean);
+    return res.json({ bookedSlots });
+  } catch (err) {
+    console.error('Error fetching booked slots:', err);
+    return res.json({ bookedSlots: [] });
   }
 };
 
@@ -1561,6 +1611,7 @@ const cleanupTestConsultations = async (req, res) => {
 
 module.exports = {
   getConsultations,
+  getPublicBookedSlots,
   createConsultation,
   updateOutcome,
   autoConvertLeadToClient,

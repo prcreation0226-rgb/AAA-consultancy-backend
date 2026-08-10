@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   getConsultations,
+  getPublicBookedSlots,
   createConsultation,
   updateOutcome,
   respondToConsultation,
@@ -15,6 +16,7 @@ const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddlewar
 
 const router = express.Router();
 
+router.get('/public-booked-slots', getPublicBookedSlots);
 router.delete('/cleanup-test', authMiddleware, rbacMiddleware(['super_admin', 'admin']), cleanupTestConsultations);
 router.patch('/public/reschedule', publicRescheduleConsultation);
 router.patch('/public/cancel', publicCancelConsultation);

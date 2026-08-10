@@ -299,14 +299,6 @@ exports.sendVisaChecklist = async (to, clientName, serviceType, paymentData = {}
           </div>
         </div>
 
-        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin: 20px 0;">
-          <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📋 ${checklistTitle}:</h4>
-          <p style="color: #4a5568; font-size: 13px;">Please gather the following documents and upload them through your client dashboard:</p>
-          <ul style="margin: 0; padding-left: 20px; color: #334155; line-height: 1.8; font-size: 13px;">
-            ${checklistHtml}
-          </ul>
-        </div>
-
         <p style="color: #4a5568; margin-top: 24px; line-height: 1.6;">Thank you for choosing AAA Business Consultancy! 🇪🇸</p>
         <p style="color: #2d3748; margin-bottom: 0;"><b>Best regards,</b><br/>AAA Business Consultancy Team</p>
       </div>
