@@ -17,7 +17,7 @@ module.exports = {
     additionalApplicantPrice: 500,
     vatRate: 5,
     refundable: true,
-    refundPercent: 50,
+    refundPercent: 100,
     creditEligible: true,
   },
   OPTION_C: {
@@ -36,7 +36,7 @@ module.exports = {
     additionalApplicantPrice: 750,
     vatRate: 5,
     refundable: true,
-    refundPercent: 50,
+    refundPercent: 100,
     creditEligible: true,
   },
 };

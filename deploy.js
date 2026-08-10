@@ -152,6 +152,26 @@ async function ensurePhase2Schema() {
       console.log(`[Deploy] Column \`consultations.${col.name}\`: OK`);
     }
   }
+
+  // 5. Ensure relocation_packages table isRefundable column exists
+  const pkgCols = [
+    { name: 'isRefundable', sql: 'ALTER TABLE `relocation_packages` ADD COLUMN `isRefundable` BOOLEAN NOT NULL DEFAULT false;' }
+  ];
+
+  for (const col of pkgCols) {
+    const exists = await columnExists('relocation_packages', col.name);
+    if (!exists) {
+      console.log(`[Deploy] Adding column \`relocation_packages.${col.name}\`...`);
+      try {
+        await prisma.$executeRawUnsafe(col.sql);
+        console.log(`[Deploy] Column \`relocation_packages.${col.name}\` added.`);
+      } catch (err) {
+        console.log(`[Deploy] Note on \`relocation_packages.${col.name}\`: ${err.message}`);
+      }
+    } else {
+      console.log(`[Deploy] Column \`relocation_packages.${col.name}\`: OK`);
+    }
+  }
 }
 
 async function main() {

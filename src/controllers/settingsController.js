@@ -334,7 +334,7 @@ const getPackages = async (req, res) => {
 
 const createPackage = async (req, res) => {
   try {
-    const { code, name, description, price, additionalApplicantPrice, isRecommended, isFixedPrice, includes, active } = req.body;
+    const { code, name, description, price, additionalApplicantPrice, isRecommended, isFixedPrice, isRefundable, includes, active } = req.body;
     
     if (!name || name.trim() === '') {
       return res.status(400).json({ message: 'Package name is required.' });
@@ -353,6 +353,7 @@ const createPackage = async (req, res) => {
         additionalApplicantPrice: pkgAddPrice,
         isRecommended: !!isRecommended,
         isFixedPrice: !!isFixedPrice,
+        isRefundable: !!isRefundable,
         active: active !== undefined ? !!active : true,
         includes: Array.isArray(includes) ? includes : []
       }
@@ -397,30 +398,36 @@ const updatePackages = async (req, res) => {
         additionalApplicantPrice: Number(p.additionalApplicantPrice) || 500,
         isRecommended: !!p.isRecommended,
         isFixedPrice: !!p.isFixedPrice,
+        isRefundable: !!p.isRefundable,
         active: p.active !== undefined ? !!p.active : true,
         includes: Array.isArray(p.includes) ? p.includes : []
       };
 
+      let existing = null;
       if (p.id && !p.id.startsWith('pkg_opt_') && !p.id.startsWith('opt_')) {
-        const exists = await prisma.relocationPackage.findUnique({ where: { id: p.id } });
-        if (exists) {
-          await prisma.relocationPackage.update({
-            where: { id: p.id },
-            data: payloadData
-          });
-          continue;
-        }
+        existing = await prisma.relocationPackage.findUnique({ where: { id: p.id } }).catch(() => null);
+      }
+      if (!existing && payloadData.code) {
+        existing = await prisma.relocationPackage.findFirst({ where: { code: payloadData.code } }).catch(() => null);
       }
 
-      await prisma.relocationPackage.create({
-        data: payloadData
-      });
+      if (existing) {
+        await prisma.relocationPackage.update({
+          where: { id: existing.id },
+          data: payloadData
+        });
+      } else {
+        await prisma.relocationPackage.create({
+          data: payloadData
+        });
+      }
     }
     const allPkgs = await prisma.relocationPackage.findMany({
       orderBy: { createdAt: 'asc' }
     });
     res.json(allPkgs);
   } catch (error) {
+    console.error('Error updating packages:', error);
     res.status(500).json({ error: error.message });
   }
 };
