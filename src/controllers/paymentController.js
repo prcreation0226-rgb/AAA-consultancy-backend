@@ -394,9 +394,13 @@ const getRefundRequests = async (req, res) => {
         serviceType: r.client?.serviceType || 'Visa Package',
         totalPaidAmount: clientPaidTotal,
         category: r.category,
-        amount: r.amount,
-        date: r.createdAt.toISOString().split('T')[0],
-        status: r.status,
+        date: (() => {
+          const d = new Date(r.createdAt);
+          const day = String(d.getDate()).padStart(2, '0');
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const year = d.getFullYear();
+          return `${day}/${month}/${year}`;
+        })(),
         reason: r.reason,
         proofUrl: r.proofUrl || null,
         bankAccountName: r.bankAccountName || '',
