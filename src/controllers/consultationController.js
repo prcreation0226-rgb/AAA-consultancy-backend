@@ -4,10 +4,14 @@ const { sendEmail } = require('../services/emailService');
 const { sendWhatsAppMessage, sendGoogleReviewRequestWhatsApp } = require('../services/whatsappService');
 const { remindersQueue } = require('../queues/queueSetup');
 
-function getSortableTimestamp(dateStr, timeSlotStr) {
-  if (!dateStr) return 9999999999999;
-  let timeStr = '00:00';
-  if (timeSlotStr && typeof timeSlotStr === 'string') {
+function getSortableTimestamp(dateStr, timeSlotStr, status) {
+  if (!dateStr) return 999999999999999;
+  
+  const isoDate = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  let timeStr = '23:59';
+  if (timeSlotStr && typeof timeSlotStr === 'string' && !timeSlotStr.toLowerCase().includes('tbd') && !timeSlotStr.toLowerCase().includes('flexible')) {
     const rawTime = timeSlotStr.split('-')[0].trim();
     const match = rawTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
     if (match) {
@@ -19,9 +23,14 @@ function getSortableTimestamp(dateStr, timeSlotStr) {
       timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     }
   }
-  const dateISO = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
-  const d = new Date(`${dateISO}T${timeStr}:00`);
-  return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
+
+  const d = new Date(`${isoDate}T${timeStr}:00`);
+  const timeMs = isNaN(d.getTime()) ? 9999999999999 : d.getTime();
+
+  const isCompletedOrCancelled = status === 'Completed' || status === 'Cancelled';
+  const isUpcomingActive = isoDate >= todayStr && !isCompletedOrCancelled;
+
+  return isUpcomingActive ? timeMs : (100000000000000 + timeMs);
 }
 
 const getConsultations = async (req, res) => {
@@ -97,8 +106,8 @@ const getConsultations = async (req, res) => {
       });
 
     mapped.sort((a, b) => {
-      const tA = getSortableTimestamp(a.meetingDate || a.date, a.meetingTime || a.timeSlot);
-      const tB = getSortableTimestamp(b.meetingDate || b.date, b.meetingTime || b.timeSlot);
+      const tA = getSortableTimestamp(a.meetingDate || a.date, a.meetingTime || a.timeSlot, a.status);
+      const tB = getSortableTimestamp(b.meetingDate || b.date, b.meetingTime || b.timeSlot, b.status);
       return tA - tB;
     });
     
