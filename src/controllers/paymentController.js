@@ -338,6 +338,7 @@ const getRefundRequests = async (req, res) => {
           client: { 
             select: { 
               id: true, 
+              clientCode: true,
               firstName: true, 
               lastName: true, 
               email: true, 
@@ -363,6 +364,7 @@ const getRefundRequests = async (req, res) => {
         where: { id: { in: clientIds } },
         select: { 
           id: true, 
+          clientCode: true,
           firstName: true, 
           lastName: true, 
           email: true, 
@@ -385,6 +387,7 @@ const getRefundRequests = async (req, res) => {
       return {
         id: r.id,
         clientId: r.clientId,
+        clientCode: r.client?.clientCode || (r.clientId ? (r.clientId.length > 10 ? `#${r.clientId.substring(0, 8)}` : r.clientId) : 'N/A'),
         clientName: r.client ? `${r.client.firstName} ${r.client.lastName}` : 'Unknown',
         clientEmail: r.client?.email || '',
         clientPhone: r.client?.phone || '',
