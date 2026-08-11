@@ -296,6 +296,16 @@ const createLead = async (req, res) => {
         reqApp: req.app
       }).catch(err => console.error('[Lead Notification Error]:', err.message));
 
+      if (req.app && lead.meetingPreferredDate && lead.meetingPreferredTime) {
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('public-slot-booked', {
+            date: lead.meetingPreferredDate,
+            timeSlot: lead.meetingPreferredTime
+          });
+        }
+      }
+
     // Synchronously create consultation and Zoom link so instant link is returned immediately
     let consultation = null;
     try {
@@ -866,6 +876,16 @@ _Note: Please join on time (within 10 minutes of appointment time to avoid autom
       appointmentDate: lead.meetingPreferredDate ? `${lead.meetingPreferredDate} ${lead.meetingPreferredTime || ''}` : null,
       reqApp: req.app
     }).catch(err => console.error('[Meeting Pref Notification Error]:', err.message));
+
+    if (req.app && lead.meetingPreferredDate && lead.meetingPreferredTime) {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('public-slot-booked', {
+          date: lead.meetingPreferredDate,
+          timeSlot: lead.meetingPreferredTime
+        });
+      }
+    }
 
     syncLeadConsultation(lead.id, req.app).catch(err => console.error('[BG] syncLeadConsultation failed:', err.message));
 

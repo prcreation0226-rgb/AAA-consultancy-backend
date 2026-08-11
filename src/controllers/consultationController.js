@@ -126,14 +126,43 @@ const getPublicBookedSlots = async (req, res) => {
     if (!date) {
       return res.json({ bookedSlots: [] });
     }
-    const booked = await prisma.consultation.findMany({
+
+    const rawDate = String(date).trim();
+    let ymd = rawDate;
+    let dmy = rawDate;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      const [y, m, d] = rawDate.split('-');
+      dmy = `${d}/${m}/${y}`;
+    } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(rawDate)) {
+      const [d, m, y] = rawDate.split('/');
+      ymd = `${y}-${m}-${d}`;
+    }
+    const dateVariants = Array.from(new Set([rawDate, ymd, dmy]));
+
+    // 1. Fetch booked slots from Consultations
+    const bookedConsultations = await prisma.consultation.findMany({
       where: {
-        date: date,
+        date: { in: dateVariants },
         status: { notIn: ['Cancelled', 'No Show'] }
       },
       select: { timeSlot: true }
     });
-    const bookedSlots = booked.map(b => b.timeSlot).filter(Boolean);
+
+    // 2. Fetch booked slots from Leads (covers leads whose Consultation record is not yet created)
+    const bookedLeads = await prisma.lead.findMany({
+      where: {
+        meetingPreferredDate: { in: dateVariants },
+        status: { notIn: ['Cancelled', 'Meeting Cancelled', 'Rejected', 'Duplicate'] }
+      },
+      select: { meetingPreferredTime: true }
+    });
+
+    const slotsSet = new Set();
+    bookedConsultations.forEach(c => { if (c.timeSlot) slotsSet.add(c.timeSlot); });
+    bookedLeads.forEach(l => { if (l.meetingPreferredTime) slotsSet.add(l.meetingPreferredTime); });
+
+    const bookedSlots = Array.from(slotsSet);
     return res.json({ bookedSlots });
   } catch (err) {
     console.error('Error fetching booked slots:', err);
