@@ -891,6 +891,68 @@ const deleteClient = async (req, res) => {
   }
 };
 
+const sendRebookLink = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const client = await prisma.client.findFirst({
+      where: {
+        OR: [
+          { id: id },
+          { leadId: id }
+        ]
+      },
+      include: { lead: true }
+    });
+
+    if (!client) {
+      return res.status(404).json({ success: false, message: 'Client profile not found.' });
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const rebookUrl = `${frontendUrl}/#/public/lead-form?clientId=${client.id}&rebook=true`;
+    const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
+    const targetPhone = client.phone || client.lead?.phone;
+    const targetEmail = client.email || client.lead?.email;
+
+    // 1. Dispatch WhatsApp message
+    if (targetPhone) {
+      const { sendCustomWhatsApp } = require('../services/chatbotService');
+      const waMsg = `📅 *Schedule Follow-up Consultation with Your Case Officer*\n\nDear *${clientName}*,\n\nYour Case Officer has unlocked your follow-up consultation booking. Please click the link below to select your preferred Date & Time slot:\n\n🔗 ${rebookUrl}\n\n_AAA Business Consultancy_`;
+      await sendCustomWhatsApp(targetPhone, waMsg).catch(e => console.error('[REBOOK MANUAL WA ERR]:', e.message));
+    }
+
+    // 2. Dispatch Email message
+    if (targetEmail) {
+      const { sendEmail } = require('../services/emailService');
+      await sendEmail({
+        to: targetEmail,
+        subject: 'Schedule Your Follow-up Consultation Meeting 📅',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #2d3748;">
+            <h2 style="color: #4f46e5;">Follow-up Consultation Booking 📅</h2>
+            <p>Dear <strong>${clientName}</strong>,</p>
+            <p>Your Case Officer has unlocked your follow-up consultation booking. Please click the button below to select your preferred date and time slot:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${rebookUrl}" style="background-color: #4f46e5; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+                🔄 Schedule Follow-up Meeting
+              </a>
+            </div>
+            <p style="font-size: 13px; color: #718096;">If you have any questions, feel free to contact your assigned consultant.</p>
+          </div>
+        `
+      }).catch(e => console.error('[REBOOK MANUAL EMAIL ERR]:', e.message));
+    }
+
+    return res.json({
+      success: true,
+      message: `Re-book booking link successfully sent to ${clientName} via WhatsApp & Email!`
+    });
+  } catch (error) {
+    console.error('Error in sendRebookLink:', error);
+    return res.status(500).json({ success: false, message: 'Server error sending re-book link', error: error.message });
+  }
+};
+
 module.exports = { 
   getClients, 
   createClient, 
@@ -903,5 +965,6 @@ module.exports = {
   updateClientDependents,
   getClientProfile,
   submitGoogleReviewStatus,
-  deleteClient
+  deleteClient,
+  sendRebookLink
 };

@@ -125,15 +125,12 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
   // 2b. Rebook / Follow-up Meeting Request Command (ONLY for registered Clients)
   const isRebookCommand = cleanMessage === 'rebook' || cleanMessage === 'rebook meeting' || cleanMessage === 'rebook consultation' || cleanMessage === 'schedule meeting' || cleanMessage === 'rebook call';
   if (isRebookCommand) {
-    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
     if (existingClient) {
       const clientName = existingClient.firstName || 'Valued Client';
-      const rebookUrl = `${frontendUrl}/#/public/lead-form?clientId=${existingClient.id}&rebook=true`;
+      const requestMsg = `Hello *${clientName}*, your request for a follow-up consultation has been logged. 📝\n\nYour assigned Case Officer will unlock and dispatch your booking link shortly.\n\n_AAA Business Consultancy_`;
       
-      const rebookMsg = `📅 *Schedule Follow-up Meeting with Your Case Officer*\n\nHi *${clientName}*, click the link below to select a date and time slot for your follow-up consultation:\n\n🔗 ${rebookUrl}\n\nOur team looks forward to assisting you!\n_AAA Business Consultancy_`;
-      
-      await sendCustomWhatsApp(cleanPhone, rebookMsg);
-      console.log(`[REBOOK CHATBOT] Dispatched client rebooking link to ${cleanPhone} (${clientName})`);
+      await sendCustomWhatsApp(cleanPhone, requestMsg);
+      console.log(`[REBOOK CHATBOT] Acknowledged rebooking request from ${cleanPhone} (${clientName})`);
       return;
     } else {
       console.log(`[REBOOK CHATBOT] Ignored rebook command from ${cleanPhone} (Sender not in Client table).`);

@@ -1,5 +1,5 @@
 const express = require('express');
-const { getClients, createClient, updateClient, updateClientStatus, selectPackage, generateCredentials, clientLogin, changeClientPassword, updateClientDependents, getClientProfile, submitGoogleReviewStatus, deleteClient } = require('../controllers/clientController');
+const { getClients, createClient, updateClient, updateClientStatus, selectPackage, generateCredentials, clientLogin, changeClientPassword, updateClientDependents, getClientProfile, submitGoogleReviewStatus, deleteClient, sendRebookLink } = require('../controllers/clientController');
 
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 
@@ -12,6 +12,7 @@ router.route('/')
 router.post('/login', clientLogin);
 router.get('/profile/me', authMiddleware, getClientProfile);
 router.post('/:id/credentials', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant', 'agent', 'case_manager']), generateCredentials);
+router.post('/:id/send-rebook-link', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant', 'agent', 'case_manager']), sendRebookLink);
 router.put('/:id/change-password', authMiddleware, changeClientPassword);
 router.patch('/:id/status', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant', 'agent', 'case_manager']), updateClientStatus);
 router.post('/:id/select-package', authMiddleware, selectPackage);
