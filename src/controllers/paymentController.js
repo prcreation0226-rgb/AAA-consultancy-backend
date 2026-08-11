@@ -4,6 +4,7 @@ const stripe = process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.i
   : null;
 const packagesConfig = require('../config/packages');
 const paymentService = require('../services/paymentService');
+const { validateIBAN, maskIBAN } = require('../utils/ibanValidator');
 
 const getPayments = async (req, res) => {
   try {
@@ -337,6 +338,7 @@ const getRefundRequests = async (req, res) => {
           client: { 
             select: { 
               id: true, 
+              clientCode: true,
               firstName: true, 
               lastName: true, 
               email: true, 
@@ -362,6 +364,7 @@ const getRefundRequests = async (req, res) => {
         where: { id: { in: clientIds } },
         select: { 
           id: true, 
+          clientCode: true,
           firstName: true, 
           lastName: true, 
           email: true, 
@@ -384,15 +387,20 @@ const getRefundRequests = async (req, res) => {
       return {
         id: r.id,
         clientId: r.clientId,
+        clientCode: r.client?.clientCode || (r.clientId ? (r.clientId.length > 10 ? `#${r.clientId.substring(0, 8)}` : r.clientId) : 'N/A'),
         clientName: r.client ? `${r.client.firstName} ${r.client.lastName}` : 'Unknown',
         clientEmail: r.client?.email || '',
         clientPhone: r.client?.phone || '',
         serviceType: r.client?.serviceType || 'Visa Package',
         totalPaidAmount: clientPaidTotal,
         category: r.category,
-        amount: r.amount,
-        date: r.createdAt.toISOString().split('T')[0],
-        status: r.status,
+        date: (() => {
+          const d = new Date(r.createdAt);
+          const day = String(d.getDate()).padStart(2, '0');
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const year = d.getFullYear();
+          return `${day}/${month}/${year}`;
+        })(),
         reason: r.reason,
         proofUrl: r.proofUrl || null,
         bankAccountName: r.bankAccountName || '',
@@ -417,7 +425,21 @@ const createRefundRequest = async (req, res) => {
     const targetClientId = bodyClientId || req.user?.id;
 
     if (!targetClientId) {
-      return res.status(400).json({ message: 'Client ID is required' });
+      return res.status(400).json({ success: false, message: 'Client ID is required' });
+    }
+
+    // Strict IBAN structural & checksum validation
+    let normalizedIban = null;
+    if (bankIban && typeof bankIban === 'string' && bankIban.trim().length > 0) {
+      const ibanValidation = validateIBAN(bankIban);
+      if (!ibanValidation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid IBAN for your refund.',
+          error: ibanValidation.error
+        });
+      }
+      normalizedIban = ibanValidation.normalizedIBAN;
     }
 
     let refundAmount = Number(amount) || 0;
@@ -438,7 +460,7 @@ const createRefundRequest = async (req, res) => {
         amount: refundAmount,
         proofUrl: proofUrl || null,
         bankAccountName: bankAccountName || null,
-        bankIban: bankIban || null,
+        bankIban: normalizedIban || null,
         bankSwift: bankSwift || null,
         status: 'Pending Review'
       }

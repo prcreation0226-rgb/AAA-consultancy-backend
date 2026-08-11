@@ -25,8 +25,8 @@ router.post('/reschedule/:token', bookingController.rescheduleBooking);
 router.post('/cancel/:token', bookingController.cancelBooking);
 router.patch('/cancel/:token', bookingController.cancelBooking);
 
-// Translation Endpoints (Disk / S3 Storage)
-router.post('/translation/upload', upload.single('document'), bookingController.uploadTranslationDocument);
-router.post('/translation/checkout', upload.single('document'), bookingController.checkoutTranslationDocument);
+// Translation Endpoints (Disk / S3 Storage - Supports Multiple Documents)
+router.post('/translation/upload', upload.any(), bookingController.uploadTranslationDocument);
+router.post('/translation/checkout', upload.any(), bookingController.checkoutTranslationDocument);
 
 module.exports = router;

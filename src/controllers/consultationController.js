@@ -88,8 +88,11 @@ const getConsultations = async (req, res) => {
           }
         } catch (e) {}
         
+        const notesContent = c.internalNotes || parsedOutcome?.notes || parsedOutcome?.agentNotes || '';
         return {
           ...c,
+          notes: notesContent,
+          internalNotes: notesContent,
           outcome: parsedOutcome,
           meetingDate: c.date,
           meetingTime: c.timeSlot,
@@ -393,6 +396,8 @@ const updateOutcome = async (req, res) => {
     // Always default status to 'Completed' when logging an outcome
     status = status || 'Completed';
 
+    internalNotes = internalNotes || notes || (typeof outcome === 'object' && outcome !== null ? outcome?.notes : '') || '';
+
     // Extract eligibility string if passed inside outcome object
     if (!eligibility && outcome) {
       eligibility = outcome;
@@ -400,13 +405,14 @@ const updateOutcome = async (req, res) => {
 
     let eligibilityStr = '';
     if (typeof eligibility === 'object' && eligibility !== null) {
+      if (!eligibility.notes && internalNotes) {
+        eligibility.notes = internalNotes;
+      }
       eligibilityStr = eligibility.eligibility || JSON.stringify(eligibility);
       eligibility = JSON.stringify(eligibility);
     } else if (typeof eligibility === 'string') {
       eligibilityStr = eligibility;
     }
-
-    internalNotes = internalNotes || notes || '';
 
     // 1-Hour Cancellation Rule Enforcement
     if (status === 'Cancelled') {

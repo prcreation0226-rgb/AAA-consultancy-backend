@@ -362,11 +362,14 @@ const createClient = async (req, res) => {
 const updateClientStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, visaStatus, nextFollowUpDate, documentUploadAllowed } = req.body;
+    const { status, visaStatus, nextFollowUpDate, documentUploadAllowed, packageId, packageType } = req.body;
     
     const data = {};
     if (status) data.status = status;
     if (visaStatus) data.visaStatus = visaStatus;
+    if (packageId !== undefined || packageType !== undefined) {
+      data.packageId = packageId || packageType || null;
+    }
     if (nextFollowUpDate !== undefined) {
       data.nextFollowUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
     }
@@ -387,6 +390,14 @@ const updateClientStatus = async (req, res) => {
       where: { id },
       data
     });
+
+    // If packageId was updated, sync with client's payment records
+    if (data.packageId) {
+      await prisma.payment.updateMany({
+        where: { clientId: id },
+        data: { packageType: data.packageId }
+      }).catch(err => console.warn('[updateClientStatus] Payment sync warning:', err.message));
+    }
 
     // Check if status is set to Additional Documents Required
     if (status === 'Additional Documents Required') {
@@ -483,8 +494,9 @@ const updateClientStatus = async (req, res) => {
         let isEligible = false;
         
         const serviceLower = (client.serviceType || '').toLowerCase();
-        if (serviceLower.includes('dnv') || serviceLower.includes('digital nomad') || serviceLower.includes('nlv') || serviceLower.includes('non-lucrative')) {
-          refundAmount = parseFloat((totalAmountPaid * 0.5).toFixed(2));
+        const pkgLower = (client.packageId || '').toLowerCase();
+        if (serviceLower.includes('dnv') || serviceLower.includes('digital nomad') || serviceLower.includes('nlv') || serviceLower.includes('non-lucrative') || pkgLower.includes('option_b') || pkgLower.includes('option_d') || pkgLower.includes('premium')) {
+          refundAmount = parseFloat(totalAmountPaid.toFixed(2));
           isEligible = true;
         } else {
           refundAmount = 0;
@@ -498,7 +510,7 @@ const updateClientStatus = async (req, res) => {
             clientId: id,
             amount: refundAmount,
             status: isEligible ? 'Pending Review' : 'Rejected',
-            reason: `Automated refund trigger: Visa status updated to Visa Refused. Service: ${client.serviceType}. Total paid: €${totalAmountPaid}. Eligibility matching 50% refund policy: ${isEligible ? 'Eligible' : 'Not Eligible'}.`
+            reason: `Automated refund trigger: Visa status updated to Visa Refused. Service: ${client.serviceType}. Total paid: €${totalAmountPaid}. Eligibility matching 100% refund guarantee: ${isEligible ? 'Eligible (100% Refund)' : 'Not Eligible'}.`
           }
         });
       } catch (err) {
