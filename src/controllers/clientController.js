@@ -898,7 +898,7 @@ const sendRebookLink = async (req, res) => {
       where: {
         OR: [
           { id: id },
-          { leadId: id }
+          { lead: { id: id } }
         ]
       },
       include: { lead: true }
