@@ -1526,6 +1526,12 @@ async function publicCancelConsultation(req, res) {
     const email = lead ? lead.email : null;
     const phone = lead ? lead.phone : null;
 
+    const displayDate = (() => {
+      if (!consultation.date) return '';
+      const match = String(consultation.date).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[3]}/${match[2]}/${match[1]}` : consultation.date;
+    })();
+
     if (phone) {
       try {
         const { sendCustomWhatsApp } = require('../services/chatbotService');
@@ -1533,7 +1539,7 @@ async function publicCancelConsultation(req, res) {
 
 Dear *${clientName}*,
 
-Your Spain Visa Eligibility Assessment scheduled for ${consultation.date} at ${consultation.timeSlot} (UAE) has been cancelled as requested.
+Your Spain Visa Eligibility Assessment scheduled for ${displayDate} at ${consultation.timeSlot} (UAE) has been cancelled as requested.
 
 If you ever wish to re-book, feel free to visit our booking page anytime:
 ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
@@ -1554,7 +1560,7 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
             <div style="font-family: Arial, sans-serif; padding: 20px;">
               <h3>Appointment Cancellation Confirmed</h3>
               <p>Dear ${lead ? lead.firstName : 'Client'},</p>
-              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${consultation.date}</b> at <b>${consultation.timeSlot} (UAE)</b> has been cancelled.</p>
+              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${displayDate}</b> at <b>${consultation.timeSlot} (UAE)</b> has been cancelled.</p>
               <p>You can book a new session anytime at <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form">AAA Business Consultancy</a>.</p>
             </div>
           `
@@ -1576,7 +1582,7 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
       }
 
       const title = 'Meeting Cancelled ❌';
-      const body = `Appointment for ${clientName} scheduled for ${consultation.date} at ${consultation.timeSlot} was cancelled by the client.`;
+      const body = `Appointment for ${clientName} scheduled for ${displayDate} at ${consultation.timeSlot} was cancelled by the client.`;
 
       const notifRows = Array.from(recipientIds).map(userId => ({
         userId,
@@ -1595,7 +1601,7 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
         data: {
           action: `Meeting Cancelled by Client (${clientName})`,
           performedBy: clientName,
-          details: `Client cancelled Spain Visa appointment scheduled for ${consultation.date} at ${consultation.timeSlot}. Lead status updated to 'Meeting Cancelled'.`
+          details: `Client cancelled Spain Visa appointment scheduled for ${displayDate} at ${consultation.timeSlot}. Lead status updated to 'Meeting Cancelled'.`
         }
       }).catch(err => console.warn('[AuditLog Warning] Could not record cancellation audit:', err.message));
 

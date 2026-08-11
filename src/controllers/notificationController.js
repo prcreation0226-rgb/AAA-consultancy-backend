@@ -268,15 +268,26 @@ const createLeadNotification = async ({ leadName, email, phone, country, service
 
     let formattedDate = '';
     if (appointmentDate) {
-      try {
-        const parsed = new Date(appointmentDate);
-        if (!isNaN(parsed.getTime())) {
-          formattedDate = parsed.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-        } else {
+      const str = String(appointmentDate).trim();
+      const match = str.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+      if (match) {
+        const [, yyyy, mm, dd, rest] = match;
+        formattedDate = `${dd}/${mm}/${yyyy}${rest}`;
+      } else {
+        try {
+          const parsed = new Date(appointmentDate);
+          if (!isNaN(parsed.getTime())) {
+            const day = String(parsed.getDate()).padStart(2, '0');
+            const month = String(parsed.getMonth() + 1).padStart(2, '0');
+            const year = parsed.getFullYear();
+            const timeStr = parsed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            formattedDate = `${day}/${month}/${year} ${timeStr}`;
+          } else {
+            formattedDate = appointmentDate;
+          }
+        } catch (_) {
           formattedDate = appointmentDate;
         }
-      } catch (_) {
-        formattedDate = appointmentDate;
       }
     }
 
