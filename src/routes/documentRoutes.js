@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDocuments, uploadDocument, reviewDocument, uploadTranslatedDocument, deleteDocument } = require('../controllers/documentController');
+const { getDocuments, uploadDocument, uploadBatchDocuments, reviewDocument, uploadTranslatedDocument, deleteDocument } = require('../controllers/documentController');
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 const upload = require('../middlewares/uploadMiddleware');
 
@@ -9,6 +9,7 @@ router.route('/')
   .get(authMiddleware, getDocuments);
 
 router.post('/upload', authMiddleware, upload.single('file'), uploadDocument);
+router.post('/upload-batch', authMiddleware, upload.array('files', 20), uploadBatchDocuments);
 
 router.patch('/:id/verify', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant']), reviewDocument);
 router.patch('/:id/translated', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'operations', 'consultant']), upload.single('translatedFile'), uploadTranslatedDocument);
