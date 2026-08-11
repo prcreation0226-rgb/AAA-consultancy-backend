@@ -105,11 +105,24 @@ const createLead = async (req, res) => {
     // Same-Day Booking Restriction
     if (meetingPreferredDate) {
       const todayStr = new Date().toISOString().split('T')[0];
-      if (meetingPreferredDate <= todayStr) {
-        return res.status(400).json({
-          success: false,
-          message: 'Booking date must be at least the next calendar day.'
-        });
+      const { getCustomization } = require('./settingsController');
+      const settings = getCustomization();
+      const allowSameDay = Boolean(settings.flowAutomationSettings?.allowSameDayBooking);
+
+      if (allowSameDay) {
+        if (meetingPreferredDate < todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Past dates cannot be booked.'
+          });
+        }
+      } else {
+        if (meetingPreferredDate <= todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking date must be at least the next calendar day.'
+          });
+        }
       }
     }
     
@@ -731,11 +744,24 @@ async function updateMeetingPreference(req, res) {
     // Same-Day Booking Restriction
     if (meetingPreferredDate) {
       const todayStr = new Date().toISOString().split('T')[0];
-      if (meetingPreferredDate <= todayStr) {
-        return res.status(400).json({
-          success: false,
-          message: 'Booking date must be at least the next calendar day.'
-        });
+      const { getCustomization } = require('./settingsController');
+      const settings = getCustomization();
+      const allowSameDay = Boolean(settings.flowAutomationSettings?.allowSameDayBooking);
+
+      if (allowSameDay) {
+        if (meetingPreferredDate < todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Past dates cannot be booked.'
+          });
+        }
+      } else {
+        if (meetingPreferredDate <= todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking date must be at least the next calendar day.'
+          });
+        }
       }
     }
 

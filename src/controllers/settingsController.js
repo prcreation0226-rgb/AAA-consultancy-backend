@@ -79,6 +79,7 @@ let DEFAULT_CUSTOMIZATION = {
     adultAgeThreshold: 18,
     bookingAllowedStart: '09:00',
     bookingAllowedEnd: '18:00',
+    allowSameDayBooking: false,
     bookingWindows: [
       { date: '2026-08-09', startTime: '09:00', endTime: '18:00' }
     ],

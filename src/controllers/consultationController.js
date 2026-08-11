@@ -179,11 +179,24 @@ const createConsultation = async (req, res) => {
     // Same-Day Booking Restriction
     if (meetingDate) {
       const todayStr = new Date().toISOString().split('T')[0];
-      if (meetingDate <= todayStr) {
-        return res.status(400).json({
-          success: false,
-          message: 'Booking date must be at least the next calendar day.'
-        });
+      const { getCustomization } = require('./settingsController');
+      const settings = getCustomization();
+      const allowSameDay = Boolean(settings.flowAutomationSettings?.allowSameDayBooking);
+
+      if (allowSameDay) {
+        if (meetingDate < todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Past dates cannot be booked.'
+          });
+        }
+      } else {
+        if (meetingDate <= todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking date must be at least the next calendar day.'
+          });
+        }
       }
     }
 
@@ -1353,11 +1366,24 @@ async function publicRescheduleConsultation(req, res) {
     // Same-Day Booking Restriction
     if (date) {
       const todayStr = new Date().toISOString().split('T')[0];
-      if (date <= todayStr) {
-        return res.status(400).json({
-          success: false,
-          message: 'Booking date must be at least the next calendar day.'
-        });
+      const { getCustomization } = require('./settingsController');
+      const settings = getCustomization();
+      const allowSameDay = Boolean(settings.flowAutomationSettings?.allowSameDayBooking);
+
+      if (allowSameDay) {
+        if (date < todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Past dates cannot be booked.'
+          });
+        }
+      } else {
+        if (date <= todayStr) {
+          return res.status(400).json({
+            success: false,
+            message: 'Booking date must be at least the next calendar day.'
+          });
+        }
       }
     }
 
