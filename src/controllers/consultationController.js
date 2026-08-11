@@ -522,18 +522,14 @@ const updateOutcome = async (req, res) => {
       let isNotEligible = false;
 
       const lowerElig = eligibilityStr.toLowerCase();
-      if (lowerElig.includes('not eligible') || lowerElig.includes('not_eligible') || lowerElig.includes('ineligible')) {
+      if (lowerElig.includes('not eligible') || lowerElig.includes('not_eligible') || lowerElig.includes('ineligible') || lowerElig.includes('rejected') || lowerElig.includes('failed')) {
         isNotEligible = true;
-      } else if (lowerElig.includes('eligible') || lowerElig.includes('approved') || lowerElig.includes('yes')) {
+      } else {
+        // Default to Eligible for any Completed consultation unless explicitly marked Not Eligible
         isEligible = true;
       }
 
-      let newLeadStatus = 'Meeting Completed';
-      if (isEligible) {
-        newLeadStatus = 'Eligible';
-      } else if (isNotEligible) {
-        newLeadStatus = 'Not Eligible';
-      }
+      let newLeadStatus = isNotEligible ? 'Not Eligible' : 'Eligible';
 
       console.log(`[DEBUG updateOutcome] isEligible=${isEligible} isNotEligible=${isNotEligible} newLeadStatus=${newLeadStatus}`);
 
@@ -543,7 +539,7 @@ const updateOutcome = async (req, res) => {
       });
       console.log(`[Outcome Status Trigger] Lead ${targetLeadId} status updated to: ${newLeadStatus}`);
 
-      // If Eligible, auto-convert Lead to Client
+      // Auto-convert Lead to Client whenever marked Eligible or Completed
       if (newLeadStatus === 'Eligible') {
         console.log(`[DEBUG updateOutcome] Calling autoConvertLeadToClient for leadId=${targetLeadId}`);
         await autoConvertLeadToClient(targetLeadId);
