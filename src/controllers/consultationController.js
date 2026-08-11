@@ -295,16 +295,16 @@ const createConsultation = async (req, res) => {
 
 const autoConvertLeadToClient = async (leadId) => {
   try {
-    console.log(`[AutoConvert] START for leadId=${leadId}`);
+    console.log(`[Conversion] Starting lead-to-client conversion for leadId=${leadId}`);
     const lead = await prisma.lead.findUnique({
       where: { id: leadId }
     });
     if (!lead) {
-      console.log(`[AutoConvert] ABORT: Lead ${leadId} not found in DB`);
+      console.error(`[Conversion] FAILED: Lead ${leadId} not found in database`);
       return null;
     }
 
-    console.log(`[AutoConvert] Lead found: email=${lead.email} phone=${lead.phone} clientId=${lead.clientId}`);
+    console.log(`[Conversion] Lead found: email=${lead.email} phone=${lead.phone} clientId=${lead.clientId || 'none'}`);
     const safeEmail = (lead.email || '').trim().toLowerCase();
     let clientRecord = null;
 
@@ -425,9 +425,10 @@ const autoConvertLeadToClient = async (leadId) => {
       }
     }
 
+    console.log(`[Conversion] Conversion completed successfully for leadId=${leadId} clientId=${clientRecord.id}`);
     return clientRecord;
   } catch (err) {
-    console.error('[AutoConvert FAILED] Full error:', err.message, err.stack ? err.stack.split('\n').slice(0,3).join(' | ') : '');
+    console.error('[Conversion] FAILED Error:', err.message, err.stack ? err.stack.split('\n').slice(0,3).join(' | ') : '');
     return null;
   }
 };
