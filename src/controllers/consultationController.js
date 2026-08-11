@@ -497,6 +497,12 @@ const updateOutcome = async (req, res) => {
       data: { status, eligibility, recommendedService, recommendedPackageId, internalNotes }
     });
 
+    // If this is a Follow-up Consultation session for an existing client, return immediately without touching lead conversion
+    if (consultation.type === 'follow_up' || (consultation.clientId && !consultation.leadId)) {
+      console.log(`[UPDATE OUTCOME] Updated Follow-up Consultation ${consultation.id} status to ${status}`);
+      return res.json(consultation);
+    }
+
     // Auto-update associated lead status and auto-convert to client if eligible
     let targetLeadId = consultation.leadId;
     console.log(`[DEBUG updateOutcome] consultationId=${id} status=${status} eligibilityStr="${eligibilityStr}" consultation.leadId=${consultation.leadId}`);
