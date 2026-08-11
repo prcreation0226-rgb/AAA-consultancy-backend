@@ -1560,20 +1560,23 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
 
     // Create CRM Notifications for Super Admin, Admin, Operations & Assigned Staff
     try {
-      const adminUsers = await prisma.user.findMany({
-        where: { role: { in: ['super_admin', 'admin', 'operations'] } },
+      const staffUsers = await prisma.user.findMany({
+        where: { role: { in: ['super_admin', 'admin', 'operations', 'consultant', 'finance', 'marketing', 'agent'] } },
         select: { id: true }
       });
-      const recipientIds = new Set(adminUsers.map(u => u.id));
+      const recipientIds = new Set(staffUsers.map(u => u.id));
       if (consultation.assignedToId) {
         recipientIds.add(consultation.assignedToId);
       }
 
+      const title = 'Meeting Cancelled ❌';
+      const body = `Appointment for ${clientName} scheduled for ${consultation.date} at ${consultation.timeSlot} was cancelled by the client.`;
+
       const notifRows = Array.from(recipientIds).map(userId => ({
         userId,
         type: 'meeting_cancelled',
-        title: 'Meeting Cancelled ❌',
-        body: `Appointment for ${clientName} scheduled for ${consultation.date} at ${consultation.timeSlot} was cancelled by the client.`,
+        title,
+        body,
         clientId: consultation.clientId || null
       }));
 
@@ -1593,14 +1596,14 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
       // Emit Real-time Socket.IO notification to CRM UI
       const io = req.app ? req.app.get('io') : null;
       if (io) {
+        io.emit('new-notification', { title, body, type: 'meeting_cancelled', consultationId: consultation.id });
         io.to('role:super_admin').to('role:admin').to('role:operations').emit('meeting_cancelled', {
           consultationId: consultation.id,
           clientName,
           date: consultation.date,
           timeSlot: consultation.timeSlot,
-          message: `Appointment for ${clientName} on ${consultation.date} at ${consultation.timeSlot} was cancelled by the client.`
+          message: body
         });
-        io.to('role:super_admin').to('role:admin').to('role:operations').emit('new_notification');
       }
     } catch (notifErr) {
       console.error('[CRM Notification Warning] Failed to dispatch cancellation notification:', notifErr.message);

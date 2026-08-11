@@ -269,7 +269,12 @@ const createLeadNotification = async ({ leadName, email, phone, country, service
     let formattedDate = '';
     if (appointmentDate) {
       try {
-        formattedDate = new Date(appointmentDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+        const parsed = new Date(appointmentDate);
+        if (!isNaN(parsed.getTime())) {
+          formattedDate = parsed.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+        } else {
+          formattedDate = appointmentDate;
+        }
       } catch (_) {
         formattedDate = appointmentDate;
       }
