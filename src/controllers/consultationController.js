@@ -78,6 +78,8 @@ const getConsultations = async (req, res) => {
     const mapped = consultations
       .filter(c => {
         if (c.leadId && !c.lead && !c.clientId) return false;
+        if (c.leadId && !c.lead) return false;
+        if (c.clientId && !c.client && !c.lead) return false;
         return true;
       })
       .map(c => {
@@ -140,20 +142,20 @@ const getPublicBookedSlots = async (req, res) => {
     }
     const dateVariants = Array.from(new Set([rawDate, ymd, dmy]));
 
-    // 1. Fetch booked slots from Consultations
+    // 1. Fetch booked slots from Consultations (excluding Cancelled, No Show, Completed sessions)
     const bookedConsultations = await prisma.consultation.findMany({
       where: {
         date: { in: dateVariants },
-        status: { notIn: ['Cancelled', 'No Show'] }
+        status: { notIn: ['Cancelled', 'No Show', 'Completed', 'Meeting Completed'] }
       },
       select: { timeSlot: true }
     });
 
-    // 2. Fetch booked slots from Leads (covers leads whose Consultation record is not yet created)
+    // 2. Fetch booked slots from Leads (excluding Completed, Cancelled, Rejected, Converted leads)
     const bookedLeads = await prisma.lead.findMany({
       where: {
         meetingPreferredDate: { in: dateVariants },
-        status: { notIn: ['Cancelled', 'Meeting Cancelled', 'Rejected', 'Duplicate'] }
+        status: { notIn: ['Cancelled', 'Meeting Cancelled', 'Rejected', 'Duplicate', 'Assessment Completed - Eligible', 'Assessment Completed - Not Eligible', 'Client Converted'] }
       },
       select: { meetingPreferredTime: true }
     });

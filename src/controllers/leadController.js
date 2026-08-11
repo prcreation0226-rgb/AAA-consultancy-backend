@@ -429,10 +429,23 @@ const deleteLead = async (req, res) => {
     }
     const { id } = req.params;
 
-    // Delete associated consultations first to avoid foreign key constraint violations
-    await prisma.consultation.deleteMany({
-      where: { leadId: id }
+    // Fetch lead first to get clientId if present
+    const existingLead = await prisma.lead.findUnique({
+      where: { id },
+      select: { id: true, clientId: true, meetingPreferredDate: true, meetingPreferredTime: true }
     });
+
+    if (existingLead) {
+      // Delete associated consultations matching leadId OR clientId to prevent lingering orphan records
+      await prisma.consultation.deleteMany({
+        where: {
+          OR: [
+            { leadId: id },
+            ...(existingLead.clientId ? [{ clientId: existingLead.clientId }] : [])
+          ]
+        }
+      });
+    }
 
     // Delete the lead with explicit select
     const lead = await prisma.lead.delete({
@@ -446,6 +459,13 @@ const deleteLead = async (req, res) => {
         status: true
       }
     });
+
+    if (req.app) {
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('public-slot-booked');
+      }
+    }
 
     res.json({ success: true, message: 'Lead deleted successfully', lead });
   } catch (error) {
