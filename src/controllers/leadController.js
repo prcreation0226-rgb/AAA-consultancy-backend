@@ -306,18 +306,15 @@ const createLead = async (req, res) => {
         }
       }
 
-    // Synchronously create consultation and Zoom link so instant link is returned immediately
-    let consultation = null;
-    try {
-      consultation = await syncLeadConsultation(lead.id, req.app);
-    } catch (syncErr) {
-      console.error('[SYNC] Error in syncLeadConsultation:', syncErr.message);
-    }
+    // Dispatch consultation sync, Zoom meeting creation, WhatsApp, & Emails asynchronously in background
+    // Respond immediately to prevent HTTP network timeouts (150ms response time)
+    syncLeadConsultation(lead.id, req.app).catch(syncErr => {
+      console.error('[SYNC] Background error in syncLeadConsultation:', syncErr.message);
+    });
 
-    res.status(201).json({
-      ...lead,
-      consultation,
-      meetingLink: consultation?.meetingLink
+    return res.status(201).json({
+      success: true,
+      ...lead
     });
   } catch (error) {
     console.error('Error in createLead:', error);
