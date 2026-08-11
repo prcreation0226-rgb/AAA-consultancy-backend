@@ -159,6 +159,7 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
     // Step 2: Formulate invoice payload
     const formattedDueDate = dueDate ? new Date(dueDate).toISOString().split('T')[0] : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+    const clientCodeDisplay = client?.clientCode || null;
     const invoicePayload = {
       customer_id: contactId,
       date: new Date().toISOString().split('T')[0],
@@ -172,7 +173,9 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
         }
       ],
       discount: Number(discount) || 0,
-      notes: 'Thank you for choosing AAA Business Consultancy!',
+      notes: clientCodeDisplay
+        ? `Customer ID: ${clientCodeDisplay}\nThank you for choosing AAA Business Consultancy!`
+        : 'Thank you for choosing AAA Business Consultancy!',
       terms: 'Payment is due upon receipt.'
     };
 

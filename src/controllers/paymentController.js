@@ -32,6 +32,7 @@ const getPayments = async (req, res) => {
         paymentMethod: true,
         transactionId: true,
         gatewayId: true,
+        invoiceNumber: true,
         billingDate: true,
         dueDate: true,
         packageType: true,
@@ -41,16 +42,18 @@ const getPayments = async (req, res) => {
         paidAt: true,
         createdAt: true,
         updatedAt: true,
-        client: { select: { id: true, firstName: true, lastName: true, assignedToId: true } }
+        client: { select: { id: true, clientCode: true, firstName: true, lastName: true, assignedToId: true } }
       },
       orderBy: { billingDate: 'desc' }
     });
     
     const mapped = payments.map(p => ({
       ...p,
+      invoiceNumber: p.invoiceNumber || (p.id ? `INV-2026-${p.id.replace(/-/g, '').slice(0, 8).toUpperCase()}` : 'INV-2026-00000000'),
       createdDate: p.billingDate,
       createdAt: p.billingDate,
-      clientName: p.client ? `${p.client.firstName || ''} ${p.client.lastName || ''}`.trim() : 'Unknown'
+      clientName: p.client ? `${p.client.firstName || ''} ${p.client.lastName || ''}`.trim() : 'Unknown',
+      clientCode: p.client?.clientCode || null
     }));
     
     res.json(mapped);
@@ -175,7 +178,10 @@ const generatePaymentLink = async (req, res) => {
           paymentUrl = zohoRes.paymentUrl;
           await prisma.payment.update({
             where: { id: payment.id },
-            data: { gatewayId: zohoRes.invoiceId }
+            data: { 
+              gatewayId: zohoRes.invoiceId,
+              invoiceNumber: zohoRes.invoiceNumber || `INV-2026-${payment.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`
+            }
           });
         }
       } catch (zohoErr) {
@@ -282,6 +288,12 @@ const updatePaymentStatus = async (req, res) => {
             });
             if (zohoRes && zohoRes.invoiceUrl) {
               zohoInvoiceUrl = zohoRes.invoiceUrl;
+              if (zohoRes.invoiceNumber) {
+                await prisma.payment.update({
+                  where: { id: payment.id },
+                  data: { invoiceNumber: zohoRes.invoiceNumber, gatewayId: zohoRes.invoiceId || undefined }
+                }).catch(() => null);
+              }
             }
           } catch (zohoErr) {
             console.warn('[Zoho Invoice Engine] Warning:', zohoErr.message);
@@ -1170,6 +1182,12 @@ const verifyStripeCheckoutSession = async (req, res) => {
               });
               if (zohoRes && (zohoRes.invoiceUrl || zohoRes.paymentUrl)) {
                 zohoInvoiceUrl = zohoRes.invoiceUrl || zohoRes.paymentUrl;
+                if (zohoRes.invoiceNumber) {
+                  await prisma.payment.update({
+                    where: { id: payment.id },
+                    data: { invoiceNumber: zohoRes.invoiceNumber, gatewayId: zohoRes.invoiceId || undefined }
+                  }).catch(() => null);
+                }
               }
             } catch (zohoErr) {
               console.warn('[Zoho Invoice Engine] Warning:', zohoErr.message);

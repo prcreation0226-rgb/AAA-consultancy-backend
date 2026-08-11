@@ -344,4 +344,95 @@ const deleteDocument = async (req, res) => {
   }
 };
 
-module.exports = { getDocuments, uploadDocument, reviewDocument, uploadTranslatedDocument, deleteDocument };
+const uploadBatchDocuments = async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ message: 'No files uploaded in batch' });
+    }
+
+    const { clientId } = req.body;
+    let metadataList = [];
+    try {
+      metadataList = req.body.metadata ? JSON.parse(req.body.metadata) : [];
+    } catch (_) {}
+
+    const createdDocs = [];
+    const batchId = `BATCH-${Date.now()}`;
+
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+      const meta = metadataList[i] || {};
+      let category = meta.category || req.body.category || 'General';
+      if (!category || category === 'General') {
+        category = autoCategorizeDocument(file.originalname);
+      }
+      const belongsTo = meta.belongsTo || req.body.belongsTo || 'Main Applicant';
+
+      const document = await prisma.document.create({
+        data: {
+          clientId,
+          name: file.originalname,
+          category: category,
+          url: file.location || `/uploads/${file.filename}`,
+          size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+          status: 'Pending Verification',
+          belongsTo: belongsTo,
+          wordCount: 0
+        }
+      });
+      createdDocs.push(document);
+    }
+
+    // Update client status to "Documents Under Review" and enable documentUploadAllowed
+    if (clientId) {
+      const updatedClient = await prisma.client.update({
+        where: { id: clientId },
+        data: {
+          status: 'Documents Under Review',
+          documentUploadAllowed: true
+        }
+      }).catch(err => console.warn('[BatchUpload] Could not update client status:', err.message));
+
+      // Trigger ONE single consolidated Operations Notification (WhatsApp / Email / AuditLog)
+      if (updatedClient) {
+        const clientName = `${updatedClient.firstName} ${updatedClient.lastName}`;
+        const passportDocsCount = createdDocs.filter(d => d.category === 'Passport').length;
+
+        // Log to Audit Log
+        await prisma.auditLog.create({
+          data: {
+            action: 'Document Batch Uploaded',
+            actorName: clientName,
+            actorRole: 'client',
+            description: `Client ${clientName} submitted a complete document dossier of ${createdDocs.length} files (${passportDocsCount} Passports included).`
+          }
+        }).catch(() => null);
+
+        // System notification
+        await createDocumentNotification(
+          `Document Dossier Submitted: ${clientName} uploaded ${createdDocs.length} files (${passportDocsCount} Passports included).`,
+          'OPERATIONS'
+        ).catch(() => null);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully uploaded package of ${createdDocs.length} documents.`,
+      batchId,
+      documents: createdDocs
+    });
+  } catch (error) {
+    console.error('[uploadBatchDocuments Error]:', error);
+    res.status(500).json({ message: 'Server error uploading batch documents', error: error.message });
+  }
+};
+
+module.exports = {
+  getDocuments,
+  uploadDocument,
+  uploadBatchDocuments,
+  reviewDocument,
+  uploadTranslatedDocument,
+  deleteDocument
+};

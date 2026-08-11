@@ -249,6 +249,7 @@ model Payment {
   paymentMethod    String?
   transactionId    String?
   gatewayId        String?
+  invoiceNumber    String?
   billingDate      DateTime @default(now())
   dueDate          DateTime
 
