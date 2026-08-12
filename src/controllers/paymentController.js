@@ -938,8 +938,6 @@ const createStripeCheckoutSession = async (req, res) => {
         discountCodeId: validatedCoupon?.id || null,
         discountCode: validatedCoupon?.code || null,
         discountPercent: discountPercent,
-        netAmount: netAmount,
-        vatAmount: vatAmount,
         invoiceSnapshot: {
           originalAmount: baseAmount,
           couponCode: validatedCoupon?.code || null,
