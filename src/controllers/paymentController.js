@@ -405,6 +405,7 @@ const getRefundRequests = async (req, res) => {
         clientPhone: r.client?.phone || '',
         serviceType: r.client?.serviceType || 'Visa Package',
         totalPaidAmount: clientPaidTotal,
+        amount: r.amount || 0,
         category: r.category,
         date: (() => {
           const d = new Date(r.createdAt);
