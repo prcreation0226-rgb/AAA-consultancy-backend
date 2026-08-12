@@ -224,9 +224,33 @@ const validateCoupon = async (req, res) => {
   }
 };
 
+/**
+ * Super Admin: Permanently delete a coupon
+ */
+const deleteCoupon = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await prisma.discountCode.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Coupon not found.' });
+    }
+
+    await prisma.discountCode.delete({ where: { id } });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Coupon deleted successfully.'
+    });
+  } catch (error) {
+    console.error('[deleteCoupon Error]:', error);
+    return res.status(500).json({ success: false, message: 'Server error deleting coupon.' });
+  }
+};
+
 module.exports = {
   createCoupon,
   getCoupons,
   deactivateCoupon,
-  validateCoupon
+  validateCoupon,
+  deleteCoupon
 };

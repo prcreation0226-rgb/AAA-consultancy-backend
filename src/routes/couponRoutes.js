@@ -3,7 +3,8 @@ const {
   createCoupon, 
   getCoupons, 
   deactivateCoupon, 
-  validateCoupon 
+  validateCoupon,
+  deleteCoupon 
 } = require('../controllers/couponController');
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 
@@ -16,6 +17,7 @@ router.post('/validate', validateCoupon);
 router.post('/', authMiddleware, rbacMiddleware(['super_admin']), createCoupon);
 router.get('/', authMiddleware, rbacMiddleware(['super_admin', 'admin']), getCoupons);
 router.delete('/:id', authMiddleware, rbacMiddleware(['super_admin']), deactivateCoupon);
+router.delete('/:id/permanent', authMiddleware, rbacMiddleware(['super_admin']), deleteCoupon);
 router.patch('/:id/deactivate', authMiddleware, rbacMiddleware(['super_admin']), deactivateCoupon);
 
 module.exports = router;
