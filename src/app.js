@@ -83,6 +83,7 @@ app.use('/api/v1/notifications', require('./routes/notificationRoutes'));
 app.use('/api/v1/audit-logs', require('./routes/auditLogRoutes'));
 app.use('/api/v1/social', require('./routes/socialRoutes'));
 app.use('/api/v1/communications', require('./routes/communicationRoutes'));
+app.use('/api/v1/coupons', require('./routes/couponRoutes'));
 
 // Start Server
 const PORT = Number(process.env.PORT) || 5000;
@@ -125,13 +126,13 @@ try {
   console.error('[Reminders Queue Error]', err.message);
 }
 
-// Initialize CEO Discount Automation scheduler
-try {
-  const { startDiscountScheduler } = require('./services/discountAutomationService');
-  startDiscountScheduler();
-} catch (err) {
-  console.error('[Discount Scheduler Error]', err.message);
-}
+// Initialize CEO Discount Automation scheduler (Disabled to prevent automated CEO10- messages)
+// try {
+//   const { startDiscountScheduler } = require('./services/discountAutomationService');
+//   startDiscountScheduler();
+// } catch (err) {
+//   console.error('[Discount Scheduler Error]', err.message);
+// }
 
 // Initialize Payment Drip Reminders scheduler
 try {

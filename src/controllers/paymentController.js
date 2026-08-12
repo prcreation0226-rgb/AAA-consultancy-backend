@@ -886,23 +886,80 @@ const createStripeCheckoutSession = async (req, res) => {
       }
     }
 
-    // 1. Create a Pending payment record in the database first
+    // 1. Coupon Re-Validation & Server-side Price Engine
+    let validatedCoupon = null;
+    let discountPercent = 0;
+    let discountAmount = 0;
+    const baseAmount = enforcedAmount;
+
+    const { couponCode } = req.body;
+    if (couponCode && typeof couponCode === 'string' && couponCode.trim()) {
+      const cleanCode = couponCode.trim().toUpperCase();
+      const couponObj = await prisma.discountCode.findUnique({
+        where: { code: cleanCode }
+      });
+
+      if (!couponObj) {
+        return res.status(400).json({ success: false, message: 'Invalid coupon code.' });
+      }
+      if (couponObj.isUsed) {
+        return res.status(400).json({ success: false, message: 'This coupon has already been used.' });
+      }
+      if (new Date() >= new Date(couponObj.expiryDate)) {
+        return res.status(400).json({ success: false, message: 'This coupon has expired.' });
+      }
+
+      validatedCoupon = couponObj;
+      discountPercent = couponObj.discountPercent || 0;
+      discountAmount = Math.round((baseAmount * (discountPercent / 100)) * 100) / 100;
+    }
+
+    const netAmount = Math.max(0, Math.round((baseAmount - discountAmount) * 100) / 100);
+
+    // Fetch company settings for VAT rate (default 5%)
+    let vatRate = 5;
+    try {
+      const settings = await prisma.companySetting.findFirst();
+      if (settings && typeof settings.vatRate === 'number') {
+        vatRate = settings.vatRate;
+      }
+    } catch (sErr) {
+      console.warn('[createStripeCheckoutSession] Settings lookup fallback to 5%:', sErr.message);
+    }
+
+    const vatAmount = Math.round((netAmount * (vatRate / 100)) * 100) / 100;
+    const finalTotalPayable = Math.round((netAmount + vatAmount) * 100) / 100;
+
+    // 2. Create a Pending payment record in the database first
     const payment = await prisma.payment.create({
       data: {
         clientId,
-        amount: enforcedAmount,
-        discount: Number(discount) || 0,
+        amount: baseAmount,
+        discount: discountAmount,
+        discountCodeId: validatedCoupon?.id || null,
+        discountCode: validatedCoupon?.code || null,
+        discountPercent: discountPercent,
+        invoiceSnapshot: {
+          originalAmount: baseAmount,
+          couponCode: validatedCoupon?.code || null,
+          discountPercent: discountPercent,
+          discountAmount: discountAmount,
+          netAmount: netAmount,
+          vatRate: vatRate,
+          vatAmount: vatAmount,
+          finalTotal: finalTotalPayable
+        },
         status: 'Pending',
         dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
       }
     });
 
-    // 2. Handle Tabby Payment Method
+    // 3. Handle Tabby Payment Method
     if (paymentMethod === 'tabby') {
       const tabbyService = require('../services/tabbyService');
       const sessionData = await tabbyService.createTabbyCheckoutSession({
         clientId,
-        amount: enforcedAmount * 1.05, // include VAT
+        amount: finalTotalPayable, // include VAT & discount
         email: clientRecord.email,
         phone: clientRecord.phone,
         name: `${clientRecord.firstName} ${clientRecord.lastName}`
@@ -922,12 +979,12 @@ const createStripeCheckoutSession = async (req, res) => {
       });
     }
 
-    // 3. Handle Tamara Payment Method
+    // 4. Handle Tamara Payment Method
     if (paymentMethod === 'tamara') {
       const tamaraService = require('../services/tamaraService');
       const sessionData = await tamaraService.createTamaraCheckoutSession({
         clientId,
-        amount: enforcedAmount * 1.05, // include VAT
+        amount: finalTotalPayable, // include VAT & discount
         email: clientRecord.email,
         phone: clientRecord.phone,
         name: `${clientRecord.firstName} ${clientRecord.lastName}`
@@ -947,7 +1004,7 @@ const createStripeCheckoutSession = async (req, res) => {
       });
     }
 
-    // 4. Build Stripe session parameters or fallback to mock
+    // 5. Build Stripe session parameters or fallback to mock
     if (!stripe) {
       console.warn('Stripe is not configured. Simulating successful checkout.');
       // Auto success in mock mode
@@ -956,10 +1013,24 @@ const createStripeCheckoutSession = async (req, res) => {
         data: {
           status: 'Paid',
           paymentMethod: 'Mock Auto',
-          totalPaid: Number(amount) || 0,
+          totalPaid: finalTotalPayable,
           transactionId: `TXN_MOCK_${payment.id}`
         }
       });
+
+      // Mark coupon as used if mock mode
+      if (validatedCoupon) {
+        await prisma.discountCode.update({
+          where: { id: validatedCoupon.id },
+          data: {
+            isUsed: true,
+            usedAt: new Date(),
+            usedByClientId: clientId,
+            usedInPaymentId: payment.id
+          }
+        }).catch(err => console.warn('[Mock Coupon] Error updating coupon:', err.message));
+      }
+
       const client = await prisma.client.update({
         where: { id: clientId },
         data: {
@@ -987,10 +1058,42 @@ const createStripeCheckoutSession = async (req, res) => {
     }
 
     const frontendUrl = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const safePackageId = (packageId || 'custom').toString().toUpperCase();
-    const safeAmount = Number(amount) || enforcedAmount || 0;
     const clientRec = await prisma.client.findUnique({ where: { id: clientId }, select: { clientCode: true } }).catch(() => null);
     const customerIdDisplay = clientRec?.clientCode || clientId;
+
+    let resolvedPackageName = 'Spain Relocation Package';
+    if (packageId) {
+      const pidStr = packageId.toString();
+      if (packagesConfig[pidStr]?.name) {
+        resolvedPackageName = packagesConfig[pidStr].name;
+      } else if (pidStr.toLowerCase() === 'full_process' || pidStr.toLowerCase() === 'opt_b' || pidStr.toUpperCase() === 'OPTION_B') {
+        resolvedPackageName = 'Full Processing Package — End-to-End Service';
+      } else if (pidStr.toLowerCase() === 'premium' || pidStr.toLowerCase() === 'opt_d' || pidStr.toUpperCase() === 'OPTION_D') {
+        resolvedPackageName = 'Premium Package — End-to-End + Relocation';
+      } else if (pidStr.toLowerCase() === 'relocation' || pidStr.toLowerCase() === 'opt_c' || pidStr.toUpperCase() === 'OPTION_C') {
+        resolvedPackageName = 'Administrative Relocation Package';
+      } else if (pidStr.toUpperCase() === 'OPTION_A' || pidStr.toLowerCase() === 'opt_a') {
+        resolvedPackageName = 'Professional Case Assessment';
+      } else {
+        try {
+          const dbPkg = await prisma.package.findFirst({
+            where: {
+              OR: [
+                { id: pidStr },
+                { code: pidStr }
+              ]
+            }
+          });
+          if (dbPkg && dbPkg.name) {
+            resolvedPackageName = dbPkg.name;
+          }
+        } catch (pErr) {
+          // fallback to default
+        }
+      }
+    }
+
+    const packageNameStr = `${resolvedPackageName}${validatedCoupon ? ` (${validatedCoupon.code} - ${discountPercent}% OFF)` : ''}`;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -998,10 +1101,10 @@ const createStripeCheckoutSession = async (req, res) => {
         price_data: {
           currency: 'eur',
           product_data: {
-            name: `Spain Relocation Package - ${safePackageId}`,
+            name: packageNameStr,
             description: `Certified Spain visa relocation & administrative services support for Customer ID: ${customerIdDisplay}`,
           },
-          unit_amount: Math.max(50, Math.round(safeAmount * 1.05 * 100)), // + 5% VAT included (min 50 cents)
+          unit_amount: Math.max(50, Math.round(finalTotalPayable * 100)), // + 5% VAT included (min 50 cents)
         },
         quantity: 1,
       }],
@@ -1012,12 +1115,16 @@ const createStripeCheckoutSession = async (req, res) => {
         clientId,
         paymentId: payment.id,
         packageId: String(packageId || 'custom'),
-        amount: String(safeAmount),
-        discount: String(discount || 0)
+        amount: String(baseAmount),
+        discount: String(discountAmount),
+        couponCode: validatedCoupon?.code || '',
+        couponId: validatedCoupon?.id || '',
+        discountPercent: String(discountPercent),
+        finalTotal: String(finalTotalPayable)
       }
     });
 
-    // 3. Update payment record with the Stripe session ID (gatewayId)
+    // 6. Update payment record with the Stripe session ID (gatewayId)
     await prisma.payment.update({
       where: { id: payment.id },
       data: { gatewayId: session.id }

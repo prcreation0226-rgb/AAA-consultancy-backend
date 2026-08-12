@@ -9,13 +9,14 @@ async function runTest() {
   console.log(`Target Phone Number: ${targetPhone}`);
   console.log('============================================================\n');
 
+  const ts = Date.now();
   const dummyClient = {
-    id: 'test-client-id-123',
-    firstName: 'Test',
-    lastName: 'Client',
-    email: 'testclient@aaabusinessconsultancy.com',
+    id: `test-client-id-${ts}`,
+    firstName: 'AAA',
+    lastName: `Test${ts}`,
+    email: `test.${ts}@aaabusinessconsultancy.com`,
     phone: targetPhone,
-    clientCode: 'CID-99999',
+    clientCode: 'CID 12099',
     serviceType: 'Spain Digital Nomad Visa (DNV)'
   };
 

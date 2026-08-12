@@ -89,6 +89,30 @@ const processPaymentEvent = async (event) => {
           }
         });
 
+        // Atomic Coupon Consumption (Globally Single-Use Enforcement)
+        const couponCodeToConsume = session.metadata?.couponCode || payment.discountCode;
+        if (couponCodeToConsume) {
+          const cleanCouponCode = couponCodeToConsume.trim().toUpperCase();
+          const couponConsumed = await tx.discountCode.updateMany({
+            where: {
+              code: cleanCouponCode,
+              isUsed: false,
+              expiryDate: { gte: new Date() }
+            },
+            data: {
+              isUsed: true,
+              usedAt: paidAtDate,
+              usedByClientId: payment.clientId,
+              usedInPaymentId: payment.id
+            }
+          });
+          if (couponConsumed.count > 0) {
+            console.log(`[Stripe Webhook] Atomically marked coupon "${cleanCouponCode}" as USED by client ${payment.clientId} in payment ${payment.id}.`);
+          } else {
+            console.warn(`[Stripe Webhook Warning] Coupon "${cleanCouponCode}" was not updated (may have been consumed by a concurrent process or expired prior to completion).`);
+          }
+        }
+
         // Trigger cascade state changes: If application exists, move to Active State
         if (payment.applicationId) {
           await tx.applicationCycle.update({
