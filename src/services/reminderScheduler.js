@@ -125,8 +125,6 @@ const startReminderScheduler = () => {
             where: { clientId: client.id, type: '5d' }
           });
           if (!sentLog) {
-            const { runDiscountAutomationCheck } = require('./discountAutomationService');
-            await runDiscountAutomationCheck();
             await prisma.reminderLog.create({
               data: { clientId: client.id, type: '5d' }
             });

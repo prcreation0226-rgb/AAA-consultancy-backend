@@ -126,13 +126,13 @@ try {
   console.error('[Reminders Queue Error]', err.message);
 }
 
-// Initialize CEO Discount Automation scheduler
-try {
-  const { startDiscountScheduler } = require('./services/discountAutomationService');
-  startDiscountScheduler();
-} catch (err) {
-  console.error('[Discount Scheduler Error]', err.message);
-}
+// Initialize CEO Discount Automation scheduler (Disabled to prevent automated CEO10- messages)
+// try {
+//   const { startDiscountScheduler } = require('./services/discountAutomationService');
+//   startDiscountScheduler();
+// } catch (err) {
+//   console.error('[Discount Scheduler Error]', err.message);
+// }
 
 // Initialize Payment Drip Reminders scheduler
 try {
