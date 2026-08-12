@@ -16,6 +16,8 @@ const {
   updateEmailTemplates,
   getWhatsappTemplates,
   updateWhatsappTemplates,
+  getIntegrations,
+  saveIntegrations,
   purgeAllData,
   purgeFinanceData
 } = require('../controllers/settingsController');
@@ -57,5 +59,10 @@ router.route('/templates/email')
 router.route('/templates/whatsapp')
   .get(authMiddleware, getWhatsappTemplates)
   .put(authMiddleware, updateWhatsappTemplates);
+
+router.route('/integrations')
+  .get(authMiddleware, getIntegrations)
+  .put(authMiddleware, saveIntegrations)
+  .post(authMiddleware, saveIntegrations);
 
 module.exports = router;

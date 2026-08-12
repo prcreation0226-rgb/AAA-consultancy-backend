@@ -278,6 +278,50 @@ const updateCompanySettings = async (req, res) => {
   }
 };
 
+const getIntegrations = async (req, res) => {
+  try {
+    let settings = await prisma.companySetting.findFirst();
+    const integrations = settings?.customizationSettings?.integrations || {};
+    res.json(integrations);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const saveIntegrations = async (req, res) => {
+  try {
+    const { socialPlatforms, emailProviders } = req.body;
+    let settings = await prisma.companySetting.findFirst();
+    if (!settings) {
+      settings = await prisma.companySetting.create({ data: {} });
+    }
+
+    const currentCustomization = (typeof settings.customizationSettings === 'object' && settings.customizationSettings) ? settings.customizationSettings : {};
+    const updatedCustomization = {
+      ...currentCustomization,
+      integrations: {
+        socialPlatforms: socialPlatforms || currentCustomization.integrations?.socialPlatforms || {},
+        emailProviders: emailProviders || currentCustomization.integrations?.emailProviders || {}
+      }
+    };
+
+    settings = await prisma.companySetting.update({
+      where: { id: settings.id },
+      data: {
+        customizationSettings: updatedCustomization
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Integration settings saved successfully',
+      data: updatedCustomization.integrations
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const getVisaServices = async (req, res) => {
   try {
     const services = await prisma.visaService.findMany();
@@ -577,6 +621,8 @@ module.exports = {
   updateEmailTemplates,
   getWhatsappTemplates,
   updateWhatsappTemplates,
+  getIntegrations,
+  saveIntegrations,
   purgeAllData,
   purgeFinanceData
 };
