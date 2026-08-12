@@ -128,7 +128,7 @@ const createOrGetContact = async ({ name, email, phone }) => {
 /**
  * Creates an itemized Zoho Invoice for a client and returns the public payment URL.
  */
-const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceType, dueDate, isPaid = false }) => {
+const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceType, dueDate, isPaid = false, couponCode, discountPercent }) => {
   const token = await getAccessToken();
   const orgId = process.env.ZOHO_ORGANIZATION_ID;
   const apiUrl = process.env.ZOHO_API_URL || 'https://www.zohoapis.com/invoice/v3';
@@ -136,7 +136,7 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
   const clientName = client ? `${client.firstName} ${client.lastName}`.trim() : 'Valued Client';
   const email = client?.email || 'client@example.com';
   const phone = client?.phone || '';
-  const finalAmount = Number(netAmount || amount || 0);
+  const finalAmount = Number(netAmount || (amount ? amount - (discount || 0) : 0));
 
   // If not configured, return fault-tolerant Dry-Run URL
   if (!token || !orgId) {
@@ -160,6 +160,8 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
     const formattedDueDate = dueDate ? new Date(dueDate).toISOString().split('T')[0] : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     const clientCodeDisplay = client?.clientCode || null;
+    const itemRate = Number(amount) || finalAmount + (Number(discount) || 0);
+
     const invoicePayload = {
       customer_id: contactId,
       date: new Date().toISOString().split('T')[0],
@@ -167,15 +169,15 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
       line_items: [
         {
           name: serviceType || 'Spain Relocation & Visa Package',
-          description: `Relocation Legal Package for ${clientName}`,
-          rate: finalAmount,
+          description: `Relocation Legal Package for ${clientName}${couponCode ? ` (Coupon ${couponCode} applied: ${discountPercent || ''}% OFF)` : ''}`,
+          rate: itemRate,
           quantity: 1
         }
       ],
       discount: Number(discount) || 0,
       notes: clientCodeDisplay
-        ? `Customer ID: ${clientCodeDisplay}\nThank you for choosing AAA Business Consultancy!`
-        : 'Thank you for choosing AAA Business Consultancy!',
+        ? `Customer ID: ${clientCodeDisplay}${couponCode ? `\nApplied Coupon: ${couponCode} (-€${discount})` : ''}\nThank you for choosing AAA Business Consultancy!`
+        : `Thank you for choosing AAA Business Consultancy!${couponCode ? ` (Coupon Applied: ${couponCode})` : ''}`,
       terms: 'Payment is due upon receipt.'
     };
 

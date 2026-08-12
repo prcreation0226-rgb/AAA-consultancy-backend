@@ -42,6 +42,7 @@ model User {
   rateHistories      CommissionRateHistory[] @relation("AgentRateHistory")
   rateChangesMade    CommissionRateHistory[] @relation("RateChangesMade")
   reviewedDocuments  Document[]         @relation("DocumentReviewer")
+  createdCoupons     DiscountCode[]     @relation("CouponCreator")
 
   @@map("users")
 }
@@ -262,6 +263,9 @@ model Payment {
   creditReservedUntil        DateTime?
   paidAt                     DateTime?
   invoiceSnapshot            Json?
+  discountCodeId             String?
+  discountCode               String?
+  discountPercent            Float?    @default(0)
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -512,12 +516,22 @@ model DiscountCode {
   discountPercent  Float    @default(10)
   expiryDate       DateTime
   isUsed           Boolean  @default(false)
-  clientId         String
-  client           Client   @relation(fields: [clientId], references: [id])
+  usedAt           DateTime?
+  usedByClientId   String?
+  usedInPaymentId  String?
+
+  clientId         String?
+  client           Client?  @relation(fields: [clientId], references: [id])
+
+  createdById      String?
+  creator          User?    @relation("CouponCreator", fields: [createdById], references: [id])
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  @@index([code])
+  @@index([isUsed])
+  @@index([expiryDate])
   @@map("discount_codes")
 }
 

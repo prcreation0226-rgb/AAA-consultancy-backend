@@ -83,6 +83,7 @@ app.use('/api/v1/notifications', require('./routes/notificationRoutes'));
 app.use('/api/v1/audit-logs', require('./routes/auditLogRoutes'));
 app.use('/api/v1/social', require('./routes/socialRoutes'));
 app.use('/api/v1/communications', require('./routes/communicationRoutes'));
+app.use('/api/v1/coupons', require('./routes/couponRoutes'));
 
 // Start Server
 const PORT = Number(process.env.PORT) || 5000;
