@@ -1057,11 +1057,42 @@ const createStripeCheckoutSession = async (req, res) => {
     }
 
     const frontendUrl = req.headers.origin || process.env.FRONTEND_URL || 'http://localhost:5173';
-    const safePackageId = (packageId || 'custom').toString().toUpperCase();
     const clientRec = await prisma.client.findUnique({ where: { id: clientId }, select: { clientCode: true } }).catch(() => null);
     const customerIdDisplay = clientRec?.clientCode || clientId;
 
-    const packageNameStr = `Spain Relocation Package - ${safePackageId}${validatedCoupon ? ` (${validatedCoupon.code} - ${discountPercent}% OFF)` : ''}`;
+    let resolvedPackageName = 'Spain Relocation Package';
+    if (packageId) {
+      const pidStr = packageId.toString();
+      if (packagesConfig[pidStr]?.name) {
+        resolvedPackageName = packagesConfig[pidStr].name;
+      } else if (pidStr.toLowerCase() === 'full_process' || pidStr.toLowerCase() === 'opt_b' || pidStr.toUpperCase() === 'OPTION_B') {
+        resolvedPackageName = 'Full Processing Package — End-to-End Service';
+      } else if (pidStr.toLowerCase() === 'premium' || pidStr.toLowerCase() === 'opt_d' || pidStr.toUpperCase() === 'OPTION_D') {
+        resolvedPackageName = 'Premium Package — End-to-End + Relocation';
+      } else if (pidStr.toLowerCase() === 'relocation' || pidStr.toLowerCase() === 'opt_c' || pidStr.toUpperCase() === 'OPTION_C') {
+        resolvedPackageName = 'Administrative Relocation Package';
+      } else if (pidStr.toUpperCase() === 'OPTION_A' || pidStr.toLowerCase() === 'opt_a') {
+        resolvedPackageName = 'Professional Case Assessment';
+      } else {
+        try {
+          const dbPkg = await prisma.package.findFirst({
+            where: {
+              OR: [
+                { id: pidStr },
+                { code: pidStr }
+              ]
+            }
+          });
+          if (dbPkg && dbPkg.name) {
+            resolvedPackageName = dbPkg.name;
+          }
+        } catch (pErr) {
+          // fallback to default
+        }
+      }
+    }
+
+    const packageNameStr = `${resolvedPackageName}${validatedCoupon ? ` (${validatedCoupon.code} - ${discountPercent}% OFF)` : ''}`;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
