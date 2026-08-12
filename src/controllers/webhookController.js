@@ -125,24 +125,46 @@ exports.handleMetaWebhook = async (req, res) => {
       for (const msg of entry.messaging) {
         const senderId = msg.sender?.id;
         const messageText = msg.message?.text || '';
-        const platform = payload.object === 'instagram' ? 'instagram' : 'facebook';
+        const platform = payload.object === 'instagram' ? 'INSTAGRAM' : 'FACEBOOK';
         const messageId = msg.message?.mid;
 
         if (messageId && await isDuplicateMessage(messageId)) {
           console.log(`[Meta Webhook] DM message ${messageId} is duplicate. Ignoring.`);
           continue;
         }
-        
-        console.log(`Enqueuing Direct Message from ${senderId} on ${platform}`);
-        await communicationsQueue.add('process-meta-message', {
-          phone: senderId,
-          name: `Meta User (${platform === 'instagram' ? 'Instagram' : 'Messenger'})`,
-          message: messageText,
-          messageId,
-          platform
-        }, {
-          jobId: messageId || Date.now().toString()
-        });
+
+        console.log(`[Meta Webhook] Received Direct Message from ${senderId} on ${platform}: ${messageText}`);
+
+        // Direct DB save for instant UI responsiveness
+        try {
+          await prisma.communicationLog.create({
+            data: {
+              phone: senderId,
+              name: `Meta User (${platform})`,
+              channel: platform,
+              direction: 'INBOUND',
+              content: messageText,
+              messageId: messageId || `meta-${Date.now()}`,
+              deliveryStatus: 'DELIVERED'
+            }
+          });
+        } catch (dbErr) {
+          console.warn('[Meta Webhook Direct DB Save Warning]:', dbErr.message);
+        }
+
+        try {
+          await communicationsQueue.add('process-meta-message', {
+            phone: senderId,
+            name: `Meta User (${platform})`,
+            message: messageText,
+            messageId,
+            platform: platform.toLowerCase()
+          }, {
+            jobId: messageId || Date.now().toString()
+          });
+        } catch (qErr) {
+          console.warn('[Meta Webhook Queue Warning]:', qErr.message);
+        }
       }
     }
     // 3. Comments (Facebook Feed / Instagram Comments) Webhooks
