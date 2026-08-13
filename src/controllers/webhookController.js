@@ -141,6 +141,12 @@ exports.handleMetaWebhook = async (req, res) => {
             if (igProfile && (igProfile.name || igProfile.username)) {
               senderDisplayName = igProfile.name || igProfile.username;
             }
+          } else if (platform === 'FACEBOOK') {
+            const facebookService = require('../services/facebookService');
+            const fbProfile = await facebookService.getFacebookUserProfile(senderId);
+            if (fbProfile && fbProfile.name) {
+              senderDisplayName = fbProfile.name;
+            }
           }
         } catch (profileErr) {
           console.warn('[Meta Webhook Profile Fetch Warning]:', profileErr.message);
