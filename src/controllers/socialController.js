@@ -286,20 +286,21 @@ exports.deleteMessage = async (req, res) => {
 exports.clearChat = async (req, res) => {
   try {
     const { phone } = req.params;
-    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+    if (!phone) return res.status(400).json({ error: 'Phone or ID is required' });
 
-    let cleanPh = cleanPhoneNumber(phone);
-    if (!cleanPh.startsWith('+')) {
-      cleanPh = '+' + cleanPh.replace(/[^\d]/g, '');
-    }
+    const rawId = (phone || '').trim();
+    const cleanDigits = rawId.replace(/[^\d]/g, '');
+    const withPlus = cleanDigits ? `+${cleanDigits}` : rawId;
 
     const deleteResult = await prisma.communicationLog.deleteMany({
-      where: { phone: cleanPh }
+      where: {
+        OR: [
+          { phone: rawId },
+          { phone: cleanDigits },
+          { phone: withPlus }
+        ]
+      }
     });
-
-    if (deleteResult.count === 0) {
-      return res.status(404).json({ error: 'No messages found for this phone number' });
-    }
 
     res.json({ success: true, message: `Cleared ${deleteResult.count} messages successfully` });
   } catch (error) {
