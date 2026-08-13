@@ -8,17 +8,27 @@ const INSTAGRAM_API_URL = 'https://graph.facebook.com/v17.0';
  * Fallbacks to mock logging if Page Access Token is not configured.
  */
 exports.sendInstagramDM = async (recipientId, text) => {
-  if (!META_ACCESS_TOKEN) {
-    console.log(`[Instagram Service Stub] (Simulating IG DM to ${recipientId}): "${text}"`);
+  const prisma = require('../config/db');
+  let accessToken = process.env.META_PAGE_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN;
+  if (!accessToken) {
+    const setting = await prisma.companySetting.findFirst();
+    const savedPlatforms = setting?.customizationSettings?.integrations?.socialPlatforms;
+    accessToken = savedPlatforms?.instagram?.accessToken || savedPlatforms?.facebook?.accessToken;
+  }
+
+  const cleanRecipientId = (recipientId || '').replace(/[^\d]/g, '');
+
+  if (!accessToken) {
+    console.log(`[Instagram Service Stub] (Simulating IG DM to ${cleanRecipientId}): "${text}"`);
     return { success: true, isMock: true };
   }
 
   try {
-    const response = await axios.post(`${INSTAGRAM_API_URL}/me/messages`, {
-      recipient: { id: recipientId },
+    const response = await axios.post(`https://graph.facebook.com/v19.0/me/messages`, {
+      recipient: { id: cleanRecipientId },
       message: { text }
     }, {
-      params: { access_token: META_ACCESS_TOKEN }
+      params: { access_token: accessToken }
     });
     return { success: true, data: response.data };
   } catch (err) {

@@ -348,15 +348,31 @@ exports.getMessagesByPhone = async (req, res) => {
  */
 exports.sendSocialMessage = async (req, res) => {
   try {
-    const { phone, text, mediaUrl, templateName } = req.body;
+    const { phone, text, mediaUrl, templateName, channel: requestedChannel } = req.body;
     if (!phone) {
-      return res.status(400).json({ message: 'Phone is required' });
+      return res.status(400).json({ message: 'Phone or recipient ID is required' });
     }
 
-    const cleanPh = cleanPhoneNumber(phone);
-    const twilioTo = `whatsapp:${cleanPh}`;
-    const numberPart = cleanPh.replace('+', '');
+    const rawPhoneStr = String(phone).trim();
+    let channel = (requestedChannel || 'WHATSAPP').toUpperCase();
 
+    // Look up recent log in DB for this recipient to determine exact channel & phone ID format
+    const existingLog = await prisma.communicationLog.findFirst({
+      where: { OR: [{ phone: rawPhoneStr }, { phone: rawPhoneStr.replace('+', '') }] },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (existingLog && existingLog.channel) {
+      channel = existingLog.channel.toUpperCase();
+    } else if (!rawPhoneStr.startsWith('+') && rawPhoneStr.length > 12 && !rawPhoneStr.startsWith('971')) {
+      channel = 'INSTAGRAM';
+    }
+
+    const cleanPh = (channel === 'INSTAGRAM' || channel === 'FACEBOOK') 
+      ? rawPhoneStr.replace('+', '') 
+      : cleanPhoneNumber(rawPhoneStr);
+
+    const numberPart = cleanPh.replace('+', '');
     const clientRecord = await prisma.client.findFirst({
       where: { phone: { contains: numberPart } }
     });
@@ -366,7 +382,7 @@ exports.sendSocialMessage = async (req, res) => {
     const staffRole = req.user?.role || 'consultant';
 
     // If templateName is provided (e.g. 'aaa_greeting'), send official Twilio Content Template via whatsappService
-    if (templateName) {
+    if (templateName && channel === 'WHATSAPP') {
       const { sendWhatsAppMessage } = require('../services/whatsappService');
       const targetName = clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client';
 
@@ -422,35 +438,48 @@ exports.sendSocialMessage = async (req, res) => {
       });
     }
     
-    // If there is a mediaUrl but no text, allow it (WhatsApp allows media-only)
     if (!text && !mediaUrl) {
       return res.status(400).json({ message: 'Text or media is required' });
     }
 
     const displayContent = `${text || ''}${mediaUrl ? `\n[FILE: ${mediaUrl}]` : ''}`.trim();
-    console.log(`Sending manual WhatsApp message to ${twilioTo}: ${displayContent}`);
-
     let deliveryStatus = 'SENT';
     let failureReason = null;
 
-    // 1. Send via Twilio if configured
-    if (isTwilioConfigured) {
+    // 1. Send via Instagram DM if channel is INSTAGRAM
+    if (channel === 'INSTAGRAM') {
+      console.log(`[Instagram Outbound DM] To: ${cleanPh}, Text: ${displayContent}`);
+      const instagramService = require('../services/instagramService');
       try {
-        const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-        await client.messages.create({
-          body: text || ' ',
-          from: TWILIO_WHATSAPP_FROM,
-          to: twilioTo,
-          ...(mediaUrl && { mediaUrl: [mediaUrl] })
-        });
-      } catch (err) {
-        console.error('Twilio manual send failed:', err.message);
+        await instagramService.sendInstagramDM(cleanPh, displayContent);
+      } catch (igErr) {
+        console.error('[Instagram DM Dispatch Error]:', igErr.message);
         deliveryStatus = 'FAILED';
-        failureReason = err.message;
+        failureReason = igErr.message;
       }
     } else {
-      console.log(`[MANUAL TWILIO DRY-RUN] To: ${twilioTo}, Text: ${text}`);
+      const twilioTo = `whatsapp:${cleanPh}`;
+      console.log(`Sending manual WhatsApp message to ${twilioTo}: ${displayContent}`);
+
+      if (isTwilioConfigured) {
+        try {
+          const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+          await client.messages.create({
+            body: text || ' ',
+            from: TWILIO_WHATSAPP_FROM,
+            to: twilioTo,
+            ...(mediaUrl && { mediaUrl: [mediaUrl] })
+          });
+        } catch (err) {
+          console.error('Twilio manual send failed:', err.message);
+          deliveryStatus = 'FAILED';
+          failureReason = err.message;
+        }
+      } else {
+        console.log(`[MANUAL TWILIO DRY-RUN] To: ${twilioTo}, Text: ${text}`);
+      }
     }
+
     // 3. Log OUTBOUND message to Database
     const log = await prisma.communicationLog.create({
       data: {
@@ -458,7 +487,7 @@ exports.sendSocialMessage = async (req, res) => {
         phone: cleanPh,
         name: staffName,
         respondedByUserId: staffUserId,
-        channel: 'WHATSAPP',
+        channel: channel,
         direction: 'OUTBOUND',
         content: displayContent,
         deliveryStatus: deliveryStatus,
