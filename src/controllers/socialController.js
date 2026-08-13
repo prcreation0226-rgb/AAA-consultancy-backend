@@ -94,8 +94,10 @@ exports.getConversations = async (req, res) => {
       return normalized === '' || normalized === 'applicant' || normalized.includes('applicant');
     };
 
-    // 3. Resolve Meta User placeholder names to real Instagram usernames
+    // 3. Resolve Meta User placeholder names & avatars to real profiles
     const instagramService = require('../services/instagramService');
+    const profileAvatars = {};
+
     await Promise.all(
       uniquePhones.map(async (cleanPh) => {
         const numberPart = cleanPh.replace(/\D/g, '');
@@ -104,37 +106,41 @@ exports.getConversations = async (req, res) => {
         const latestLog = messagesLogs[messagesLogs.length - 1];
 
         if (latestLog && (latestLog.channel === 'INSTAGRAM' || latestLog.channel === 'instagram')) {
-          const rawName = latestLog.name || '';
-          if (!rawName || rawName.startsWith('Meta User')) {
-            try {
-              const igProfile = await instagramService.getInstagramUserProfile(cleanPh);
-              if (igProfile && (igProfile.name || igProfile.username)) {
-                const fetchedName = igProfile.name || igProfile.username;
+          try {
+            const igProfile = await instagramService.getInstagramUserProfile(cleanPh);
+            if (igProfile) {
+              if (igProfile.avatar) profileAvatars[cleanPh] = igProfile.avatar;
+              const rawName = latestLog.name || '';
+              if (!rawName || rawName.startsWith('Meta User')) {
+                const fetchedName = igProfile.name || igProfile.username || 'Instagram User';
                 messagesLogs.forEach(m => { m.name = fetchedName; });
                 await prisma.communicationLog.updateMany({
                   where: { phone: cleanPh },
                   data: { name: fetchedName }
                 }).catch(e => console.warn('Could not update IG name in DB:', e.message));
               }
-            } catch (err) {
-              console.warn('Profile fetch error:', err.message);
             }
+          } catch (err) {
+            console.warn('Profile fetch error:', err.message);
           }
         } else if (latestLog && (latestLog.channel === 'FACEBOOK' || latestLog.channel === 'facebook')) {
-          const rawName = latestLog.name || '';
-          if (!rawName || rawName.startsWith('Meta User')) {
-            try {
-              const facebookService = require('../services/facebookService');
-              const fbProfile = await facebookService.getFacebookUserProfile(cleanPh);
-              const fetchedName = (fbProfile && fbProfile.name) ? fbProfile.name : 'Facebook Client';
-              messagesLogs.forEach(m => { m.name = fetchedName; });
-              await prisma.communicationLog.updateMany({
-                where: { phone: cleanPh },
-                data: { name: fetchedName }
-              }).catch(e => console.warn('Could not update FB name in DB:', e.message));
-            } catch (err) {
-              console.warn('FB Profile fetch error:', err.message);
+          try {
+            const facebookService = require('../services/facebookService');
+            const fbProfile = await facebookService.getFacebookUserProfile(cleanPh);
+            if (fbProfile) {
+              if (fbProfile.avatar) profileAvatars[cleanPh] = fbProfile.avatar;
+              const rawName = latestLog.name || '';
+              if (!rawName || rawName.startsWith('Meta User')) {
+                const fetchedName = fbProfile.name || 'Facebook Client';
+                messagesLogs.forEach(m => { m.name = fetchedName; });
+                await prisma.communicationLog.updateMany({
+                  where: { phone: cleanPh },
+                  data: { name: fetchedName }
+                }).catch(e => console.warn('Could not update FB name in DB:', e.message));
+              }
             }
+          } catch (err) {
+            console.warn('FB Profile fetch error:', err.message);
           }
         }
       })
@@ -230,11 +236,16 @@ exports.getConversations = async (req, res) => {
         conversationChannel = latestLog.channel.toUpperCase();
       }
 
+      let avatar = client?.avatar || lead?.avatar || profileAvatars[cleanPh] || '';
+      if (!avatar) {
+        avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'Client')}&background=4F46E5&color=fff&bold=true&size=128`;
+      }
+
       return {
         id: `conv_phone_${cleanPh.replace(/[^\d]/g, '')}`,
         phone: cleanPh,
         name: name,
-        avatar: '',
+        avatar: avatar,
         platform: conversationChannel.toLowerCase(),
         channel: conversationChannel,
         unreadCount: unreadCount,
