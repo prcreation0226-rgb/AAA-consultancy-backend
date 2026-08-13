@@ -133,7 +133,7 @@ exports.handleMetaWebhook = async (req, res) => {
           continue;
         }
 
-        let senderDisplayName = `Meta User (${platform})`;
+        let senderDisplayName = platform === 'INSTAGRAM' ? 'Instagram Client' : 'Facebook Client';
         try {
           if (platform === 'INSTAGRAM') {
             const instagramService = require('../services/instagramService');
