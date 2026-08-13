@@ -406,6 +406,7 @@ const getRefundRequests = async (req, res) => {
         serviceType: r.client?.serviceType || 'Visa Package',
         totalPaidAmount: clientPaidTotal,
         amount: r.amount || 0,
+        status: r.status || 'Pending Review',
         category: r.category,
         date: (() => {
           const d = new Date(r.createdAt);
