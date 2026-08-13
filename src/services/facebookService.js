@@ -6,12 +6,16 @@ const getFacebookAccessToken = async () => {
   }
   try {
     const prisma = require('../config/db');
-    const setting = await prisma.companySetting.findFirst();
-    return setting?.customizationSettings?.integrations?.socialPlatforms?.facebook?.accessToken || null;
+    const settings = await prisma.companySetting.findMany();
+    for (const setting of settings) {
+      const parsed = typeof setting.customizationSettings === 'string' ? JSON.parse(setting.customizationSettings) : setting.customizationSettings;
+      const token = parsed?.integrations?.socialPlatforms?.facebook?.accessToken;
+      if (token) return token;
+    }
   } catch (e) {
     console.warn('[Facebook Service] Could not fetch token from DB:', e.message);
-    return null;
   }
+  return null;
 };
 
 /**

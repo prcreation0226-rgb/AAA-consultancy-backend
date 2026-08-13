@@ -297,11 +297,15 @@ const saveIntegrations = async (req, res) => {
     }
 
     const currentCustomization = (typeof settings.customizationSettings === 'object' && settings.customizationSettings) ? settings.customizationSettings : {};
+    const currentIntegrations = currentCustomization.integrations || {};
+    const currentSocial = currentIntegrations.socialPlatforms || {};
+    const currentEmail = currentIntegrations.emailProviders || {};
+
     const updatedCustomization = {
       ...currentCustomization,
       integrations: {
-        socialPlatforms: socialPlatforms || currentCustomization.integrations?.socialPlatforms || {},
-        emailProviders: emailProviders || currentCustomization.integrations?.emailProviders || {}
+        socialPlatforms: { ...currentSocial, ...(socialPlatforms || {}) },
+        emailProviders: { ...currentEmail, ...(emailProviders || {}) }
       }
     };
 
