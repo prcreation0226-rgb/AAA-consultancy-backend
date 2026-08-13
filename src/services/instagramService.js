@@ -109,7 +109,7 @@ exports.sendAutomatedInstagramGreeting = async (senderId, senderName) => {
     }
 
     const clientName = (senderName && !senderName.includes('Meta User')) ? senderName : 'Valued Client';
-    const leadFormUrl = `https://aaa-crm-service.netlify.app/#/public/lead-form?source=Instagram&phone=${encodeURIComponent(cleanId)}`;
+    const leadFormUrl = `https://aaa-crm-service.netlify.app/#/public/lead-form?source=Instagram&igId=${encodeURIComponent(cleanId)}`;
 
     const greetingText = `Greetings from AAA Business Consultancy LLC! ✈️🇪🇸\n\nDear ${clientName},\nThank you for reaching out to us regarding Spain Visa & Residency Services.\n\nTo book your FREE 20-Minute Eligibility Assessment & Verification, please click the link below to complete your initial details:\n\n👉 ${leadFormUrl}\n\nOnce submitted, our dedicated consultant will immediately reach out to assist you.`;
 
