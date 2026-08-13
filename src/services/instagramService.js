@@ -1,11 +1,7 @@
 const axios = require('axios');
 
-const META_ACCESS_TOKEN = process.env.META_PAGE_ACCESS_TOKEN; // Instagram API is linked to Page Access Token
-const INSTAGRAM_API_URL = 'https://graph.facebook.com/v17.0';
-
 /**
  * Sends an Instagram Direct Message (DM) to a recipient.
- * Fallbacks to mock logging if Page Access Token is not configured.
  */
 exports.sendInstagramDM = async (recipientId, text) => {
   const prisma = require('../config/db');
@@ -72,11 +68,14 @@ exports.getInstagramUserProfile = async (senderId) => {
     });
 
     if (response.data) {
-      const name = response.data.name || (response.data.username ? `@${response.data.username}` : null);
-      const username = response.data.username ? `@${response.data.username}` : name;
-      const avatar = response.data.profile_pic || null;
+      const rawName = response.data.name;
+      const rawUsername = response.data.username ? (response.data.username.startsWith('@') ? response.data.username : `@${response.data.username}`) : null;
+      let displayName = rawName;
+      if (rawUsername) {
+        displayName = (rawName && rawName !== rawUsername) ? `${rawName} (${rawUsername})` : rawUsername;
+      }
 
-      return { name: name || username, username, avatar };
+      return { name: displayName || rawUsername || rawName, username: rawUsername, avatar: response.data.profile_pic || null };
     }
   } catch (err) {
     console.warn(`[Instagram Service Profile Error] ${senderId}:`, err.response?.data?.error?.message || err.message);
