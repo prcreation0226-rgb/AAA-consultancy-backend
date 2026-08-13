@@ -90,3 +90,55 @@ exports.replyToFacebookComment = async (commentId, text) => {
     throw err;
   }
 };
+
+/**
+ * Sends an Automated Greeting + Assessment Lead Form link to a Facebook Messenger user
+ */
+exports.sendAutomatedFacebookGreeting = async (senderId, senderName) => {
+  const prisma = require('../config/db');
+
+  try {
+    const cleanId = (senderId || '').replace(/[^\d]/g, '');
+    if (!cleanId) return;
+
+    // Check if an outbound automated message was sent to this senderId in the last 12 hours
+    const recentOutbound = await prisma.communicationLog.findFirst({
+      where: {
+        phone: cleanId,
+        channel: 'FACEBOOK',
+        direction: 'OUTBOUND',
+        createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) }
+      }
+    });
+
+    if (recentOutbound) {
+      console.log(`[Automated Facebook Greeting] Skipped: Recent outbound message already sent to ${cleanId} within 12h.`);
+      return;
+    }
+
+    const clientName = (senderName && !senderName.includes('Meta User')) ? senderName : 'Valued Client';
+    const leadFormUrl = `https://aaa-crm-service.netlify.app/#/public/lead-form?source=Facebook&fbId=${encodeURIComponent(cleanId)}`;
+
+    const greetingText = `Greetings from AAA Business Consultancy LLC! ✈️🇪🇸\n\nDear ${clientName},\nThank you for reaching out to us on Facebook Messenger regarding Spain Visa & Residency Services.\n\nTo book your FREE 20-Minute Eligibility Assessment & Verification, please click the link below to complete your initial details:\n\n👉 ${leadFormUrl}\n\nOnce submitted, our dedicated consultant will immediately reach out to assist you.`;
+
+    // 1. Send FB Messenger DM via Graph API
+    await exports.sendMessengerMessage(cleanId, greetingText);
+
+    // 2. Log Outbound Greeting in Database
+    await prisma.communicationLog.create({
+      data: {
+        phone: cleanId,
+        name: 'AI Bot',
+        channel: 'FACEBOOK',
+        direction: 'OUTBOUND',
+        content: greetingText,
+        deliveryStatus: 'SENT',
+        messageId: `auto_fb_greeting_${Date.now()}`
+      }
+    });
+
+    console.log(`[Automated Facebook Greeting Success] Sent greeting & lead form link to ${cleanId}`);
+  } catch (err) {
+    console.error(`[Automated Facebook Greeting Error] Failed for ${senderId}:`, err.message);
+  }
+};

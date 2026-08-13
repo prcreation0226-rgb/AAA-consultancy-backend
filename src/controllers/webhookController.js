@@ -171,13 +171,20 @@ exports.handleMetaWebhook = async (req, res) => {
           console.warn('[Meta Webhook Direct DB Save Warning]:', dbErr.message);
         }
 
-        // Trigger Automated Instagram Greeting + Lead Form link for Instagram DMs
+        // Trigger Automated Greeting + Lead Form link for DMs
         if (platform === 'INSTAGRAM') {
           try {
             const instagramService = require('../services/instagramService');
             instagramService.sendAutomatedInstagramGreeting(senderId, senderDisplayName).catch(e => console.warn('IG Auto-Greeting Error:', e.message));
           } catch (autoErr) {
-            console.warn('[Meta Webhook Auto Greeting Warning]:', autoErr.message);
+            console.warn('[Meta Webhook IG Auto Greeting Warning]:', autoErr.message);
+          }
+        } else if (platform === 'FACEBOOK') {
+          try {
+            const facebookService = require('../services/facebookService');
+            facebookService.sendAutomatedFacebookGreeting(senderId, senderDisplayName).catch(e => console.warn('FB Auto-Greeting Error:', e.message));
+          } catch (autoErr) {
+            console.warn('[Meta Webhook FB Auto Greeting Warning]:', autoErr.message);
           }
         }
 
