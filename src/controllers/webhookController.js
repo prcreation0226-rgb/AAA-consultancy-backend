@@ -122,11 +122,18 @@ exports.handleMetaWebhook = async (req, res) => {
     } 
     // 2. Messenger / Instagram DM Webhooks
     else if (entry?.messaging && entry.messaging.length > 0) {
+      const pageOrAccountId = entry.id;
       for (const msg of entry.messaging) {
         const senderId = msg.sender?.id;
         const messageText = msg.message?.text || '';
         const platform = payload.object === 'instagram' ? 'INSTAGRAM' : 'FACEBOOK';
         const messageId = msg.message?.mid;
+
+        // Skip echo messages or outbound messages sent by our own business account/page
+        if (msg.message?.is_echo || (pageOrAccountId && senderId === pageOrAccountId)) {
+          console.log(`[Meta Webhook] Ignoring echo/outbound message from self (${senderId})`);
+          continue;
+        }
 
         if (messageId && await isDuplicateMessage(messageId)) {
           console.log(`[Meta Webhook] DM message ${messageId} is duplicate. Ignoring.`);
