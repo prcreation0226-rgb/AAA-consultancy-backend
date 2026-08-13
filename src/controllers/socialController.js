@@ -120,6 +120,22 @@ exports.getConversations = async (req, res) => {
               console.warn('Profile fetch error:', err.message);
             }
           }
+        } else if (latestLog && (latestLog.channel === 'FACEBOOK' || latestLog.channel === 'facebook')) {
+          const rawName = latestLog.name || '';
+          if (!rawName || rawName.startsWith('Meta User')) {
+            try {
+              const facebookService = require('../services/facebookService');
+              const fbProfile = await facebookService.getFacebookUserProfile(cleanPh);
+              const fetchedName = (fbProfile && fbProfile.name) ? fbProfile.name : 'Facebook Client';
+              messagesLogs.forEach(m => { m.name = fetchedName; });
+              await prisma.communicationLog.updateMany({
+                where: { phone: cleanPh },
+                data: { name: fetchedName }
+              }).catch(e => console.warn('Could not update FB name in DB:', e.message));
+            } catch (err) {
+              console.warn('FB Profile fetch error:', err.message);
+            }
+          }
         }
       })
     );
