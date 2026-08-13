@@ -198,13 +198,29 @@ exports.getConversations = async (req, res) => {
         }
       }
 
+      // Determine dominant conversation channel: INSTAGRAM > FACEBOOK > TELEGRAM > WHATSAPP
+      let conversationChannel = 'WHATSAPP';
+      const hasInstagramLog = messagesLogs.some(m => m.channel === 'INSTAGRAM' || m.channel === 'instagram');
+      const hasFacebookLog = messagesLogs.some(m => m.channel === 'FACEBOOK' || m.channel === 'facebook');
+      const hasTelegramLog = messagesLogs.some(m => m.channel === 'TELEGRAM' || m.channel === 'telegram');
+
+      if (hasInstagramLog) {
+        conversationChannel = 'INSTAGRAM';
+      } else if (hasFacebookLog) {
+        conversationChannel = 'FACEBOOK';
+      } else if (hasTelegramLog) {
+        conversationChannel = 'TELEGRAM';
+      } else if (latestLog && latestLog.channel) {
+        conversationChannel = latestLog.channel.toUpperCase();
+      }
+
       return {
         id: `conv_phone_${cleanPh.replace(/[^\d]/g, '')}`,
         phone: cleanPh,
         name: name,
         avatar: '',
-        platform: (latestLog?.channel ? latestLog.channel.toLowerCase() : 'whatsapp'),
-        channel: (latestLog?.channel ? latestLog.channel.toUpperCase() : 'WHATSAPP'),
+        platform: conversationChannel.toLowerCase(),
+        channel: conversationChannel,
         unreadCount: unreadCount,
         status: status,
         email: email,
@@ -446,7 +462,7 @@ exports.sendSocialMessage = async (req, res) => {
     let deliveryStatus = 'SENT';
     let failureReason = null;
 
-    // 1. Send via Instagram DM if channel is INSTAGRAM
+    // 1. Send via specific channel service
     if (channel === 'INSTAGRAM') {
       console.log(`[Instagram Outbound DM] To: ${cleanPh}, Text: ${displayContent}`);
       const instagramService = require('../services/instagramService');
@@ -456,6 +472,26 @@ exports.sendSocialMessage = async (req, res) => {
         console.error('[Instagram DM Dispatch Error]:', igErr.message);
         deliveryStatus = 'FAILED';
         failureReason = igErr.message;
+      }
+    } else if (channel === 'FACEBOOK') {
+      console.log(`[Facebook Outbound Messenger] To: ${cleanPh}, Text: ${displayContent}`);
+      const facebookService = require('../services/facebookService');
+      try {
+        await facebookService.sendMessengerMessage(cleanPh, displayContent);
+      } catch (fbErr) {
+        console.error('[Facebook Messenger Dispatch Error]:', fbErr.message);
+        deliveryStatus = 'FAILED';
+        failureReason = fbErr.message;
+      }
+    } else if (channel === 'TELEGRAM') {
+      console.log(`[Telegram Outbound] To: ${cleanPh}, Text: ${displayContent}`);
+      const telegramService = require('../services/telegramService');
+      try {
+        await telegramService.sendTelegramMessage(cleanPh, displayContent);
+      } catch (tgErr) {
+        console.error('[Telegram Dispatch Error]:', tgErr.message);
+        deliveryStatus = 'FAILED';
+        failureReason = tgErr.message;
       }
     } else {
       const twilioTo = `whatsapp:${cleanPh}`;
