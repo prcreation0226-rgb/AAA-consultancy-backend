@@ -28,23 +28,39 @@ exports.sendInstagramDM = async (recipientId, text) => {
 };
 
 /**
- * Replies to a comment on an Instagram media post.
+ * Get Instagram user profile details (Username, Full Name, Profile Pic)
  */
-exports.replyToInstagramComment = async (commentId, text) => {
-  if (!META_ACCESS_TOKEN) {
-    console.log(`[Instagram Service Stub] (Simulating IG comment reply to ID ${commentId}): "${text}"`);
-    return { success: true, isMock: true };
-  }
-
+exports.getInstagramUserProfile = async (senderId) => {
   try {
-    const response = await axios.post(`${INSTAGRAM_API_URL}/${commentId}/replies`, {
-      message: text
-    }, {
-      params: { access_token: META_ACCESS_TOKEN }
+    const prisma = require('../config/db');
+    let accessToken = process.env.META_PAGE_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN;
+    if (!accessToken) {
+      const setting = await prisma.companySetting.findFirst();
+      const savedPlatforms = setting?.customizationSettings?.integrations?.socialPlatforms;
+      accessToken = savedPlatforms?.instagram?.accessToken || savedPlatforms?.facebook?.accessToken;
+    }
+
+    if (!accessToken) return null;
+
+    const cleanId = (senderId || '').replace(/[^\d]/g, '');
+    if (!cleanId) return null;
+
+    const response = await axios.get(`${INSTAGRAM_API_URL}/${cleanId}`, {
+      params: {
+        fields: 'name,username,profile_pic',
+        access_token: accessToken
+      }
     });
-    return { success: true, data: response.data };
+
+    if (response.data) {
+      const name = response.data.name || (response.data.username ? `@${response.data.username}` : null);
+      const username = response.data.username ? `@${response.data.username}` : name;
+      const avatar = response.data.profile_pic || null;
+
+      return { name: name || username, username, avatar };
+    }
   } catch (err) {
-    console.error('[Instagram Service] Error replying to comment:', err.response?.data || err.message);
-    throw err;
+    console.warn(`[Instagram Service] Could not fetch user profile for ${senderId}:`, err.response?.data?.error?.message || err.message);
   }
+  return null;
 };

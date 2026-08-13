@@ -133,14 +133,27 @@ exports.handleMetaWebhook = async (req, res) => {
           continue;
         }
 
-        console.log(`[Meta Webhook] Received Direct Message from ${senderId} on ${platform}: ${messageText}`);
+        let senderDisplayName = `Meta User (${platform})`;
+        try {
+          if (platform === 'INSTAGRAM') {
+            const instagramService = require('../services/instagramService');
+            const igProfile = await instagramService.getInstagramUserProfile(senderId);
+            if (igProfile && (igProfile.name || igProfile.username)) {
+              senderDisplayName = igProfile.name || igProfile.username;
+            }
+          }
+        } catch (profileErr) {
+          console.warn('[Meta Webhook Profile Fetch Warning]:', profileErr.message);
+        }
+
+        console.log(`[Meta Webhook] Received Direct Message from ${senderDisplayName} (${senderId}) on ${platform}: ${messageText}`);
 
         // Direct DB save for instant UI responsiveness
         try {
           await prisma.communicationLog.create({
             data: {
               phone: senderId,
-              name: `Meta User (${platform})`,
+              name: senderDisplayName,
               channel: platform,
               direction: 'INBOUND',
               content: messageText,
@@ -155,7 +168,7 @@ exports.handleMetaWebhook = async (req, res) => {
         try {
           await communicationsQueue.add('process-meta-message', {
             phone: senderId,
-            name: `Meta User (${platform})`,
+            name: senderDisplayName,
             message: messageText,
             messageId,
             platform: platform.toLowerCase()

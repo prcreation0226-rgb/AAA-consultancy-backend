@@ -94,7 +94,37 @@ exports.getConversations = async (req, res) => {
       return normalized === '' || normalized === 'applicant' || normalized.includes('applicant');
     };
 
-    // 3. Build conversations in memory
+    // 3. Resolve Meta User placeholder names to real Instagram usernames
+    const instagramService = require('../services/instagramService');
+    await Promise.all(
+      uniquePhones.map(async (cleanPh) => {
+        const numberPart = cleanPh.replace(/\D/g, '');
+        const key = numberPart || cleanPh;
+        const messagesLogs = logsByPhoneMap[key] || [];
+        const latestLog = messagesLogs[messagesLogs.length - 1];
+
+        if (latestLog && (latestLog.channel === 'INSTAGRAM' || latestLog.channel === 'instagram')) {
+          const rawName = latestLog.name || '';
+          if (!rawName || rawName.startsWith('Meta User')) {
+            try {
+              const igProfile = await instagramService.getInstagramUserProfile(cleanPh);
+              if (igProfile && (igProfile.name || igProfile.username)) {
+                const fetchedName = igProfile.name || igProfile.username;
+                messagesLogs.forEach(m => { m.name = fetchedName; });
+                await prisma.communicationLog.updateMany({
+                  where: { phone: cleanPh },
+                  data: { name: fetchedName }
+                }).catch(e => console.warn('Could not update IG name in DB:', e.message));
+              }
+            } catch (err) {
+              console.warn('Profile fetch error:', err.message);
+            }
+          }
+        }
+      })
+    );
+
+    // 4. Build conversations in memory
     const conversations = uniquePhones.map(cleanPh => {
       const numberPart = cleanPh.replace(/\D/g, '');
       const key = numberPart || cleanPh;
