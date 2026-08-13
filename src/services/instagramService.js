@@ -10,10 +10,13 @@ const INSTAGRAM_API_URL = 'https://graph.facebook.com/v17.0';
 exports.sendInstagramDM = async (recipientId, text) => {
   const prisma = require('../config/db');
   let accessToken = process.env.META_PAGE_ACCESS_TOKEN || process.env.INSTAGRAM_ACCESS_TOKEN;
+  let accountId = null;
+
   if (!accessToken) {
     const setting = await prisma.companySetting.findFirst();
     const savedPlatforms = setting?.customizationSettings?.integrations?.socialPlatforms;
     accessToken = savedPlatforms?.instagram?.accessToken || savedPlatforms?.facebook?.accessToken;
+    accountId = savedPlatforms?.instagram?.accountId;
   }
 
   const cleanRecipientId = (recipientId || '').replace(/[^\d]/g, '');
@@ -23,16 +26,20 @@ exports.sendInstagramDM = async (recipientId, text) => {
     return { success: true, isMock: true };
   }
 
+  const apiBase = (accessToken && accessToken.startsWith('IG')) ? 'https://graph.instagram.com/v19.0' : 'https://graph.facebook.com/v19.0';
+  const endpoint = accountId ? `${apiBase}/${accountId}/messages` : `${apiBase}/me/messages`;
+
   try {
-    const response = await axios.post(`https://graph.facebook.com/v19.0/me/messages`, {
+    const response = await axios.post(endpoint, {
       recipient: { id: cleanRecipientId },
       message: { text }
     }, {
       params: { access_token: accessToken }
     });
+    console.log(`[Instagram DM Sent Success] Message ID: ${response.data?.message_id}`);
     return { success: true, data: response.data };
   } catch (err) {
-    console.error('[Instagram Service] Error sending message:', err.response?.data || err.message);
+    console.error('[Instagram Service Error sending DM]:', err.response?.data || err.message);
     throw err;
   }
 };
@@ -55,7 +62,9 @@ exports.getInstagramUserProfile = async (senderId) => {
     const cleanId = (senderId || '').replace(/[^\d]/g, '');
     if (!cleanId) return null;
 
-    const response = await axios.get(`${INSTAGRAM_API_URL}/${cleanId}`, {
+    const apiBase = (accessToken && accessToken.startsWith('IG')) ? 'https://graph.instagram.com/v19.0' : 'https://graph.facebook.com/v19.0';
+
+    const response = await axios.get(`${apiBase}/${cleanId}`, {
       params: {
         fields: 'name,username,profile_pic',
         access_token: accessToken
