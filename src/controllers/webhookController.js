@@ -165,6 +165,16 @@ exports.handleMetaWebhook = async (req, res) => {
           console.warn('[Meta Webhook Direct DB Save Warning]:', dbErr.message);
         }
 
+        // Trigger Automated Instagram Greeting + Lead Form link for Instagram DMs
+        if (platform === 'INSTAGRAM') {
+          try {
+            const instagramService = require('../services/instagramService');
+            instagramService.sendAutomatedInstagramGreeting(senderId, senderDisplayName).catch(e => console.warn('IG Auto-Greeting Error:', e.message));
+          } catch (autoErr) {
+            console.warn('[Meta Webhook Auto Greeting Warning]:', autoErr.message);
+          }
+        }
+
         try {
           await communicationsQueue.add('process-meta-message', {
             phone: senderId,

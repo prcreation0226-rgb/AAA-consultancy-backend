@@ -79,7 +79,59 @@ exports.getInstagramUserProfile = async (senderId) => {
       return { name: name || username, username, avatar };
     }
   } catch (err) {
-    console.warn(`[Instagram Service] Could not fetch user profile for ${senderId}:`, err.response?.data?.error?.message || err.message);
+    console.warn(`[Instagram Service Profile Error] ${senderId}:`, err.response?.data?.error?.message || err.message);
   }
   return null;
+};
+
+/**
+ * Sends an Automated Greeting + Assessment Lead Form link to an Instagram user
+ */
+exports.sendAutomatedInstagramGreeting = async (senderId, senderName) => {
+  const prisma = require('../config/db');
+
+  try {
+    const cleanId = (senderId || '').replace(/[^\d]/g, '');
+    if (!cleanId) return;
+
+    // Check if an outbound automated message was sent to this senderId in the last 12 hours
+    const recentOutbound = await prisma.communicationLog.findFirst({
+      where: {
+        phone: cleanId,
+        channel: 'INSTAGRAM',
+        direction: 'OUTBOUND',
+        createdAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) }
+      }
+    });
+
+    if (recentOutbound) {
+      console.log(`[Automated Instagram Greeting] Skipped: Recent outbound message already sent to ${cleanId} within 12h.`);
+      return;
+    }
+
+    const clientName = (senderName && !senderName.includes('Meta User')) ? senderName : 'Valued Client';
+    const leadFormUrl = `https://aaa-crm-service.netlify.app/#/public/lead-form?source=Instagram&phone=${encodeURIComponent(cleanId)}`;
+
+    const greetingText = `Greetings from AAA Business Consultancy LLC! ✈️🇪🇸\n\nDear ${clientName},\nThank you for reaching out to us regarding Spain Visa & Residency Services.\n\nTo book your FREE 20-Minute Eligibility Assessment & Verification, please click the link below to complete your initial details:\n\n👉 ${leadFormUrl}\n\nOnce submitted, our dedicated consultant will immediately reach out to assist you.`;
+
+    // 1. Send IG DM via Meta Graph API
+    await exports.sendInstagramDM(cleanId, greetingText);
+
+    // 2. Log Outbound Greeting in Database
+    await prisma.communicationLog.create({
+      data: {
+        phone: cleanId,
+        name: 'AI Bot',
+        channel: 'INSTAGRAM',
+        direction: 'OUTBOUND',
+        content: greetingText,
+        deliveryStatus: 'SENT',
+        messageId: `auto_ig_greeting_${Date.now()}`
+      }
+    });
+
+    console.log(`[Automated Instagram Greeting Success] Sent greeting & lead form link to ${cleanId}`);
+  } catch (err) {
+    console.error(`[Automated Instagram Greeting Error] Failed for ${senderId}:`, err.message);
+  }
 };
