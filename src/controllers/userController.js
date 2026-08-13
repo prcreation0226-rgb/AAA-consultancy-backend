@@ -203,10 +203,67 @@ const updateUser = async (req, res) => {
 const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!id) return res.status(400).json({ message: 'User ID is required' });
+
+    const userToDelete = await prisma.user.findUnique({ where: { id } });
+    if (!userToDelete) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // 1. Delete associated CommissionRateHistory records for this agent
+    await prisma.commissionRateHistory.deleteMany({
+      where: {
+        OR: [
+          { agentId: id },
+          { changedById: id }
+        ]
+      }
+    }).catch(e => console.warn('Could not delete commissionRateHistory:', e.message));
+
+    // 2. Safely disassociate all linked entities before deleting the user
+    await prisma.lead.updateMany({
+      where: { assignedToId: id },
+      data: { assignedToId: null }
+    }).catch(e => console.warn('Could not disassociate assignedToId in Lead:', e.message));
+
+    await prisma.client.updateMany({
+      where: { assignedToId: id },
+      data: { assignedToId: null }
+    }).catch(e => console.warn('Could not disassociate assignedToId in Client:', e.message));
+
+    await prisma.consultation.updateMany({
+      where: { consultantId: id },
+      data: { consultantId: null }
+    }).catch(e => console.warn('Could not disassociate consultantId in Consultation:', e.message));
+
+    await prisma.document.updateMany({
+      where: { reviewedById: id },
+      data: { reviewedById: null }
+    }).catch(e => console.warn('Could not disassociate reviewedById in Document:', e.message));
+
+    await prisma.discountCode.updateMany({
+      where: { createdById: id },
+      data: { createdById: null }
+    }).catch(e => console.warn('Could not disassociate createdById in DiscountCode:', e.message));
+
+    await prisma.communicationLog.updateMany({
+      where: { respondedByUserId: id },
+      data: { respondedByUserId: null }
+    }).catch(e => console.warn('Could not disassociate respondedByUserId in CommunicationLog:', e.message));
+
+    await prisma.user.updateMany({
+      where: { createdById: id },
+      data: { createdById: null }
+    }).catch(e => console.warn('Could not disassociate createdById in User:', e.message));
+
+    // 3. Delete the user from DB
     await prisma.user.delete({ where: { id } });
-    res.json({ message: 'User deleted' });
+
+    console.log(`[User Controller] Successfully deleted user ID: ${id} (${userToDelete.fullName})`);
+    res.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Failed to delete user', error: error.message });
   }
 };
 
