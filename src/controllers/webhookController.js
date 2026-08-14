@@ -988,16 +988,27 @@ exports.verifyTwitterWebhook = async (req, res) => {
 
   try {
     const twitterService = require('../services/twitterService');
-    const setting = await prisma.companySetting.findFirst();
-    const apiSecret = process.env.TWITTER_API_SECRET || setting?.customizationSettings?.integrations?.socialPlatforms?.twitter?.apiSecret;
+    let apiSecret = req.query.api_secret || req.query.secret || req.headers['x-api-secret'];
 
     if (!apiSecret) {
-      console.warn('[Twitter CRC] API Secret not configured yet, returning standard challenge hash');
-      const fallbackHash = crypto.createHmac('sha256', 'dummy_secret').update(crcToken).digest('base64');
-      return res.status(200).json({ response_token: `sha256=${fallbackHash}` });
+      apiSecret = process.env.TWITTER_API_SECRET || process.env.TWITTER_CONSUMER_SECRET || process.env.TWITTER_API_KEY_SECRET;
     }
 
-    const responseToken = twitterService.generateCRCToken(crcToken, apiSecret);
+    if (!apiSecret) {
+      const setting = await prisma.companySetting.findFirst();
+      const tw = setting?.customizationSettings?.integrations?.socialPlatforms?.twitter;
+      apiSecret = tw?.apiSecret || tw?.apiKeySecret || tw?.consumerSecret || tw?.appSecret;
+    }
+
+    if (!apiSecret) {
+      console.error('[Twitter CRC Error]: No Twitter API Secret / Consumer Secret found in DB or Environment!');
+      return res.status(400).json({
+        error: 'Twitter Consumer Secret / API Secret Key is not configured. Please configure your API Secret in the CRM Integrations page or Railway environment variables.'
+      });
+    }
+
+    const responseToken = twitterService.generateCRCToken(crcToken, String(apiSecret).trim());
+    console.log('[Twitter CRC Response Generated Successfully]:', responseToken);
     return res.status(200).json({ response_token: responseToken });
   } catch (err) {
     console.error('[Twitter CRC Error]:', err.message);
