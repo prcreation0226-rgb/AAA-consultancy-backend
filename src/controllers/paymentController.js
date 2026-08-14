@@ -422,7 +422,9 @@ const getRefundRequests = async (req, res) => {
         bankSwift: r.bankSwift || '',
         payoutMethod: r.payoutMethod || null,
         transactionRef: r.transactionRef || null,
-        adminNotes: r.adminNotes || ''
+        adminNotes: r.adminNotes || '',
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt
       };
     });
     

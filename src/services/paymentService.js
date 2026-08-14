@@ -183,7 +183,7 @@ const processPaymentEvent = async (event) => {
           let zohoInvoiceId = null;
           try {
             const zohoInvoiceService = require('./zohoInvoiceService');
-            const existingZohoId = updatedClient.zohoInvoiceId || (paymentRecord?.invoiceSnapshot && paymentRecord.invoiceSnapshot.zohoInvoiceId);
+            const existingZohoId = updatedClient.zohoInvoiceId || paymentRecord?.gatewayId || (paymentRecord?.invoiceSnapshot && paymentRecord.invoiceSnapshot.zohoInvoiceId);
             
             if (existingZohoId) {
               console.log(`[Auto-Zoho Payment Webhook] Marking existing Zoho Invoice ${existingZohoId} as PAID...`);
