@@ -18,7 +18,7 @@ const isTwilioConfigured = !!(
  */
 function cleanPhoneNumber(phone) {
   let clean = (phone || '').trim();
-  if (clean.startsWith('urn:li:') || clean.startsWith('li_') || clean.includes('linkedin')) {
+  if (clean.startsWith('urn:li:') || clean.startsWith('li_') || clean.includes('linkedin') || clean.startsWith('@') || clean.startsWith('tw_')) {
     return clean;
   }
   if (clean.startsWith('whatsapp:')) {
@@ -225,14 +225,17 @@ exports.getConversations = async (req, res) => {
         }
       }
 
-      // Determine dominant conversation channel: LINKEDIN > INSTAGRAM > FACEBOOK > TELEGRAM > WHATSAPP
+      // Determine dominant conversation channel: TWITTER > LINKEDIN > INSTAGRAM > FACEBOOK > TELEGRAM > WHATSAPP
       let conversationChannel = 'WHATSAPP';
+      const hasTwitterLog = messagesLogs.some(m => m.channel === 'TWITTER' || m.channel === 'twitter');
       const hasLinkedInLog = messagesLogs.some(m => m.channel === 'LINKEDIN' || m.channel === 'linkedin');
       const hasInstagramLog = messagesLogs.some(m => m.channel === 'INSTAGRAM' || m.channel === 'instagram');
       const hasFacebookLog = messagesLogs.some(m => m.channel === 'FACEBOOK' || m.channel === 'facebook');
       const hasTelegramLog = messagesLogs.some(m => m.channel === 'TELEGRAM' || m.channel === 'telegram');
 
-      if (hasLinkedInLog) {
+      if (hasTwitterLog) {
+        conversationChannel = 'TWITTER';
+      } else if (hasLinkedInLog) {
         conversationChannel = 'LINKEDIN';
       } else if (hasInstagramLog) {
         conversationChannel = 'INSTAGRAM';
@@ -538,6 +541,16 @@ exports.sendSocialMessage = async (req, res) => {
         console.error('[LinkedIn Dispatch Error]:', liErr.message);
         deliveryStatus = 'FAILED';
         failureReason = liErr.message;
+      }
+    } else if (channel === 'TWITTER') {
+      console.log(`[Twitter Outbound] To: ${cleanPh}, Text: ${displayContent}`);
+      const twitterService = require('../services/twitterService');
+      try {
+        await twitterService.sendTwitterDM(cleanPh, displayContent);
+      } catch (twErr) {
+        console.error('[Twitter Dispatch Error]:', twErr.message);
+        deliveryStatus = 'FAILED';
+        failureReason = twErr.message;
       }
     } else {
       const twilioTo = `whatsapp:${cleanPh}`;

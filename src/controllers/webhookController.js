@@ -975,4 +975,139 @@ exports.handleLinkedInWebhook = async (req, res) => {
   }
 };
 
+/**
+ * Twitter / X CRC (Challenge-Response Check) Verification
+ */
+exports.verifyTwitterWebhook = async (req, res) => {
+  const crcToken = req.query.crc_token;
+  console.log('[Twitter CRC Challenge Received]:', crcToken);
+
+  if (!crcToken) {
+    return res.status(400).json({ error: 'crc_token query parameter is required' });
+  }
+
+  try {
+    const twitterService = require('../services/twitterService');
+    const setting = await prisma.companySetting.findFirst();
+    const apiSecret = process.env.TWITTER_API_SECRET || setting?.customizationSettings?.integrations?.socialPlatforms?.twitter?.apiSecret;
+
+    if (!apiSecret) {
+      console.warn('[Twitter CRC] API Secret not configured yet, returning standard challenge hash');
+      const fallbackHash = crypto.createHmac('sha256', 'dummy_secret').update(crcToken).digest('base64');
+      return res.status(200).json({ response_token: `sha256=${fallbackHash}` });
+    }
+
+    const responseToken = twitterService.generateCRCToken(crcToken, apiSecret);
+    return res.status(200).json({ response_token: responseToken });
+  } catch (err) {
+    console.error('[Twitter CRC Error]:', err.message);
+    res.status(500).json({ error: 'Internal server error during CRC validation' });
+  }
+};
+
+/**
+ * Handles incoming Twitter / X Direct Messages and Mentions
+ */
+exports.handleTwitterWebhook = async (req, res) => {
+  const payload = req.body;
+  console.log('[Twitter Webhook Payload Received]:', JSON.stringify(payload, null, 2));
+
+  // Acknowledge immediately to prevent timeout
+  res.status(200).send('EVENT_RECEIVED');
+
+  try {
+    const twitterService = require('../services/twitterService');
+
+    // 1. Direct Message Events (Account Activity API / v2 Webhook)
+    const dmEvents = payload.direct_message_events || payload.dm_events || [];
+
+    for (const event of dmEvents) {
+      const messageData = event.message_create || event.message || event;
+      const senderId = messageData.sender_id || event.sender_id;
+      const text = messageData.message_data?.text || messageData.text || '';
+      const messageId = event.id || `tw-${Date.now()}`;
+
+      if (!senderId || (event.type !== 'message_create' && !text)) {
+        continue;
+      }
+
+      const cleanSender = String(senderId).trim();
+
+      if (await isDuplicateMessage(messageId)) {
+        console.log(`[Twitter Webhook] Duplicate message ${messageId}, skipping.`);
+        continue;
+      }
+
+      // Resolve profile name and avatar
+      let senderDisplayName = `@user_${cleanSender.substring(0, 6)}`;
+      try {
+        const profile = await twitterService.getTwitterUserProfile(cleanSender);
+        if (profile && profile.name) {
+          senderDisplayName = profile.name;
+        }
+      } catch (profErr) {
+        console.warn('[Twitter Profile Warning]:', profErr.message);
+      }
+
+      console.log(`[Twitter Inbound Message] From: ${senderDisplayName} (${cleanSender}): ${text}`);
+
+      // Save to database
+      await prisma.communicationLog.create({
+        data: {
+          phone: cleanSender,
+          name: senderDisplayName,
+          channel: 'TWITTER',
+          direction: 'INBOUND',
+          content: text || '✨ [Twitter Interaction]',
+          messageId: messageId,
+          deliveryStatus: 'DELIVERED'
+        }
+      });
+
+      // Realtime live broadcast to social inbox
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('new_whatsapp_message', {
+          phone: cleanSender,
+          name: senderDisplayName,
+          text: text,
+          channel: 'TWITTER',
+          platform: 'twitter',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+      }
+
+      // Trigger Automated Greeting
+      twitterService.sendAutomatedTwitterGreeting(cleanSender, senderDisplayName).catch(e => {
+        console.warn('[Twitter Auto-Greeting Warning]:', e.message);
+      });
+    }
+
+    // 2. Tweet Mentions
+    const tweetEvents = payload.tweet_create_events || [];
+    for (const tweet of tweetEvents) {
+      const sender = tweet.user?.screen_name ? `@${tweet.user.screen_name}` : `user_${tweet.user?.id_str}`;
+      const text = tweet.text || '';
+      const tweetId = tweet.id_str || `tw_tweet_${Date.now()}`;
+
+      if (await isDuplicateMessage(tweetId)) continue;
+
+      await prisma.communicationLog.create({
+        data: {
+          phone: sender,
+          name: tweet.user?.name || sender,
+          channel: 'TWITTER',
+          direction: 'INBOUND',
+          content: `📢 [Tweet Mention]: ${text}`,
+          messageId: tweetId,
+          deliveryStatus: 'DELIVERED'
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error handling Twitter webhook event:', error.message);
+  }
+};
+
+
 

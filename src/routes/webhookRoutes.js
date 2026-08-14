@@ -28,4 +28,8 @@ router.post('/zoho', webhookController.handleZohoWebhook);
 router.get('/linkedin', webhookController.verifyLinkedInWebhook);
 router.post('/linkedin', webhookController.handleLinkedInWebhook);
 
+// Twitter / X Webhook (CRC Challenge Response & Inbound Events)
+router.get('/twitter', webhookController.verifyTwitterWebhook);
+router.post('/twitter', webhookController.handleTwitterWebhook);
+
 module.exports = router;
