@@ -99,7 +99,31 @@ exports.handleMetaWebhook = async (req, res) => {
           const phone = msg.from;
           const contact = value.contacts?.find(c => c.wa_id === phone);
           const name = contact?.profile?.name || 'Applicant';
-          const message = msg.text?.body || '';
+          let message = msg.text?.body || '';
+          let mediaUrl = null;
+
+          if (msg.type === 'image') {
+            message = msg.image?.caption ? `${msg.image.caption} (📷 Photo)` : '📷 Photo';
+            mediaUrl = msg.image?.id ? `whatsapp_media:${msg.image.id}` : null;
+          } else if (msg.type === 'video') {
+            message = msg.video?.caption ? `${msg.video.caption} (🎥 Video)` : '🎥 Video';
+            mediaUrl = msg.video?.id ? `whatsapp_media:${msg.video.id}` : null;
+          } else if (msg.type === 'audio' || msg.type === 'voice') {
+            message = '🎵 Voice Note';
+            mediaUrl = (msg.audio?.id || msg.voice?.id) ? `whatsapp_media:${msg.audio?.id || msg.voice?.id}` : null;
+          } else if (msg.type === 'document') {
+            message = msg.document?.filename ? `📄 ${msg.document.filename}` : '📄 Document';
+            mediaUrl = msg.document?.id ? `whatsapp_media:${msg.document.id}` : null;
+          } else if (msg.type === 'reaction') {
+            message = `Reacted ${msg.reaction?.emoji || '👍'} to a message`;
+          } else if (msg.type === 'interactive') {
+            message = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || 'Interactive response';
+          }
+
+          if (!message.trim() && !mediaUrl) {
+            message = '✨ [WhatsApp Interaction]';
+          }
+
           const messageId = msg.id;
 
           if (messageId && await isDuplicateMessage(messageId)) {
@@ -112,6 +136,7 @@ exports.handleMetaWebhook = async (req, res) => {
             phone,
             name,
             message,
+            mediaUrl,
             messageId,
             platform: 'whatsapp'
           }, {
@@ -125,11 +150,30 @@ exports.handleMetaWebhook = async (req, res) => {
       const pageOrAccountId = entry.id;
       for (const msg of entry.messaging) {
         const senderId = msg.sender?.id;
-        const messageText = msg.message?.text || '';
+        let messageText = msg.message?.text || '';
+        let mediaUrl = null;
         const platform = payload.object === 'instagram' ? 'INSTAGRAM' : 'FACEBOOK';
         const messageId = msg.message?.mid;
 
-        // Skip echo messages or outbound messages sent by our own business account/page
+        // 1. Skip non-message events (Read receipts, delivery receipts, control events)
+        if (msg.read) {
+          console.log(`[Meta Webhook] Ignoring read/seen receipt from ${senderId}`);
+          continue;
+        }
+        if (msg.delivery) {
+          console.log(`[Meta Webhook] Ignoring delivery receipt for ${senderId}`);
+          continue;
+        }
+        if (msg.account_linking || msg.optin || msg.pass_thread_control || msg.take_thread_control) {
+          console.log(`[Meta Webhook] Ignoring system/control event from ${senderId}`);
+          continue;
+        }
+        if (!msg.message && !msg.reaction && !msg.postback) {
+          console.log(`[Meta Webhook] Ignoring non-message event from ${senderId}`);
+          continue;
+        }
+
+        // 2. Skip echo messages or outbound messages sent by our own business account/page
         if (msg.message?.is_echo || (pageOrAccountId && senderId === pageOrAccountId)) {
           console.log(`[Meta Webhook] Ignoring echo/outbound message from self (${senderId})`);
           continue;
@@ -137,6 +181,45 @@ exports.handleMetaWebhook = async (req, res) => {
 
         if (messageId && await isDuplicateMessage(messageId)) {
           console.log(`[Meta Webhook] DM message ${messageId} is duplicate. Ignoring.`);
+          continue;
+        }
+
+        // Extract attachments (Photos, Videos, Audio, Files, Story Mentions, Shares)
+        if (msg.message?.attachments && msg.message.attachments.length > 0) {
+          const att = msg.message.attachments[0];
+          const attType = att.type || 'attachment';
+          mediaUrl = att.payload?.url || null;
+
+          if (attType === 'image') {
+            messageText = messageText ? `${messageText} (📷 Photo)` : '📷 Photo';
+          } else if (attType === 'video') {
+            messageText = messageText ? `${messageText} (🎥 Video)` : '🎥 Video';
+          } else if (attType === 'audio') {
+            messageText = messageText ? `${messageText} (🎵 Voice Note)` : '🎵 Voice Note';
+          } else if (attType === 'story_mention') {
+            messageText = messageText || '✨ Mentioned you in an Instagram Story';
+          } else if (attType === 'share') {
+            const shareTitle = att.payload?.title ? `: "${att.payload.title}"` : '';
+            messageText = messageText || `📎 Shared a Post/Reel${shareTitle}`;
+          } else if (attType === 'file') {
+            messageText = messageText || '📄 File Attachment';
+          } else {
+            messageText = messageText || `📎 Attachment (${attType})`;
+          }
+        } else if (msg.reaction) {
+          const emoji = msg.reaction.emoji || '❤️';
+          messageText = `Reacted ${emoji} to message`;
+        } else if (msg.postback) {
+          messageText = msg.postback.title || msg.postback.payload || 'Selected an option';
+        } else if (msg.message?.quick_reply) {
+          messageText = msg.message.quick_reply.payload || msg.message.quick_reply.text || 'Selected option';
+        } else if (msg.message?.sticker_id) {
+          messageText = '🎭 Sticker';
+        }
+
+        // Skip if completely empty event
+        if (!messageText.trim() && !mediaUrl) {
+          console.log(`[Meta Webhook] No message content found from ${senderId}. Ignoring.`);
           continue;
         }
 
@@ -161,6 +244,8 @@ exports.handleMetaWebhook = async (req, res) => {
 
         console.log(`[Meta Webhook] Received Direct Message from ${senderDisplayName} (${senderId}) on ${platform}: ${messageText}`);
 
+        const dbContent = `${messageText}${mediaUrl ? `\n[FILE: ${mediaUrl}]` : ''}`.trim();
+
         // Direct DB save for instant UI responsiveness
         try {
           await prisma.communicationLog.create({
@@ -169,7 +254,7 @@ exports.handleMetaWebhook = async (req, res) => {
               name: senderDisplayName,
               channel: platform,
               direction: 'INBOUND',
-              content: messageText,
+              content: dbContent,
               messageId: messageId || `meta-${Date.now()}`,
               deliveryStatus: 'DELIVERED'
             }
@@ -200,6 +285,7 @@ exports.handleMetaWebhook = async (req, res) => {
             phone: senderId,
             name: senderDisplayName,
             message: messageText,
+            mediaUrl,
             messageId,
             platform: platform.toLowerCase()
           }, {
@@ -779,4 +865,114 @@ exports.handleZohoWebhook = async (req, res) => {
     }
   }
 };
+
+/**
+ * LinkedIn Webhook Handshake Verification (Challenge Response)
+ */
+exports.verifyLinkedInWebhook = (req, res) => {
+  const challenge = req.query.challenge || req.query['hub.challenge'];
+  console.log('[LinkedIn Webhook Verification] Challenge received:', challenge);
+  if (challenge) {
+    return res.status(200).send(challenge);
+  }
+  return res.status(200).json({ status: 'active', service: 'LinkedIn Webhook Listener' });
+};
+
+/**
+ * Handles incoming LinkedIn Direct Messages & Lead Gen Forms
+ */
+exports.handleLinkedInWebhook = async (req, res) => {
+  const payload = req.body;
+  console.log('[LinkedIn Webhook Payload Received]:', JSON.stringify(payload, null, 2));
+
+  // LinkedIn requires immediate 200/204 response
+  res.status(200).send('EVENT_RECEIVED');
+
+  try {
+    const linkedinService = require('../services/linkedinService');
+
+    // 1. Check if Lead Gen Form submission
+    if (payload.leadGenResponses || payload.leadFormResponses || payload.eventType === 'LEAD_GEN') {
+      console.log('[LinkedIn Webhook] Processing Lead Gen Form submission');
+      await linkedinService.syncLinkedInLead(payload);
+      return;
+    }
+
+    // 2. Check if Direct Message or Conversation Event
+    const events = Array.isArray(payload.events) ? payload.events : [payload];
+
+    for (const ev of events) {
+      const messageObj = ev.message || ev.value || ev;
+      const senderUrn = messageObj.sender || ev.sender || messageObj.from;
+      const messageText = messageObj.text || messageObj.body || messageObj.content || '';
+      const messageId = messageObj.id || messageObj.messageId || ev.id || `li-${Date.now()}`;
+
+      if (!senderUrn) {
+        console.log('[LinkedIn Webhook] No sender URN found in event, skipping.');
+        continue;
+      }
+
+      const cleanSender = String(senderUrn).trim();
+
+      // Skip echo/outbound messages sent by the organization page itself
+      const orgId = process.env.LINKEDIN_ORGANIZATION_ID || '';
+      if (orgId && cleanSender.includes(orgId)) {
+        console.log(`[LinkedIn Webhook] Skipping outbound message from self (${cleanSender})`);
+        continue;
+      }
+
+      if (await isDuplicateMessage(messageId)) {
+        console.log(`[LinkedIn Webhook] Message ${messageId} is duplicate. Ignoring.`);
+        continue;
+      }
+
+      // Resolve user profile name
+      let senderDisplayName = 'LinkedIn Client';
+      try {
+        const profile = await linkedinService.getLinkedInUserProfile(cleanSender);
+        if (profile && profile.name) {
+          senderDisplayName = profile.name;
+        }
+      } catch (profErr) {
+        console.warn('[LinkedIn Profile Resolve Warning]:', profErr.message);
+      }
+
+      console.log(`[LinkedIn Inbound Message] From: ${senderDisplayName} (${cleanSender}): ${messageText}`);
+
+      // Save to database for instant UI responsiveness
+      await prisma.communicationLog.create({
+        data: {
+          phone: cleanSender,
+          name: senderDisplayName,
+          channel: 'LINKEDIN',
+          direction: 'INBOUND',
+          content: messageText || '✨ [LinkedIn Interaction]',
+          messageId: messageId,
+          deliveryStatus: 'DELIVERED'
+        }
+      });
+
+      // Realtime live broadcast to social inbox
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('new_whatsapp_message', {
+          phone: cleanSender,
+          name: senderDisplayName,
+          text: messageText,
+          channel: 'LINKEDIN',
+          platform: 'linkedin',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+      }
+
+      // Trigger Automated Greeting + Lead Form link
+      linkedinService.sendAutomatedLinkedInGreeting(cleanSender, senderDisplayName).catch(e => {
+        console.warn('[LinkedIn Auto-Greeting Warning]:', e.message);
+      });
+    }
+  } catch (error) {
+    console.error('Error handling LinkedIn webhook event:', error.message);
+  }
+};
+
 

@@ -1,6 +1,24 @@
+const fs = require('fs');
 const crypto = require('crypto');
 const prisma = require('../config/db');
 const { logActivity } = require('../services/auditService');
+
+const getFileUrl = (file) => {
+  if (!file) return '';
+  if (file.location) return file.location;
+  if (file.path) {
+    try {
+      if (fs.existsSync(file.path)) {
+        const fileBuffer = fs.readFileSync(file.path);
+        const mimeType = file.mimetype || 'application/pdf';
+        return `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      }
+    } catch (err) {
+      console.warn('[getFileUrl] Could not convert file to Data URI:', err.message);
+    }
+  }
+  return `/uploads/${file.filename}`;
+};
 
 // Default checklist item templates generated when a resubmission cycle is created
 const DEFAULT_CHECKLIST_TEMPLATES = [
@@ -727,7 +745,7 @@ const uploadChecklistDoc = async (req, res) => {
           version: nextVersion,
           name: req.file.originalname,
           category: item.category,
-          url: req.file.location || `/uploads/${req.file.filename}`,
+          url: getFileUrl(req.file),
           size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
           status: 'PENDING_VERIFICATION',
           belongsTo: item.belongsTo || 'Main Applicant'

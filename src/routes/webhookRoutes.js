@@ -24,4 +24,8 @@ router.post('/zoom', webhookController.handleZoomWebhook);
 // Zoho Invoice Webhook
 router.post('/zoho', webhookController.handleZohoWebhook);
 
+// LinkedIn Webhook (Validation & Inbound Events)
+router.get('/linkedin', webhookController.verifyLinkedInWebhook);
+router.post('/linkedin', webhookController.handleLinkedInWebhook);
+
 module.exports = router;

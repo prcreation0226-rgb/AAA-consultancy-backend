@@ -1,5 +1,23 @@
+const fs = require('fs');
 const prisma = require('../config/db');
 const { createDocumentNotification } = require('./notificationController');
+
+const getFileUrl = (file) => {
+  if (!file) return '';
+  if (file.location) return file.location;
+  if (file.path) {
+    try {
+      if (fs.existsSync(file.path)) {
+        const fileBuffer = fs.readFileSync(file.path);
+        const mimeType = file.mimetype || 'application/pdf';
+        return `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      }
+    } catch (err) {
+      console.warn('[getFileUrl] Could not convert file to Data URI:', err.message);
+    }
+  }
+  return `/uploads/${file.filename}`;
+};
 
 const getDocuments = async (req, res) => {
   try {
@@ -95,7 +113,7 @@ const uploadDocument = async (req, res) => {
         clientId,
         name: req.file.originalname,
         category: category || 'General',
-        url: req.file.location || `/uploads/${req.file.filename}`,
+        url: getFileUrl(req.file),
         size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
         status: req.body.status || 'Pending Verification',
         belongsTo: belongsTo || 'Main Applicant',
@@ -281,7 +299,7 @@ const uploadTranslatedDocument = async (req, res) => {
     const document = await prisma.document.update({
       where: { id },
       data: {
-        translatedUrl: `/uploads/${req.file.filename}`,
+        translatedUrl: getFileUrl(req.file),
         status: 'Translated'
       },
       include: {
@@ -373,7 +391,7 @@ const uploadBatchDocuments = async (req, res) => {
           clientId,
           name: file.originalname,
           category: category,
-          url: file.location || `/uploads/${file.filename}`,
+          url: getFileUrl(file),
           size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
           status: 'Pending Verification',
           belongsTo: belongsTo,

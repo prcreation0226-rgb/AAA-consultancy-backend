@@ -1,5 +1,23 @@
+const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+
+const getFileUrl = (file) => {
+  if (!file) return '';
+  if (file.location) return file.location;
+  if (file.path) {
+    try {
+      if (fs.existsSync(file.path)) {
+        const fileBuffer = fs.readFileSync(file.path);
+        const mimeType = file.mimetype || 'application/pdf';
+        return `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+      }
+    } catch (err) {
+      console.warn('[getFileUrl] Could not convert file to Data URI:', err.message);
+    }
+  }
+  return `/uploads/${file.filename}`;
+};
 const { remindersQueue, noShowEnforcerQueue } = require('../queues/queueSetup');
 const { extractText } = require('unpdf');
 const { sendEmail } = require('../services/emailService');
@@ -661,8 +679,7 @@ exports.uploadTranslationDocument = async (req, res) => {
 
       const priceDetails = await calculateSwornTranslationPrice(docWordCount, docLang);
 
-      const filename = file.filename || file.key || `${Date.now()}-${file.originalname || 'document.pdf'}`;
-      const fileUrl = file.location || `/uploads/${filename}`;
+      const fileUrl = getFileUrl(file);
       const fileSizeMb = file.size ? (file.size / 1024 / 1024).toFixed(2) : '0.10';
 
       const docObj = {
@@ -819,8 +836,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       const docWordCount = docMeta.wordCount || 0;
       const priceDetails = await calculateSwornTranslationPrice(docWordCount, docLang);
 
-      const filename = file.filename || file.key || `${Date.now()}-${file.originalname || 'document.pdf'}`;
-      const fileUrl = file.location || `/uploads/${filename}`;
+      const fileUrl = getFileUrl(file);
       const fileSizeMb = file.size ? (file.size / 1024 / 1024).toFixed(2) : '0.10';
 
       const docItem = {

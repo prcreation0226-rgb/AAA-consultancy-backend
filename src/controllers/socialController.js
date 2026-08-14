@@ -17,7 +17,10 @@ const isTwilioConfigured = !!(
  * Clean phone number function
  */
 function cleanPhoneNumber(phone) {
-  let clean = phone.trim();
+  let clean = (phone || '').trim();
+  if (clean.startsWith('urn:li:') || clean.startsWith('li_') || clean.includes('linkedin')) {
+    return clean;
+  }
   if (clean.startsWith('whatsapp:')) {
     clean = clean.substring(9);
   }
@@ -29,14 +32,16 @@ function cleanPhoneNumber(phone) {
 }
 
 const parseMessageContent = (content) => {
-  if (!content) return { text: '', mediaUrl: null };
+  if (!content || !content.trim()) {
+    return { text: '', mediaUrl: null };
+  }
   const fileMatch = content.match(/\[FILE:\s*(.+?)\]/);
   if (fileMatch) {
     const mediaUrl = fileMatch[1];
     const text = content.replace(/\[FILE:\s*(.+?)\]/, '').trim();
-    return { text, mediaUrl };
+    return { text: text || '📎 Media Attachment', mediaUrl };
   }
-  return { text: content, mediaUrl: null };
+  return { text: content.trim(), mediaUrl: null };
 };
 
 /**
@@ -220,13 +225,16 @@ exports.getConversations = async (req, res) => {
         }
       }
 
-      // Determine dominant conversation channel: INSTAGRAM > FACEBOOK > TELEGRAM > WHATSAPP
+      // Determine dominant conversation channel: LINKEDIN > INSTAGRAM > FACEBOOK > TELEGRAM > WHATSAPP
       let conversationChannel = 'WHATSAPP';
+      const hasLinkedInLog = messagesLogs.some(m => m.channel === 'LINKEDIN' || m.channel === 'linkedin');
       const hasInstagramLog = messagesLogs.some(m => m.channel === 'INSTAGRAM' || m.channel === 'instagram');
       const hasFacebookLog = messagesLogs.some(m => m.channel === 'FACEBOOK' || m.channel === 'facebook');
       const hasTelegramLog = messagesLogs.some(m => m.channel === 'TELEGRAM' || m.channel === 'telegram');
 
-      if (hasInstagramLog) {
+      if (hasLinkedInLog) {
+        conversationChannel = 'LINKEDIN';
+      } else if (hasInstagramLog) {
         conversationChannel = 'INSTAGRAM';
       } else if (hasFacebookLog) {
         conversationChannel = 'FACEBOOK';
@@ -520,6 +528,16 @@ exports.sendSocialMessage = async (req, res) => {
         console.error('[Telegram Dispatch Error]:', tgErr.message);
         deliveryStatus = 'FAILED';
         failureReason = tgErr.message;
+      }
+    } else if (channel === 'LINKEDIN') {
+      console.log(`[LinkedIn Outbound] To: ${cleanPh}, Text: ${displayContent}`);
+      const linkedinService = require('../services/linkedinService');
+      try {
+        await linkedinService.sendLinkedInDM(cleanPh, displayContent);
+      } catch (liErr) {
+        console.error('[LinkedIn Dispatch Error]:', liErr.message);
+        deliveryStatus = 'FAILED';
+        failureReason = liErr.message;
       }
     } else {
       const twilioTo = `whatsapp:${cleanPh}`;
