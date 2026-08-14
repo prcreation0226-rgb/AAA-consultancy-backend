@@ -536,7 +536,17 @@ exports.sendSocialMessage = async (req, res) => {
       console.log(`[LinkedIn Outbound] To: ${cleanPh}, Text: ${displayContent}`);
       const linkedinService = require('../services/linkedinService');
       try {
-        await linkedinService.sendLinkedInDM(cleanPh, displayContent);
+        // Check if replying to a comment or direct interaction
+        const latestInbound = await prisma.communicationLog.findFirst({
+          where: { phone: cleanPh, channel: 'LINKEDIN', direction: 'INBOUND' },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        if (latestInbound && latestInbound.content?.startsWith('💬 [Post Comment]') && latestInbound.messageId) {
+          await linkedinService.replyToLinkedInComment(latestInbound.messageId, displayContent);
+        } else {
+          await linkedinService.sendLinkedInDM(cleanPh, displayContent);
+        }
       } catch (liErr) {
         console.error('[LinkedIn Dispatch Error]:', liErr.message);
         deliveryStatus = 'FAILED';

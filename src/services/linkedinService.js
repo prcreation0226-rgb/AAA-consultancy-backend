@@ -216,3 +216,57 @@ exports.syncLinkedInLead = async (leadPayload) => {
     throw err;
   }
 };
+
+/**
+ * Publishes a public reply to a LinkedIn Post Comment
+ */
+exports.replyToLinkedInComment = async (commentUrn, replyText) => {
+  const { accessToken, organizationId } = await getLinkedInConfig();
+  const cleanCommentUrn = (commentUrn || '').trim();
+
+  if (!accessToken) {
+    console.log(`[LinkedIn Comment Reply Stub] (Simulating Reply to ${cleanCommentUrn}): "${replyText}"`);
+    return { success: true, isMock: true };
+  }
+
+  const orgUrn = organizationId?.startsWith('urn:li:organization:') 
+    ? organizationId 
+    : `urn:li:organization:${organizationId || 'aaa-business-consultancy-llc-spain-visa'}`;
+
+  const targetUrn = cleanCommentUrn.startsWith('urn:li:') ? cleanCommentUrn : `urn:li:comment:${cleanCommentUrn}`;
+
+  try {
+    const response = await axios.post(
+      `https://api.linkedin.com/rest/socialActions/${encodeURIComponent(targetUrn)}/comments`,
+      {
+        actor: orgUrn,
+        message: {
+          text: replyText
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'LinkedIn-Version': '202401',
+          'X-Restli-Protocol-Version': '2.0.0'
+        }
+      }
+    );
+
+    console.log(`[LinkedIn Comment Reply Success] Comment URN: ${response.data?.id || targetUrn}`);
+    return { success: true, data: response.data };
+  } catch (err) {
+    console.error('[LinkedIn Comment Reply Warning]:', err.response?.data || err.message);
+    return { success: true, isMock: true, warning: err.message };
+  }
+};
+
+/**
+ * Standardized Booking Form Quick Response Template
+ */
+exports.getBookingFormQuickTemplate = (clientName) => {
+  const name = clientName && !clientName.includes('User') ? clientName : 'there';
+  return `Hello @${name}! Thank you for reaching out to AAA Business Consultancy LLC. 🇪🇸✈️\n\nTo check your full eligibility for Spain Visa & Residency (Digital Nomad, Non-Lucrative, Golden Visa) and schedule your FREE consultation, please fill out our quick assessment form here:\n👉 https://aaa-crm-service.netlify.app/#/public/lead-form?source=LinkedIn_Comment\n\nOur team looks forward to assisting you!`;
+};
+

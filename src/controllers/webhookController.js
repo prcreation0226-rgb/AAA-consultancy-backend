@@ -898,7 +898,68 @@ exports.handleLinkedInWebhook = async (req, res) => {
       return;
     }
 
-    // 2. Check if Direct Message or Conversation Event
+    // 2. Check if Post Comment / Social Action Event
+    const isCommentEvent = payload.eventType === 'COMMENT' || payload.socialAction === 'COMMENT' || payload.commentUrn || payload.object?.includes('comment');
+
+    if (isCommentEvent || payload.comments) {
+      console.log('[LinkedIn Webhook] Processing LinkedIn Post Comment event');
+      const commentObj = payload.comment || payload;
+      const commenterUrn = commentObj.actor || commentObj.sender || commentObj.author || payload.actor;
+      const commentText = commentObj.message?.text || commentObj.text || commentObj.body || '';
+      const commentUrn = commentObj.id || commentObj.urn || payload.commentUrn || `li_cmt_${Date.now()}`;
+      const postUrn = commentObj.object || payload.object || '';
+
+      if (commenterUrn && commentText) {
+        const cleanCommenter = String(commenterUrn).trim();
+
+        if (await isDuplicateMessage(commentUrn)) {
+          console.log(`[LinkedIn Webhook] Comment ${commentUrn} already processed.`);
+          return;
+        }
+
+        let senderDisplayName = 'LinkedIn Commenter';
+        try {
+          const profile = await linkedinService.getLinkedInUserProfile(cleanCommenter);
+          if (profile && profile.name) senderDisplayName = profile.name;
+        } catch (profErr) {
+          console.warn('[LinkedIn Profile Warning]:', profErr.message);
+        }
+
+        // Save Comment to Database (isComment context stored in content/messageId)
+        await prisma.communicationLog.create({
+          data: {
+            phone: cleanCommenter,
+            name: senderDisplayName,
+            channel: 'LINKEDIN',
+            direction: 'INBOUND',
+            content: `💬 [Post Comment]: ${commentText}`,
+            messageId: commentUrn,
+            externalProviderId: postUrn,
+            deliveryStatus: 'DELIVERED'
+          }
+        });
+
+        // Realtime live broadcast to Social Inbox Comments tab
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('new_whatsapp_message', {
+            phone: cleanCommenter,
+            name: senderDisplayName,
+            text: `💬 [Post Comment]: ${commentText}`,
+            channel: 'LINKEDIN',
+            platform: 'linkedin',
+            isComment: true,
+            commentUrn: commentUrn,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          });
+        }
+
+        console.log(`[LinkedIn Comment Received] From ${senderDisplayName}: ${commentText}`);
+        return;
+      }
+    }
+
+    // 3. Check if Direct Message or General Inbound Event
     const events = Array.isArray(payload.events) ? payload.events : [payload];
 
     for (const ev of events) {
