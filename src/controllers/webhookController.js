@@ -1081,7 +1081,7 @@ exports.verifyTwitterWebhook = async (req, res) => {
  * Handles incoming Twitter / X Direct Messages and Mentions
  */
 exports.handleTwitterWebhook = async (req, res) => {
-  const payload = req.body;
+  const payload = req.body || {};
   console.log('[Twitter Webhook Payload Received]:', JSON.stringify(payload, null, 2));
 
   // Acknowledge immediately to prevent timeout
@@ -1090,16 +1090,38 @@ exports.handleTwitterWebhook = async (req, res) => {
   try {
     const twitterService = require('../services/twitterService');
 
-    // 1. Direct Message Events (Account Activity API / v2 Webhook)
-    const dmEvents = payload.direct_message_events || payload.dm_events || [];
+    // 1. Gather all Direct Message Events across different Twitter API versions
+    let dmEvents = [];
 
+    if (Array.isArray(payload.direct_message_events)) {
+      dmEvents.push(...payload.direct_message_events);
+    }
+    if (Array.isArray(payload.dm_events)) {
+      dmEvents.push(...payload.dm_events);
+    }
+    if (Array.isArray(payload.events)) {
+      dmEvents.push(...payload.events);
+    }
+    if (payload.data) {
+      if (Array.isArray(payload.data)) {
+        dmEvents.push(...payload.data);
+      } else if (typeof payload.data === 'object') {
+        dmEvents.push(payload.data);
+      }
+    }
+    // Also check if payload itself is a single event
+    if (payload.event_type === 'dm.received' || payload.event === 'dm.received' || payload.type === 'message_create') {
+      dmEvents.push(payload);
+    }
+
+    // Process DM Events
     for (const event of dmEvents) {
-      const messageData = event.message_create || event.message || event;
-      const senderId = messageData.sender_id || event.sender_id;
-      const text = messageData.message_data?.text || messageData.text || '';
-      const messageId = event.id || `tw-${Date.now()}`;
+      const messageData = event.message_create || event.message || event.data || event;
+      const senderId = messageData.sender_id || messageData.senderId || messageData.author_id || messageData.sender?.id || event.sender_id || event.author_id;
+      const text = messageData.message_data?.text || messageData.text || messageData.content || event.text || '';
+      const messageId = event.id || messageData.id || `tw-${Date.now()}`;
 
-      if (!senderId || (event.type !== 'message_create' && !text)) {
+      if (!senderId || !text) {
         continue;
       }
 
@@ -1111,7 +1133,7 @@ exports.handleTwitterWebhook = async (req, res) => {
       }
 
       // Resolve profile name and avatar
-      let senderDisplayName = `@user_${cleanSender.substring(0, 6)}`;
+      let senderDisplayName = event.sender?.username ? `@${event.sender.username}` : `@user_${cleanSender.substring(0, 6)}`;
       try {
         const profile = await twitterService.getTwitterUserProfile(cleanSender);
         if (profile && profile.name) {
@@ -1156,13 +1178,13 @@ exports.handleTwitterWebhook = async (req, res) => {
     }
 
     // 2. Tweet Mentions
-    const tweetEvents = payload.tweet_create_events || [];
+    const tweetEvents = payload.tweet_create_events || (payload.event_type === 'tweet.create' ? [payload.data || payload] : []);
     for (const tweet of tweetEvents) {
-      const sender = tweet.user?.screen_name ? `@${tweet.user.screen_name}` : `user_${tweet.user?.id_str}`;
+      const sender = tweet.user?.screen_name ? `@${tweet.user.screen_name}` : (tweet.author_id ? `user_${tweet.author_id}` : `user_${tweet.user?.id_str}`);
       const text = tweet.text || '';
-      const tweetId = tweet.id_str || `tw_tweet_${Date.now()}`;
+      const tweetId = tweet.id_str || tweet.id || `tw_tweet_${Date.now()}`;
 
-      if (await isDuplicateMessage(tweetId)) continue;
+      if (!sender || !text || await isDuplicateMessage(tweetId)) continue;
 
       await prisma.communicationLog.create({
         data: {
