@@ -315,28 +315,47 @@ exports.deleteMessage = async (req, res) => {
 };
 
 /**
- * Clear all messages for a specific phone number
+ * Clear all messages for a specific phone number or social handle
  */
 exports.clearChat = async (req, res) => {
   try {
     const { phone } = req.params;
     if (!phone) return res.status(400).json({ error: 'Phone or ID is required' });
 
-    const rawId = (phone || '').trim();
+    const rawId = decodeURIComponent((phone || '').trim());
     const cleanDigits = rawId.replace(/[^\d]/g, '');
     const withPlus = cleanDigits ? `+${cleanDigits}` : rawId;
+    const withoutAt = rawId.startsWith('@') ? rawId.substring(1) : rawId;
+    const withAt = rawId.startsWith('@') ? rawId : '@' + rawId;
+    const cleanPh = cleanPhoneNumber(rawId);
+
+    const orConditions = [
+      { phone: rawId },
+      { phone: withoutAt },
+      { phone: withAt },
+      { phone: `tw_${withoutAt}` },
+      { phone: `tw_${rawId}` },
+      { phone: `twitter:${withoutAt}` },
+      { phone: `twitter:${rawId}` },
+      { phone: cleanPh },
+      { name: rawId },
+      { name: withoutAt },
+      { name: withAt }
+    ];
+
+    if (cleanDigits && cleanDigits.length >= 5) {
+      orConditions.push({ phone: cleanDigits });
+      orConditions.push({ phone: withPlus });
+    }
 
     const deleteResult = await prisma.communicationLog.deleteMany({
       where: {
-        OR: [
-          { phone: rawId },
-          { phone: cleanDigits },
-          { phone: withPlus }
-        ]
+        OR: orConditions
       }
     });
 
-    res.json({ success: true, message: `Cleared ${deleteResult.count} messages successfully` });
+    console.log(`[Clear Chat] Deleted ${deleteResult.count} messages for identifier: ${rawId}`);
+    res.json({ success: true, message: `Cleared ${deleteResult.count} messages successfully`, count: deleteResult.count });
   } catch (error) {
     console.error('Error clearing chat:', error);
     res.status(500).json({ error: 'Failed to clear chat' });
