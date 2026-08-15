@@ -14,19 +14,23 @@ const isTwilioConfigured = !!(
 );
 
 /**
- * Clean phone number function
+ * Clean phone number or social handle function
  */
-function cleanPhoneNumber(phone) {
+function cleanPhoneNumber(phone, channel) {
   let clean = (phone || '').trim();
-  if (clean.startsWith('urn:li:') || clean.startsWith('li_') || clean.includes('linkedin') || clean.startsWith('@') || clean.startsWith('tw_')) {
+  if (channel === 'TWITTER' || clean.startsWith('@') || clean.startsWith('tw_') || clean.startsWith('twitter:')) {
+    const raw = clean.replace(/^twitter:/, '').replace(/^tw_/, '');
+    return raw.startsWith('@') ? raw : '@' + raw;
+  }
+  if (channel === 'LINKEDIN' || clean.startsWith('urn:li:') || clean.startsWith('li_') || clean.includes('linkedin')) {
     return clean;
   }
   if (clean.startsWith('whatsapp:')) {
     clean = clean.substring(9);
   }
-  clean = clean.replace(/[^\d+]/g, '');
-  if (!clean.startsWith('+')) {
-    clean = '+' + clean;
+  const digits = clean.replace(/[^\d+]/g, '');
+  if (digits && digits.length >= 5) {
+    return digits.startsWith('+') ? digits : '+' + digits;
   }
   return clean;
 }
@@ -45,7 +49,7 @@ const parseMessageContent = (content) => {
 };
 
 /**
- * Get all conversations grouped by phone number
+ * Get all conversations grouped by phone number or social handle
  */
 exports.getConversations = async (req, res) => {
   try {
@@ -67,29 +71,29 @@ exports.getConversations = async (req, res) => {
       })
     ]);
 
-    // 2. Group logs by normalized digit phone key in memory (0 DB overhead)
+    // 2. Group logs by normalized key in memory (0 DB overhead)
     const logsByPhoneMap = {};
     const conversationsOrderMap = {};
-    const uniquePhones = [];
+    const uniqueItems = [];
 
     for (const log of logs) {
       if (!log.phone) continue;
-      const cleanPh = cleanPhoneNumber(log.phone);
-      const numDigits = cleanPh.replace(/\D/g, '');
-      const key = numDigits || cleanPh;
+      const isSocialHandle = log.channel === 'TWITTER' || log.channel === 'LINKEDIN' || String(log.phone).startsWith('@') || String(log.phone).startsWith('urn:li:');
+      const cleanPh = cleanPhoneNumber(log.phone, log.channel);
+      const key = isSocialHandle ? `${log.channel || 'SOCIAL'}:${cleanPh}` : (cleanPh.replace(/\D/g, '') || cleanPh);
 
       if (!logsByPhoneMap[key]) {
         logsByPhoneMap[key] = [];
-        uniquePhones.push(cleanPh);
+        uniqueItems.push({ key, cleanPh, channel: log.channel });
       }
       logsByPhoneMap[key].push(log);
-      conversationsOrderMap[cleanPh] = log; // keeps track of latest log
+      conversationsOrderMap[key] = log; // keeps track of latest log
     }
 
-    // Sort uniquePhones by newest log date descending
-    uniquePhones.sort((a, b) => {
-      const dateA = new Date(conversationsOrderMap[a]?.createdAt || 0);
-      const dateB = new Date(conversationsOrderMap[b]?.createdAt || 0);
+    // Sort uniqueItems by newest log date descending
+    uniqueItems.sort((a, b) => {
+      const dateA = new Date(conversationsOrderMap[a.key]?.createdAt || 0);
+      const dateB = new Date(conversationsOrderMap[b.key]?.createdAt || 0);
       return dateB - dateA;
     });
 
@@ -99,15 +103,14 @@ exports.getConversations = async (req, res) => {
       return normalized === '' || normalized === 'applicant' || normalized.includes('applicant');
     };
 
-    // 3. Resolve Meta User placeholder names & avatars to real profiles
+    // 3. Resolve Meta User placeholder names & avatars to real profiles (fast with timeout)
     const instagramService = require('../services/instagramService');
     const profileAvatars = {};
 
-    await Promise.all(
-      uniquePhones.map(async (cleanPh) => {
-        const numberPart = cleanPh.replace(/\D/g, '');
-        const key = numberPart || cleanPh;
-        const messagesLogs = logsByPhoneMap[key] || [];
+    await Promise.allSettled(
+      uniqueItems.map(async (item) => {
+        const cleanPh = item.cleanPh;
+        const messagesLogs = logsByPhoneMap[item.key] || [];
         const latestLog = messagesLogs[messagesLogs.length - 1];
 
         if (latestLog && (latestLog.channel === 'INSTAGRAM' || latestLog.channel === 'instagram')) {
@@ -152,15 +155,20 @@ exports.getConversations = async (req, res) => {
     );
 
     // 4. Build conversations in memory
-    const conversations = uniquePhones.map(cleanPh => {
-      const numberPart = cleanPh.replace(/\D/g, '');
-      const key = numberPart || cleanPh;
-      const messagesLogs = logsByPhoneMap[key] || [];
-      const latestLog = messagesLogs[messagesLogs.length - 1] || conversationsOrderMap[cleanPh];
+    const conversations = uniqueItems.map(item => {
+      const cleanPh = item.cleanPh;
+      const isSocial = item.channel === 'TWITTER' || item.channel === 'LINKEDIN' || cleanPh.startsWith('@') || cleanPh.startsWith('urn:li:');
+      const numberPart = isSocial ? '' : cleanPh.replace(/\D/g, '');
+      const messagesLogs = logsByPhoneMap[item.key] || [];
+      const latestLog = messagesLogs[messagesLogs.length - 1] || conversationsOrderMap[item.key];
 
-      // Safe matching with clients & leads
-      const client = allClients.find(c => c.phone && c.phone.replace(/\D/g, '').includes(numberPart));
-      const lead = allLeads.find(l => l.phone && l.phone.replace(/\D/g, '').includes(numberPart));
+      // Safe matching with clients & leads (only for valid phone numbers >= 7 digits)
+      let client = null;
+      let lead = null;
+      if (!isSocial && numberPart.length >= 7) {
+        client = allClients.find(c => c.phone && c.phone.replace(/\D/g, '').includes(numberPart));
+        lead = allLeads.find(l => l.phone && l.phone.replace(/\D/g, '').includes(numberPart));
+      }
 
       let name = cleanPh;
       let status = 'New Lead';
@@ -207,7 +215,7 @@ exports.getConversations = async (req, res) => {
 
       const unreadCount = messagesLogs.filter(m => m.direction === 'INBOUND' && !m.readStatus).length;
 
-      // 24-Hour WhatsApp Customer Session Window calculation (Safe against null/invalid dates)
+      // 24-Hour WhatsApp Customer Session Window calculation
       const latestInboundLog = messagesLogs.slice().reverse().find(m => m.direction === 'INBOUND');
       const lastInboundAt = latestInboundLog ? latestInboundLog.createdAt : null;
       const windowMillis = 24 * 60 * 60 * 1000;
@@ -252,8 +260,12 @@ exports.getConversations = async (req, res) => {
         avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'Client')}&background=4F46E5&color=fff&bold=true&size=128`;
       }
 
+      const convId = isSocial
+        ? `conv_${conversationChannel.toLowerCase()}_${cleanPh.replace(/[^a-zA-Z0-9_]/g, '')}`
+        : `conv_phone_${numberPart || cleanPh.replace(/[^\d]/g, '') || Math.random().toString(36).substring(2, 9)}`;
+
       return {
-        id: `conv_phone_${cleanPh.replace(/[^\d]/g, '')}`,
+        id: convId,
         phone: cleanPh,
         name: name,
         avatar: avatar,
