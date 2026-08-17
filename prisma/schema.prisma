@@ -94,6 +94,7 @@ model Lead {
   consultations    Consultation[]
 
   @@map("leads")
+  @@index([createdAt])
 }
 
 
@@ -152,6 +153,7 @@ model Client {
   consultations    Consultation[]
 
   @@map("clients")
+  @@index([createdAt])
 }
 
 model Consultation {

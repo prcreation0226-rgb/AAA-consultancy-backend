@@ -5,27 +5,50 @@ const { JWT_SECRET } = require('../config/jwt');
 
 const getClients = async (req, res) => {
   try {
+    // 1. Fetch lightweight sorted client IDs (sorts only UUIDs to prevent MySQL sort_buffer_size overflow)
+    let clientIds = [];
+    try {
+      clientIds = await prisma.client.findMany({
+        select: { id: true },
+        orderBy: { createdAt: 'desc' }
+      });
+    } catch (err) {
+      console.error('Error fetching client IDs:', err);
+      return res.status(500).json({ message: 'Server error fetching clients', error: err.message });
+    }
+
+    if (!clientIds || clientIds.length === 0) {
+      return res.json([]);
+    }
+
+    const idList = clientIds.map(c => c.id);
+
+    // 2. Fetch full client objects by primary key list (zero SQL sort memory overhead)
     let clients = [];
     try {
       clients = await prisma.client.findMany({
+        where: { id: { in: idList } },
         include: {
           assignedTo: { select: { fullName: true } },
           applicationCycles: true
-        },
-        orderBy: { createdAt: 'desc' }
+        }
       });
     } catch (dbErr) {
       console.warn('[getClients Warning] Retrying query without applicationCycles relation:', dbErr.message);
       clients = await prisma.client.findMany({
+        where: { id: { in: idList } },
         include: {
           assignedTo: { select: { fullName: true } }
-        },
-        orderBy: { createdAt: 'desc' }
+        }
       });
     }
+
+    // 3. Preserve exact createdAt desc order
+    const clientMap = new Map(clients.map(c => [c.id, c]));
+    const sortedClients = idList.map(id => clientMap.get(id)).filter(Boolean);
     
-    const totalClientsCount = clients.length;
-    const mapped = clients.map((c, index) => {
+    const totalClientsCount = sortedClients.length;
+    const mapped = sortedClients.map((c, index) => {
       const autoCode = `CID-${12000 + (totalClientsCount - index)}`;
       const finalClientCode = c.clientCode || autoCode;
       

@@ -2,7 +2,21 @@ const prisma = require('../config/db');
 
 const getLeads = async (req, res) => {
   try {
+    // 1. Fetch lightweight sorted lead IDs (sorts only UUIDs to prevent MySQL sort_buffer_size overflow code 1038)
+    const leadIds = await prisma.lead.findMany({
+      select: { id: true },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    if (!leadIds || leadIds.length === 0) {
+      return res.json([]);
+    }
+
+    const idList = leadIds.map(l => l.id);
+
+    // 2. Fetch full lead objects using primary key list (zero SQL sort memory overhead)
     const leads = await prisma.lead.findMany({
+      where: { id: { in: idList } },
       select: {
         id: true,
         firstName: true,
@@ -49,12 +63,16 @@ const getLeads = async (req, res) => {
             }
           }
         }
-      },
-      orderBy: { createdAt: 'desc' }
+      }
     });
-    // Map to frontend expectation
-    const mapped = leads.map((l, idx) => {
-      const autoCode = l.client?.clientCode || `CID-${12001 + (leads.length - 1 - idx)}`;
+
+    // 3. Preserve the exact createdAt desc order
+    const leadMap = new Map(leads.map(l => [l.id, l]));
+    const sortedLeads = idList.map(id => leadMap.get(id)).filter(Boolean);
+
+    // 4. Map to frontend expectation
+    const mapped = sortedLeads.map((l, idx) => {
+      const autoCode = l.client?.clientCode || `CID-${12001 + (sortedLeads.length - 1 - idx)}`;
       return {
         ...l,
         createdDate: l.createdAt,
@@ -70,6 +88,7 @@ const getLeads = async (req, res) => {
     });
     res.json(mapped);
   } catch (error) {
+    console.error('Error fetching leads:', error);
     res.status(500).json({ message: 'Server error fetching leads', error: error.message });
   }
 };
