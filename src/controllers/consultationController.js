@@ -1592,6 +1592,12 @@ async function publicCancelConsultation(req, res) {
       return match ? `${match[3]}/${match[2]}/${match[1]}` : consultation.date;
     })();
 
+    const targetLeadId = lead?.id || consultation.leadId || '';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const rebookUrl = targetLeadId 
+      ? `${frontendUrl}/#/public/lead-form?leadId=${targetLeadId}&rebook=true`
+      : `${frontendUrl}/#/public/lead-form`;
+
     if (phone) {
       try {
         const { sendCustomWhatsApp } = require('../services/chatbotService');
@@ -1602,7 +1608,7 @@ Dear *${clientName}*,
 Your Spain Visa Eligibility Assessment scheduled for ${displayDate} at ${consultation.timeSlot} (UAE) has been cancelled as requested.
 
 If you ever wish to re-book, feel free to visit our booking page anytime:
-${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
+${rebookUrl}`;
 
         await sendCustomWhatsApp(phone, waMsg);
       } catch (waErr) {
@@ -1621,7 +1627,7 @@ ${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form`;
               <h3>Appointment Cancellation Confirmed</h3>
               <p>Dear ${lead ? lead.firstName : 'Client'},</p>
               <p>Your Spain Visa Eligibility Assessment scheduled for <b>${displayDate}</b> at <b>${consultation.timeSlot} (UAE)</b> has been cancelled.</p>
-              <p>You can book a new session anytime at <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/#/public/lead-form">AAA Business Consultancy</a>.</p>
+              <p>You can book a new session anytime at <a href="${rebookUrl}">AAA Business Consultancy</a>.</p>
             </div>
           `
         });
