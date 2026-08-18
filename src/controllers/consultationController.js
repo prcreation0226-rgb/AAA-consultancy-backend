@@ -1764,6 +1764,20 @@ const cleanupTestConsultations = async (req, res) => {
   }
 };
 
+const resetAllConsultations = async (req, res) => {
+  try {
+    const deleted = await prisma.consultation.deleteMany();
+    return res.json({
+      success: true,
+      message: `Calendar reset successfully. Deleted ${deleted.count} consultation records.`,
+      deletedCount: deleted.count
+    });
+  } catch (error) {
+    console.error('Error in resetAllConsultations:', error);
+    return res.status(500).json({ success: false, message: 'Failed to reset calendar data.' });
+  }
+};
+
 module.exports = {
   getConsultations,
   getPublicBookedSlots,
@@ -1778,6 +1792,7 @@ module.exports = {
   getPublicConsultationDetails,
   generateBookingToken,
   resolveConsultationId,
-  cleanupTestConsultations
+  cleanupTestConsultations,
+  resetAllConsultations
 };
 
