@@ -442,7 +442,9 @@ const updateLeadStatus = async (req, res) => {
         lastName: true,
         email: true,
         phone: true,
-        status: true
+        status: true,
+        meetingPreferredDate: true,
+        meetingPreferredTime: true
       }
     });
 
@@ -489,7 +491,11 @@ const updateLeadStatus = async (req, res) => {
         notifyClient({
           event: 'MEETING_CANCELLED',
           leadId: lead.id,
-          consultationId: consultation?.id || null
+          consultationId: consultation?.id || null,
+          data: {
+            date: consultation?.date || lead.meetingPreferredDate,
+            time: consultation?.timeSlot || lead.meetingPreferredTime
+          }
         }).catch(err => console.error('[updateLeadStatus] Cancellation notifyClient failed:', err.message));
 
         const remindersQueue = req.app ? req.app.get('remindersQueue') : null;

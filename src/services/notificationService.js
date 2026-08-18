@@ -54,6 +54,9 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
       }
     }
 
+    date = date || lead?.meetingPreferredDate || null;
+    time = time || lead?.meetingPreferredTime || null;
+
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     
     // Fallback values
