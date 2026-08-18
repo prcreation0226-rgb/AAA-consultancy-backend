@@ -465,7 +465,7 @@ const createRefundRequest = async (req, res) => {
         where: { clientId: targetClientId, status: 'Paid' }
       });
       const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-      refundAmount = totalPaid * 0.5; // Auto 50% refund
+      refundAmount = totalPaid * 1.0; // Auto 100% refund calculation
     }
     
     const refund = await prisma.refundRequest.create({
@@ -519,6 +519,7 @@ const createRefundRequest = async (req, res) => {
       const { sendEmail } = require('../services/emailService');
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
       const crmRefundUrl = `${frontendUrl}/#/super_admin/finance`;
+      const dateSubmittedFormatted = new Date().toLocaleDateString('en-GB');
 
       // Email 1: Send alert to client@aaabusinessconsultancy.com
       const adminEmailHtml = `
@@ -527,12 +528,13 @@ const createRefundRequest = async (req, res) => {
             <h2 style="color: #051A3B; margin: 0;">AAA Business Consultancy</h2>
             <p style="color: #dc2626; font-weight: 800; margin: 4px 0 0; font-size: 14px;">🚨 ALERT: New Refund Claim Submitted</p>
           </div>
-          <p style="font-size: 15px; color: #1e293b;">A new 50% Money-Back Guarantee refund claim has been submitted on the Client Portal.</p>
+          <p style="font-size: 15px; color: #1e293b;">A new 100% Money-Back Guarantee refund claim has been submitted on the Client Portal.</p>
           <div style="background-color: #FAF6ED; border: 1px solid rgba(197,155,39,0.4); padding: 18px; border-radius: 8px; margin: 20px 0;">
             <h4 style="margin: 0 0 10px; color: #051A3B;">Claim Summary (#${refund.id.substring(0, 8)})</h4>
             <p style="margin: 5px 0;"><strong>Client Name:</strong> ${clientName}</p>
             <p style="margin: 5px 0;"><strong>Client Email:</strong> ${clientEmail || 'N/A'}</p>
             <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
+            <p style="margin: 5px 0;"><strong>Date Submitted:</strong> ${dateSubmittedFormatted}</p>
             <p style="margin: 5px 0;"><strong>Calculated Amount:</strong> <span style="color: #dc2626; font-weight: 800;">€${refundAmount.toLocaleString()}</span></p>
             <p style="margin: 5px 0;"><strong>Reason/Statement:</strong> ${reason || 'N/A'}</p>
             ${proofUrl ? `<p style="margin: 5px 0;"><strong>Embassy Proof:</strong> <a href="${proofUrl}" target="_blank" style="color: #0284c7; font-weight: 700;">View Rejection Letter 📄</a></p>` : ''}
@@ -552,11 +554,11 @@ const createRefundRequest = async (req, res) => {
             <p style="color: #C59B27; font-weight: 700; margin: 4px 0 0; font-size: 14px;">Official Guarantee Refund Claim Acknowledgment</p>
           </div>
           <p style="font-size: 15px;">Dear <strong>${clientName}</strong>,</p>
-          <p>We have successfully received your refund claim request under our <strong>Spain Visa 50% Money-Back Guarantee Policy</strong>.</p>
+          <p>We have successfully received your refund claim request under our <strong>Spain Visa 100% Money-Back Guarantee Policy</strong>.</p>
           <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 18px; border-radius: 8px; margin: 20px 0;">
             <h4 style="margin: 0 0 10px; color: #051A3B;">Ticket Claim Details (#${refund.id.substring(0, 8)})</h4>
             <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
-            <p style="margin: 5px 0;"><strong>Estimated 50% Amount:</strong> <strong style="color: #dc2626;">€${refundAmount.toLocaleString()}</strong></p>
+            <p style="margin: 5px 0;"><strong>Date Submitted:</strong> ${dateSubmittedFormatted}</p>
             <p style="margin: 5px 0;"><strong>Status:</strong> <span style="background-color: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Review</span></p>
           </div>
           <p style="font-size: 14px; color: #475569;">Our audit team is reviewing your submitted embassy rejection documentation. You will be updated once your payout is audited and executed.</p>
@@ -588,7 +590,7 @@ const createRefundRequest = async (req, res) => {
             userId: targetClientId,
             type: 'REFUND_CLAIM',
             title: '🛡️ New Refund Claim Registered',
-            body: `Client ${clientName} submitted a 50% refund claim (€${refundAmount.toLocaleString()}). Audit required.`
+            body: `Client ${clientName} submitted a 100% refund claim (€${refundAmount.toLocaleString()}). Audit required.`
           }
         });
       } catch (notifErr) {
@@ -662,7 +664,7 @@ const updateRefundStatus = async (req, res) => {
           </div>
           
           <p>Dear <strong>${refund.client.firstName} ${refund.client.lastName}</strong>,</p>
-          <p>We are writing to confirm that your refund claim under our <strong>Spain Visa 50% Money-Back Guarantee Policy</strong> has been audited and successfully processed.</p>
+          <p>We are writing to confirm that your refund claim under our <strong>Spain Visa 100% Money-Back Guarantee Policy</strong> has been audited and successfully processed.</p>
           
           <div style="background-color: #FAF6ED; border: 1px solid rgba(197, 155, 39, 0.4); padding: 20px; margin: 20px 0; border-radius: 8px;">
             <h4 style="margin: 0 0 12px; color: #051A3B; font-size: 16px;">Receipt Summary (#${refund.id.substring(0, 8)})</h4>
@@ -670,7 +672,7 @@ const updateRefundStatus = async (req, res) => {
             <p style="margin: 6px 0; font-size: 14px;"><strong>Processed Amount:</strong> <span style="color: #dc2626; font-weight: 800; font-size: 18px;">€${refund.amount.toLocaleString()}</span></p>
             <p style="margin: 6px 0; font-size: 14px;"><strong>Payout Method:</strong> ${refund.payoutMethod || 'Direct Transfer'}</p>
             <p style="margin: 6px 0; font-size: 14px;"><strong>Transaction / UTR Ref:</strong> <code style="background-color: #e2e8f0; padding: 2px 6px; border-radius: 4px;">${refund.transactionRef || 'N/A'}</code></p>
-            <p style="margin: 6px 0; font-size: 14px;"><strong>Processing Date:</strong> ${new Date().toISOString().split('T')[0]}</p>
+            <p style="margin: 6px 0; font-size: 14px;"><strong>Processing Date:</strong> ${new Date().toLocaleDateString('en-GB')}</p>
           </div>
 
           <div style="text-align: center; margin: 28px 0;">
