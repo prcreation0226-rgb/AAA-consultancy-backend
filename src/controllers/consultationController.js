@@ -35,6 +35,26 @@ function getSortableTimestamp(dateStr, timeSlotStr, status) {
 
 const getConsultations = async (req, res) => {
   try {
+    // Auto-sync any leads with meetingPreferredDate that don't have a Consultation row in DB yet
+    try {
+      const leadsNeedingSync = await prisma.lead.findMany({
+        where: {
+          meetingPreferredDate: { not: null },
+          consultations: { none: {} }
+        },
+        select: { id: true }
+      });
+
+      if (leadsNeedingSync.length > 0) {
+        const { syncLeadConsultation } = require('./leadController');
+        for (const l of leadsNeedingSync) {
+          await syncLeadConsultation(l.id, req.app).catch(err => console.warn('[Auto-Sync] syncLeadConsultation error:', err.message));
+        }
+      }
+    } catch (autoSyncErr) {
+      console.warn('[getConsultations] Auto-sync warning:', autoSyncErr.message);
+    }
+
     let whereClause = {};
     if (req.user.role === 'client') {
       const lead = await prisma.lead.findUnique({ where: { clientId: req.user.id } });
@@ -1261,6 +1281,22 @@ function calculateRemainingHours(dateStr, timeSlotStr) {
  */
 async function findConsultationByIdOrToken(rawId) {
   if (!rawId) return null;
+  const idStr = String(rawId);
+
+  // If synthetic fallback ID pref_leadId was passed, extract leadId and auto-sync consultation
+  if (idStr.startsWith('pref_')) {
+    const leadId = idStr.replace('pref_', '');
+    const { syncLeadConsultation } = require('./leadController');
+    const synced = await syncLeadConsultation(leadId);
+    if (synced) {
+      const fullSynced = await prisma.consultation.findUnique({
+        where: { id: synced.id },
+        include: { lead: { include: { client: true } } }
+      });
+      if (fullSynced) return fullSynced;
+    }
+  }
+
   const id = resolveConsultationId(rawId);
   if (!id) return null;
 
