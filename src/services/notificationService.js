@@ -64,7 +64,9 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
     let waPromise = Promise.resolve();
 
     switch (event) {
-      case 'MEETING_CANCELLED':
+      case 'MEETING_CANCELLED': {
+        const rebookLink = `${frontendUrl}/#/public/lead-form?id=${lead?.id || client?.lead?.id || targetLeadId || ''}&rebook=true`;
+
         // WhatsApp mapping
         if (phone) {
           waPromise = sendWhatsAppMessage({
@@ -74,7 +76,8 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
               { type: 'body', parameters: [
                 { type: 'text', text: fullName },
                 { type: 'text', text: safeDate },
-                { type: 'text', text: safeTime }
+                { type: 'text', text: safeTime },
+                { type: 'text', text: rebookLink }
               ]}
             ]
           }).then(res => logDelivery(clientId, phone, fullName, 'WHATSAPP', 'MEETING_CANCELLED', res))
@@ -83,7 +86,6 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
         
         // Email mapping
         if (email) {
-          const rebookLink = `${frontendUrl}/#/public/lead-form?id=${lead?.id || client?.lead?.id || targetLeadId || ''}&rebook=true`;
           emailPromise = emailService.sendMeetingCancelledEmail({
             to: email,
             firstName,
@@ -94,6 +96,7 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
             .catch(err => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_CANCELLED', { success: false, error: err.message }));
         }
         break;
+      }
 
       case 'MEETING_BOOKED':
         {
