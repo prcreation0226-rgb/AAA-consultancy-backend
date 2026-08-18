@@ -759,7 +759,8 @@ exports.handleTwilioWebhook = async (req, res) => {
           name: (name && name !== 'Applicant') ? name : phone,
           text: message,
           mediaUrl: mediaUrl,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          rawTimestamp: new Date().toISOString(),
+          timestamp: `${new Date().toLocaleDateString('en-GB')} • ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
         });
       }
 
