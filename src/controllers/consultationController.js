@@ -1246,7 +1246,7 @@ function resolveConsultationId(tokenOrId) {
 function calculateRemainingHours(dateStr, timeSlotStr) {
   if (!dateStr || !timeSlotStr) return 999;
   try {
-    let timePart = timeSlotStr.split('-')[0].trim();
+    const timePart = timeSlotStr.split(/[-–—]|(?:\s+to\s+)/i)[0].trim();
     let hours = 10, minutes = 0;
 
     if (timePart.toLowerCase().includes('pm') || timePart.toLowerCase().includes('am')) {
@@ -1264,11 +1264,26 @@ function calculateRemainingHours(dateStr, timeSlotStr) {
       minutes = parts[1] || 0;
     }
 
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const meetingTime = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0, 0));
-    const now = new Date();
+    let year, month, day;
+    if (dateStr.includes('-')) {
+      [year, month, day] = dateStr.split('T')[0].split('-').map(Number);
+    } else if (dateStr.includes('/')) {
+      const p = dateStr.split('/');
+      day = Number(p[0]);
+      month = Number(p[1]);
+      year = Number(p[2]);
+    } else {
+      const d = new Date(dateStr);
+      year = d.getUTCFullYear();
+      month = d.getUTCMonth() + 1;
+      day = d.getUTCDate();
+    }
 
-    const diffMs = meetingTime.getTime() - now.getTime();
+    // UAE Time is strictly UTC+4
+    const meetingUtcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0) - (4 * 60 * 60 * 1000);
+    const nowMs = Date.now();
+
+    const diffMs = meetingUtcMs - nowMs;
     return diffMs / (1000 * 60 * 60);
   } catch (err) {
     console.error('Error calculating remaining hours:', err);

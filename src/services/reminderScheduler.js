@@ -4,7 +4,8 @@ const { sendEmail } = require('./emailService');
 const { sendCustomWhatsApp } = require('./chatbotService');
 
 /**
- * Helper to parse a date string (YYYY-MM-DD or DD/MM/YYYY) and time string (e.g. "12:00 PM - 01:00 PM") into a JS Date object
+ * Helper to parse a date string (YYYY-MM-DD or DD/MM/YYYY) and time string (e.g. "12:00 PM – 01:00 PM" or "14:00")
+ * into a JS Date object representing the exact absolute UTC moment of the meeting in UAE Timezone (UTC+4).
  */
 function parseMeetingDateTime(dateStr, timeSlotStr) {
   if (!dateStr) return null;
@@ -12,12 +13,12 @@ function parseMeetingDateTime(dateStr, timeSlotStr) {
   let yyyy = '', mm = '', dd = '';
   const s = String(dateStr).trim();
   
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const parts = s.split('-');
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const parts = s.split('T')[0].split('-');
     yyyy = parts[0];
     mm = parts[1];
     dd = parts[2];
-  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+  } else if (/^\d{2}\/\d{2}\/\d{4}/.test(s)) {
     const parts = s.split('/');
     dd = parts[0];
     mm = parts[1];
@@ -25,14 +26,15 @@ function parseMeetingDateTime(dateStr, timeSlotStr) {
   } else {
     const d = new Date(s);
     if (isNaN(d.getTime())) return null;
-    yyyy = d.getFullYear();
-    mm = String(d.getMonth() + 1).padStart(2, '0');
-    dd = String(d.getDate()).padStart(2, '0');
+    yyyy = d.getUTCFullYear();
+    mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    dd = String(d.getUTCDate()).padStart(2, '0');
   }
 
   let startTime = '09:00 AM';
-  if (timeSlotStr && typeof timeSlotStr === 'string') {
-    const parts = timeSlotStr.split('-');
+  if (timeSlotStr && typeof timeSlotStr === 'string' && !timeSlotStr.toLowerCase().includes('tbd')) {
+    // Split by any dash: ASCII hyphen (-), en-dash (–), em-dash (—), or 'to'
+    const parts = timeSlotStr.split(/[-–—]|(?:\s+to\s+)/i);
     startTime = parts[0].trim();
   }
 
@@ -44,9 +46,20 @@ function parseMeetingDateTime(dateStr, timeSlotStr) {
     const ampm = timeMatch[3] ? timeMatch[3].toUpperCase() : null;
     if (ampm === 'PM' && hours < 12) hours += 12;
     if (ampm === 'AM' && hours === 12) hours = 0;
+  } else {
+    const singleHourMatch = startTime.match(/(\d{1,2})\s*(AM|PM)?/i);
+    if (singleHourMatch) {
+      hours = parseInt(singleHourMatch[1], 10);
+      const ampm = singleHourMatch[2] ? singleHourMatch[2].toUpperCase() : null;
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+    }
   }
 
-  return new Date(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10), hours, minutes, 0);
+  // UAE Time is strictly UTC+4 (Gulf Standard Time).
+  // Calculate exact UTC timestamp by subtracting 4 hours (4 * 3600 * 1000 ms) from UAE wall-clock time.
+  const uaeUtcMs = Date.UTC(parseInt(yyyy, 10), parseInt(mm, 10) - 1, parseInt(dd, 10), hours, minutes, 0) - (4 * 60 * 60 * 1000);
+  return new Date(uaeUtcMs);
 }
 
 /**
@@ -56,8 +69,8 @@ function formatDDMMYYYY(dateVal) {
   if (!dateVal) return '';
   const s = String(dateVal).trim();
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const p = s.split('-');
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const p = s.split('T')[0].split('-');
     return `${p[2]}/${p[1]}/${p[0]}`;
   }
   const d = new Date(s);
@@ -71,10 +84,9 @@ function formatDDMMYYYY(dateVal) {
 }
 
 const startReminderScheduler = () => {
-  console.log('[Reminder Scheduler] Starting periodic reminders engine...');
-  
-  // Run check every 10 minutes
-  setInterval(async () => {
+  console.log('[Reminder Scheduler] Starting periodic reminders engine (Standardized to UAE Time UTC+4)...');
+
+  const checkReminders = async () => {
     try {
       const now = new Date();
       
@@ -326,8 +338,8 @@ const startReminderScheduler = () => {
           }
         }
 
-        // 2. Check 1 Hour Meeting Reminder (diffHours between 0.25h and 1.5h)
-        if (diffHours >= 0.25 && diffHours <= 1.5) {
+        // 2. Check 1 Hour Meeting Reminder (diffHours between 0.1h and 1.5h, i.e. 6 mins to 90 mins)
+        if (diffHours >= 0.1 && diffHours <= 1.5) {
           const sentLog = await prisma.reminderLog.findFirst({
             where: {
               clientId: cons.lead?.clientId || cons.leadId,
@@ -336,7 +348,7 @@ const startReminderScheduler = () => {
           });
 
           if (!sentLog) {
-            console.log(`[Reminder Scheduler] Triggering 1h meeting reminder for consultation ${cons.id} (${formattedDateStr})`);
+            console.log(`[Reminder Scheduler] Triggering 1h meeting reminder for consultation ${cons.id} (${formattedDateStr} ${cons.timeSlot} UAE) - diffHours: ${diffHours.toFixed(2)}h`);
             await prisma.reminderLog.create({
               data: {
                 clientId: cons.lead?.clientId || cons.leadId,
@@ -388,7 +400,13 @@ const startReminderScheduler = () => {
     } catch (error) {
       console.error('[Reminder Scheduler] Error running reminders cron:', error);
     }
-  }, 1000 * 60 * 10); // 10 minutes interval
+  };
+
+  // Run immediately on boot to prevent any startup delay
+  checkReminders().catch(err => console.error('[Reminder Scheduler Boot Error]:', err.message));
+
+  // Run periodic check every 5 minutes
+  setInterval(checkReminders, 1000 * 60 * 5);
 };
 
 async function sendPaymentReminder(client, type, subject, messageBody) {
