@@ -203,7 +203,7 @@ exports.getConversations = async (req, res) => {
           text: parsed.text,
           mediaUrl: parsed.mediaUrl,
           rawTimestamp: m.createdAt,
-          timestamp: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          timestamp: `${new Date(m.createdAt).toLocaleDateString('en-GB')} • ${new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
           respondedBy: m.respondedByUser ? {
             id: m.respondedByUser.id,
             name: m.respondedByUser.fullName,
@@ -412,7 +412,8 @@ exports.getMessagesByPhone = async (req, res) => {
         sender: log.direction === 'INBOUND' ? 'customer' : (log.direction === 'SYSTEM' ? 'system' : 'agent'),
         text: parsed.text,
         mediaUrl: parsed.mediaUrl,
-        timestamp: log.createdAt,
+        rawTimestamp: log.createdAt,
+        timestamp: `${new Date(log.createdAt).toLocaleDateString('en-GB')} • ${new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
         respondedBy: log.respondedByUser ? {
           id: log.respondedByUser.id,
           name: log.respondedByUser.fullName,
@@ -518,7 +519,8 @@ exports.sendSocialMessage = async (req, res) => {
           sender: 'agent',
           text: parseMessageContent(log.content).text,
           mediaUrl: parseMessageContent(log.content).mediaUrl,
-          timestamp: log.createdAt,
+          rawTimestamp: log.createdAt,
+          timestamp: `${new Date(log.createdAt).toLocaleDateString('en-GB')} • ${new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
           respondedBy: respondedByObj
         } : null
       });
@@ -636,6 +638,8 @@ exports.sendSocialMessage = async (req, res) => {
       }
     });
 
+    const formattedTimestamp = `${new Date(log.createdAt).toLocaleDateString('en-GB')} • ${new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
     const respondedByObj = log.respondedByUser ? {
       id: log.respondedByUser.id,
       name: log.respondedByUser.fullName,
@@ -650,7 +654,8 @@ exports.sendSocialMessage = async (req, res) => {
         phone: cleanPh,
         name: staffName,
         text: text,
-        timestamp: log.createdAt,
+        rawTimestamp: log.createdAt,
+        timestamp: formattedTimestamp,
         sender: 'agent',
         respondedBy: respondedByObj
       });
@@ -664,7 +669,8 @@ exports.sendSocialMessage = async (req, res) => {
         sender: 'agent',
         text: parseMessageContent(log.content).text,
         mediaUrl: parseMessageContent(log.content).mediaUrl,
-        timestamp: log.createdAt,
+        rawTimestamp: log.createdAt,
+        timestamp: formattedTimestamp,
         respondedBy: respondedByObj
       }
     });
