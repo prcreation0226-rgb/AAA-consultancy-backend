@@ -10,7 +10,8 @@ const {
   publicRescheduleConsultation,
   publicCancelConsultation,
   getPublicConsultationDetails,
-  cleanupTestConsultations
+  cleanupTestConsultations,
+  resetAllConsultations
 } = require('../controllers/consultationController');
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 
@@ -18,6 +19,7 @@ const router = express.Router();
 
 router.get('/public-booked-slots', getPublicBookedSlots);
 router.delete('/cleanup-test', authMiddleware, rbacMiddleware(['super_admin', 'admin']), cleanupTestConsultations);
+router.delete('/reset-all', authMiddleware, rbacMiddleware(['super_admin', 'admin']), resetAllConsultations);
 router.patch('/public/reschedule', publicRescheduleConsultation);
 router.patch('/public/cancel', publicCancelConsultation);
 router.get('/public/:id', getPublicConsultationDetails);
