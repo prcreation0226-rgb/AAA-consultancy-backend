@@ -14,11 +14,14 @@ const {
   getCommissionHistory,
   getClientPackages,
   createPackageCheckout,
-  getPaymentBySessionId
+  getPaymentBySessionId,
+  getRevenueAnalytics
 } = require('../controllers/paymentController');
 const { authMiddleware, rbacMiddleware } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
+
+router.get('/revenue-analytics', authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'operations', 'consultant']), getRevenueAnalytics);
 
 router.route('/')
   .get(authMiddleware, rbacMiddleware(['super_admin', 'admin', 'finance', 'operations', 'consultant', 'marketing', 'agent', 'case_manager', 'client']), getPayments);

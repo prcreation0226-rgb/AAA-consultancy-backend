@@ -612,7 +612,14 @@ async function calculateSwornTranslationPrice(wordCount, sourceLanguage) {
 
 exports.uploadTranslationDocument = async (req, res) => {
   try {
-    const files = req.files && req.files.length > 0 ? req.files : (req.file ? [req.file] : []);
+    let files = [];
+    if (req.files && req.files.length > 0) {
+      const documentsOnly = req.files.filter(f => f.fieldname === 'documents');
+      files = documentsOnly.length > 0 ? documentsOnly : req.files;
+    } else if (req.file) {
+      files = [req.file];
+    }
+
     if (files.length === 0) {
       return res.status(400).json({ success: false, message: 'No document uploaded. Please upload at least one PDF.' });
     }
@@ -798,7 +805,13 @@ exports.checkoutTranslationDocument = async (req, res) => {
   const bcrypt = require('bcrypt');
 
   try {
-    const files = req.files && req.files.length > 0 ? req.files : (req.file ? [req.file] : []);
+    let files = [];
+    if (req.files && req.files.length > 0) {
+      const documentsOnly = req.files.filter(f => f.fieldname === 'documents');
+      files = documentsOnly.length > 0 ? documentsOnly : req.files;
+    } else if (req.file) {
+      files = [req.file];
+    }
 
     const {
       firstName,
@@ -883,7 +896,20 @@ exports.checkoutTranslationDocument = async (req, res) => {
     });
 
     const primaryDoc = parsedDocuments[0] || {};
-    const primaryDocLang = parsedDocuments.map(d => d.documentLanguage).join(', ') || req.body.sourceLanguage || 'English';
+    const primaryDocLang = parsedDocuments.map(d => d.documentLanguage).filter(Boolean).join(', ') || req.body.sourceLanguage || 'English';
+
+    const existingQual = (lead?.qualificationData && typeof lead.qualificationData === 'object') ? lead.qualificationData : {};
+    const finalDocumentsList = parsedDocuments.length > 0 ? parsedDocuments : (Array.isArray(existingQual.documents) ? existingQual.documents : []);
+    const finalDocNames = finalDocumentsList.map(d => d.name).join(', ') || primaryDoc.name || existingQual.documentName || 'Translation Document.pdf';
+    const finalDocUrl = primaryDoc.url || existingQual.documentUrl || (finalDocumentsList[0]?.url) || '';
+    const finalDocSize = primaryDoc.size || existingQual.documentSize || (finalDocumentsList[0]?.size) || '0.10 MB';
+
+    const calculatedSubtotal = calculatedTotal > 0 
+      ? parseFloat((calculatedTotal / 1.05).toFixed(2)) 
+      : (existingQual.subtotal ? parseFloat(existingQual.subtotal) : parseFloat((finalPrice / 1.05).toFixed(2)));
+    const calculatedVat = calculatedTotal > 0 
+      ? parseFloat((calculatedTotal - calculatedSubtotal).toFixed(2)) 
+      : (existingQual.vat ? parseFloat(existingQual.vat) : parseFloat((finalPrice - calculatedSubtotal).toFixed(2)));
 
     const leadPayload = {
       firstName,
@@ -898,33 +924,28 @@ exports.checkoutTranslationDocument = async (req, res) => {
       targetLanguage: targetLanguage || 'Spanish',
       wordCount: finalWordCount,
       qualificationData: {
+        ...existingQual,
         serviceType: 'Spanish Sworn Translation',
-        documents: parsedDocuments.length > 0 ? parsedDocuments : undefined,
-        documentName: parsedDocuments.map(d => d.name).join(', ') || 'Translation Document.pdf',
-        documentUrl: primaryDoc.url || '',
-        documentSize: primaryDoc.size || '0.10 MB',
+        documents: finalDocumentsList,
+        documentName: finalDocNames,
+        documentUrl: finalDocUrl,
+        documentSize: finalDocSize,
         wordCount: finalWordCount,
         sourceLanguage: primaryDocLang,
         targetLanguage: targetLanguage || 'Spanish',
+        subtotal: calculatedSubtotal,
+        vat: calculatedVat,
         estimatedPrice: finalPrice,
-        uploadedAt: new Date().toISOString()
+        uploadedAt: existingQual.uploadedAt || new Date().toISOString()
       }
     };
 
     if (!lead) {
       lead = await prisma.lead.create({ data: leadPayload });
     } else {
-      let existingQual = lead.qualificationData || {};
-      if (typeof existingQual !== 'object') existingQual = {};
       lead = await prisma.lead.update({
         where: { id: lead.id },
-        data: {
-          ...leadPayload,
-          qualificationData: {
-            ...existingQual,
-            ...leadPayload.qualificationData
-          }
-        }
+        data: leadPayload
       });
     }
 

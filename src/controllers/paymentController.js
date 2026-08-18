@@ -1146,7 +1146,7 @@ const createStripeCheckoutSession = async (req, res) => {
 
 const verifyStripeCheckoutSession = async (req, res) => {
   try {
-    const { sessionId, paymentId } = req.body;
+    const { sessionId, paymentId, leadId } = req.body;
     let finalSessionId = sessionId;
 
     if (!finalSessionId && paymentId) {
@@ -1158,6 +1158,15 @@ const verifyStripeCheckoutSession = async (req, res) => {
 
     if (!stripe) {
       // Mock payment mode verification
+      if (leadId) {
+        try {
+          await prisma.lead.update({
+            where: { id: leadId },
+            data: { status: 'Payment Completed' }
+          });
+        } catch (e) {}
+      }
+
       if (paymentId) {
         const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
         if (payment && payment.status !== 'Paid') {
@@ -1233,12 +1242,52 @@ const verifyStripeCheckoutSession = async (req, res) => {
     }
 
     if (!finalSessionId) {
+      // If leadId is passed and no session ID provided, check if lead is already paid
+      if (leadId) {
+        return res.status(200).json({ success: true, message: 'Lead recorded.' });
+      }
       return res.status(400).json({ success: false, message: 'No session ID or payment ID provided.' });
     }
 
     const session = await stripe.checkout.sessions.retrieve(finalSessionId);
 
-    if (session.payment_status === 'paid') {
+    if (session.payment_status === 'paid' || session.status === 'complete') {
+      // 1. Check if this session is for a Lead (e.g. Sworn Translation)
+      const targetLeadId = session.metadata?.leadId || session.client_reference_id || leadId;
+      if (targetLeadId) {
+        try {
+          const leadObj = await prisma.lead.findUnique({ where: { id: targetLeadId } });
+          if (leadObj && (leadObj.serviceType === 'Spanish Sworn Translation' || session.metadata?.serviceType === 'Spanish Sworn Translation')) {
+            const { handleSwornTranslationPaymentSuccess } = require('../services/translationPaymentService');
+            await handleSwornTranslationPaymentSuccess({
+              leadId: targetLeadId,
+              session,
+              reqApp: req.app
+            });
+            console.log(`[Stripe Verification] Successfully executed Sworn Translation workflow for Lead ${targetLeadId}`);
+          } else if (leadObj) {
+            let existingQual = leadObj.qualificationData || {};
+            if (typeof existingQual !== 'object') existingQual = {};
+            await prisma.lead.update({
+              where: { id: targetLeadId },
+              data: {
+                status: 'Payment Completed',
+                qualificationData: {
+                  ...existingQual,
+                  paymentStatus: 'Paid',
+                  paidAt: new Date().toISOString(),
+                  stripeSessionId: session.id,
+                  totalPaid: session.amount_total ? session.amount_total / 100 : (existingQual.estimatedPrice || leadObj.wordCount ? existingQual.estimatedPrice : 0)
+                }
+              }
+            });
+            console.log(`[Stripe Verification] Successfully updated Lead ${targetLeadId} status to Payment Completed.`);
+          }
+        } catch (leadUpdateErr) {
+          console.warn('[Stripe Verification Lead Update Error]:', leadUpdateErr.message);
+        }
+      }
+
       const metadataPaymentId = session.metadata?.paymentId || paymentId;
       const metadataClientId = session.metadata?.clientId;
       const packageId = session.metadata?.packageId;
@@ -1600,6 +1649,24 @@ const getPaymentBySessionId = async (req, res) => {
   }
 };
 
+const getRevenueAnalytics = async (req, res) => {
+  try {
+    const revenueService = require('../services/revenueService');
+    const analytics = await revenueService.getRevenueAnalytics(req.user?.role, req.user?.id);
+    return res.status(200).json({
+      success: true,
+      ...analytics
+    });
+  } catch (error) {
+    console.error('[getRevenueAnalytics Error]:', error.message);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error calculating revenue analytics', 
+      error: error.message 
+    });
+  }
+};
+
 module.exports = { 
   getPayments, 
   generatePaymentLink, 
@@ -1615,5 +1682,6 @@ module.exports = {
   getCommissionHistory,
   getClientPackages,
   createPackageCheckout,
-  getPaymentBySessionId
+  getPaymentBySessionId,
+  getRevenueAnalytics
 };
