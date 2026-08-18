@@ -709,15 +709,12 @@ const updateOutcome = async (req, res) => {
       // Send Rebook link (fire-and-forget — non-blocking)
       try {
         const { notifyClient } = require('../services/notificationService');
-        if (updatedLead.clientId) {
-          notifyClient({
-            event: 'MEETING_CANCELLED',
-            clientId: updatedLead.clientId,
-            consultationId: consultation.id
-          }).catch(err => console.error('[Auto-Cancel] notifyClient failed:', err.message));
-        } else {
-          console.warn(`[Auto-Cancel] No clientId on lead ${updatedLead.id}, skipping central notification`);
-        }
+        notifyClient({
+          event: 'MEETING_CANCELLED',
+          clientId: updatedLead.clientId || null,
+          leadId: updatedLead.id,
+          consultationId: consultation.id
+        }).catch(err => console.error('[Auto-Cancel] notifyClient failed:', err.message));
 
         // Schedule 24-hour delayed rebooking reminder if remindersQueue is active
         if (remindersQueue && remindersQueue.add) {

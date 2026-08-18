@@ -3,29 +3,38 @@ const prisma = new PrismaClient();
 const { sendWhatsAppMessage } = require('./whatsappService');
 const emailService = require('./emailService');
 
-const notifyClient = async ({ event, clientId, consultationId, data = {} }) => {
+const notifyClient = async ({ event, clientId, leadId, consultationId, data = {} }) => {
   try {
-    // Resolve Client and Consultation Data
-    const client = await prisma.client.findUnique({
-      where: { id: clientId },
-      include: {
-        lead: true
-      }
-    });
+    // Resolve Client or Lead Data
+    let client = null;
+    let lead = null;
 
-    if (!client) {
-      console.error(`[NotificationService] Client not found for clientId: ${clientId}`);
+    if (clientId) {
+      client = await prisma.client.findUnique({
+        where: { id: clientId },
+        include: { lead: true }
+      });
+      if (client && client.lead) lead = client.lead;
+    }
+
+    const targetLeadId = leadId || (client ? client.leadId || client.lead?.id : null);
+    if (!lead && targetLeadId) {
+      lead = await prisma.lead.findUnique({ where: { id: targetLeadId } });
+    }
+
+    if (!client && !lead) {
+      console.error(`[NotificationService] Neither Client nor Lead found for clientId: ${clientId}, leadId: ${leadId}`);
       return;
     }
 
-    const email = client.email || (client.lead ? client.lead.email : null);
-    const phone = client.phone || (client.lead ? client.lead.phone : null);
-    const firstName = client.firstName || (client.lead ? client.lead.firstName : 'Client');
-    const lastName = client.lastName || (client.lead ? client.lead.lastName : '');
+    const email = client?.email || lead?.email || null;
+    const phone = client?.phone || lead?.phone || null;
+    const firstName = client?.firstName || lead?.firstName || 'Client';
+    const lastName = client?.lastName || lead?.lastName || '';
     const fullName = `${firstName} ${lastName}`.trim();
 
     if (!email && !phone) {
-      console.warn(`[NotificationService] Missing both email and phone for clientId: ${clientId}`);
+      console.warn(`[NotificationService] Missing both email and phone for clientId: ${clientId}, leadId: ${targetLeadId}`);
       return;
     }
 
@@ -74,7 +83,7 @@ const notifyClient = async ({ event, clientId, consultationId, data = {} }) => {
         
         // Email mapping
         if (email) {
-          const rebookLink = `${frontendUrl}/#/public/lead-form?id=${client.lead?.id || ''}&rebook=true`;
+          const rebookLink = `${frontendUrl}/#/public/lead-form?id=${lead?.id || client?.lead?.id || targetLeadId || ''}&rebook=true`;
           emailPromise = emailService.sendMeetingCancelledEmail({
             to: email,
             firstName,

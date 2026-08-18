@@ -472,6 +472,44 @@ const updateLeadStatus = async (req, res) => {
       }
     }
 
+    if (status === 'Meeting Cancelled' || status === 'Cancelled') {
+      try {
+        // Update active consultations to Cancelled
+        await prisma.consultation.updateMany({
+          where: { leadId: lead.id, status: { notIn: ['Cancelled', 'Completed'] } },
+          data: { status: 'Cancelled' }
+        }).catch(err => console.warn('[updateLeadStatus] Consultation cancel warning:', err.message));
+
+        const consultation = await prisma.consultation.findFirst({
+          where: { leadId: lead.id },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        const { notifyClient } = require('../services/notificationService');
+        notifyClient({
+          event: 'MEETING_CANCELLED',
+          leadId: lead.id,
+          consultationId: consultation?.id || null
+        }).catch(err => console.error('[updateLeadStatus] Cancellation notifyClient failed:', err.message));
+
+        const remindersQueue = req.app ? req.app.get('remindersQueue') : null;
+        if (remindersQueue && remindersQueue.add) {
+          await remindersQueue.add('cancelled-rebook-reminder', {
+            leadId: lead.id,
+            email: lead.email,
+            phone: lead.phone,
+            firstName: lead.firstName,
+            lastName: lead.lastName
+          }, {
+            delay: 24 * 60 * 60 * 1000 // 24 hours
+          }).catch(err => console.warn('[updateLeadStatus] Reminders queue warning:', err.message));
+        }
+        console.log(`[updateLeadStatus] Dispatched cancellation notifications & rebook link for lead ${lead.id}`);
+      } catch (cancelErr) {
+        console.error('[updateLeadStatus] Failed to process cancellation triggers:', cancelErr.message);
+      }
+    }
+
     const { logActivity } = require('../services/auditService');
     const actorName = req.user ? (req.user.fullName || req.user.email) : 'System';
     const actorRole = req.user ? (req.user.role || 'staff') : 'system';
