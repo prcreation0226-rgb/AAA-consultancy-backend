@@ -176,6 +176,9 @@ async function ensurePhase2Schema() {
 
 async function main() {
   console.log('[Deploy] ===== AAA Backend Startup =====');
+  console.log('[Deploy] Launching Express server (src/app)...');
+  require('./src/app');
+
   try {
     await ensurePhase2Schema();
     console.log('[Deploy] All Phase 2 database schema checks complete.');
@@ -184,9 +187,6 @@ async function main() {
   } finally {
     await prisma.$disconnect();
   }
-
-  console.log('[Deploy] Launching Express server (src/app)...');
-  require('./src/app');
 }
 
 main();

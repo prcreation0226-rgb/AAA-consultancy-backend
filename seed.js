@@ -101,6 +101,16 @@ async function main() {
     }
   }
 
+  // Update password for test client anant@gmail.com if present
+  const anantClient = await prisma.client.findFirst({ where: { email: 'anant@gmail.com' } });
+  if (anantClient) {
+    await prisma.client.update({
+      where: { id: anantClient.id },
+      data: { password: defaultPassword, isTemporaryPassword: false }
+    });
+    console.log('Updated password for client anant@gmail.com to password123');
+  }
+
   console.log('Seeding finished.');
 }
 

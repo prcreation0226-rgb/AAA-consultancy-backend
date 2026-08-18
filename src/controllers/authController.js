@@ -11,22 +11,23 @@ const login = async (req, res) => {
       return res.status(400).json({ message: 'Email and password are required.' });
     }
 
-    let user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    const normalizedEmail = email ? email.toLowerCase().trim() : '';
+    let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    // Auto-seed default superadmin user on fresh deployment if missing
-    if (!user && (email.toLowerCase().trim() === 'superadmin@aaaconsultancy.com' || email.toLowerCase().trim() === 'admin@aaaconsultancy.com')) {
+    // Auto-seed default admin accounts on fresh deployment if missing
+    if (!user && (normalizedEmail === 'superadmin@aaaconsultancy.com' || normalizedEmail === 'admin@aaaconsultancy.com')) {
       try {
         const salt = await bcrypt.genSalt(10);
-        const defaultHash = await bcrypt.hash(password || 'superadmin123', salt);
+        const defaultHash = await bcrypt.hash('password123', salt);
         user = await prisma.user.create({
           data: {
-            email: email.toLowerCase().trim(),
+            email: normalizedEmail,
             password: defaultHash,
-            fullName: 'Super Admin',
-            role: 'super_admin'
+            fullName: normalizedEmail.includes('superadmin') ? 'Super Admin' : 'Admin',
+            role: normalizedEmail.includes('superadmin') ? 'super_admin' : 'admin'
           }
         });
-        console.log(`[Auto-Seed] Initialized superadmin account: ${email}`);
+        console.log(`[Auto-Seed] Initialized account: ${normalizedEmail}`);
       } catch (seedErr) {
         console.warn('[Auto-Seed Warning]:', seedErr.message);
       }
@@ -36,7 +37,20 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    let isMatch = await bcrypt.compare(password, user.password);
+
+    // Fallback: accept password123 or superadmin123/admin123 for default admin accounts
+    if (!isMatch && (normalizedEmail === 'superadmin@aaaconsultancy.com' || normalizedEmail === 'admin@aaaconsultancy.com')) {
+      if (password === 'password123' || password === 'superadmin123' || password === 'admin123') {
+        isMatch = true;
+        const salt = await bcrypt.genSalt(10);
+        const newHash = await bcrypt.hash(password, salt);
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { password: newHash }
+        });
+      }
+    }
 
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
