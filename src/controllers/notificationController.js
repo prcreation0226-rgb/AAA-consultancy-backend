@@ -110,20 +110,26 @@ const createDocumentNotification = async ({ userId, clientName: inputClientName,
     const body = `${clientName} uploaded "${documentName}" (${category || 'General'}). Please review and verify.`;
 
     if (staffMembers.length > 0) {
-      const notificationEntries = staffMembers.map(staff => ({
-        userId: staff.id,
-        type: 'new_document',
-        title,
-        body,
-        clientId: clientId || null,
-        documentId: documentId || null,
-        isRead: false
-      }));
+      try {
+        if (prisma.notification && typeof prisma.notification.createMany === 'function') {
+          const notificationEntries = staffMembers.map(staff => ({
+            userId: staff.id,
+            type: 'new_document',
+            title,
+            body,
+            clientId: clientId || null,
+            documentId: documentId || null,
+            isRead: false
+          }));
 
-      await prisma.notification.createMany({
-        data: notificationEntries,
-        skipDuplicates: true
-      });
+          await prisma.notification.createMany({
+            data: notificationEntries,
+            skipDuplicates: true
+          });
+        }
+      } catch (dbNotifErr) {
+        console.warn('[Notification DB Write Warn]:', dbNotifErr.message);
+      }
     }
 
     // 4. Real-time Socket.io Broadcast to live CRM dashboards

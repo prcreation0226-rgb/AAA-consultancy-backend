@@ -507,9 +507,9 @@ const updateClientStatus = async (req, res) => {
     // Check if visaStatus changed to 'Visa Refused'
     if (visaStatus === 'Visa Refused') {
       try {
-        // Find total payments made by this client
+        // Find total payments made by this client (across all paid status variants)
         const payments = await prisma.payment.findMany({
-          where: { clientId: id, status: 'Paid' }
+          where: { clientId: id, status: { in: ['Paid', 'Payment Completed', 'Payment Received', 'COMPLETED', 'Paid Fees'] } }
         });
         const totalAmountPaid = payments.reduce((acc, p) => acc + (p.amount || 0), 0);
         

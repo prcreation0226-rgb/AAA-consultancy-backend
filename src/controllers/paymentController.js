@@ -460,14 +460,6 @@ const createRefundRequest = async (req, res) => {
 
     let refundAmount = Number(amount) || 0;
     
-    if (category === 'Visa Rejection' || (category && category.includes('Visa Rejection'))) {
-      const payments = await prisma.payment.findMany({
-        where: { clientId: targetClientId, status: 'Paid' }
-      });
-      const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-      refundAmount = totalPaid * 1.0; // Auto 100% refund calculation
-    }
-    
     const refund = await prisma.refundRequest.create({
       data: {
         clientId: targetClientId,
@@ -533,9 +525,8 @@ const createRefundRequest = async (req, res) => {
             <h4 style="margin: 0 0 10px; color: #051A3B;">Claim Summary (#${refund.id.substring(0, 8)})</h4>
             <p style="margin: 5px 0;"><strong>Client Name:</strong> ${clientName}</p>
             <p style="margin: 5px 0;"><strong>Client Email:</strong> ${clientEmail || 'N/A'}</p>
-            <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
-            <p style="margin: 5px 0;"><strong>Date Submitted:</strong> ${dateSubmittedFormatted}</p>
-            <p style="margin: 5px 0;"><strong>Calculated Amount:</strong> <span style="color: #dc2626; font-weight: 800;">€${refundAmount.toLocaleString()}</span></p>
+            <p style="margin: 5px 0;"><strong>Date Submitted:</strong> ${new Date().toLocaleDateString('en-GB')}</p>
+            ${refundAmount > 0 ? `<p style="margin: 5px 0;"><strong>Claimed Amount:</strong> <span style="color: #dc2626; font-weight: 800;">€${refundAmount.toLocaleString()}</span></p>` : `<p style="margin: 5px 0;"><strong>Amount Status:</strong> <span style="color: #d97706; font-weight: 800;">Pending Admin Audit & Approval</span></p>`}
             <p style="margin: 5px 0;"><strong>Reason/Statement:</strong> ${reason || 'N/A'}</p>
             ${proofUrl ? `<p style="margin: 5px 0;"><strong>Embassy Proof:</strong> <a href="${proofUrl}" target="_blank" style="color: #0284c7; font-weight: 700;">View Rejection Letter 📄</a></p>` : ''}
           </div>
@@ -558,7 +549,8 @@ const createRefundRequest = async (req, res) => {
           <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 18px; border-radius: 8px; margin: 20px 0;">
             <h4 style="margin: 0 0 10px; color: #051A3B;">Ticket Claim Details (#${refund.id.substring(0, 8)})</h4>
             <p style="margin: 5px 0;"><strong>Category:</strong> ${category}</p>
-            <p style="margin: 5px 0;"><strong>Date Submitted:</strong> ${dateSubmittedFormatted}</p>
+            <p style="margin: 5px 0;"><strong>Date Submitted:</strong> ${new Date().toLocaleDateString('en-GB')}</p>
+            <p style="margin: 5px 0;"><strong>Refund Amount Status:</strong> <strong style="color: #d97706;">Pending Admin Audit & Approval</strong></p>
             <p style="margin: 5px 0;"><strong>Status:</strong> <span style="background-color: #FEF3C7; color: #92400E; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Pending Review</span></p>
           </div>
           <p style="font-size: 14px; color: #475569;">Our audit team is reviewing your submitted embassy rejection documentation. You will be updated once your payout is audited and executed.</p>
@@ -644,7 +636,7 @@ const updateRefundStatus = async (req, res) => {
     if (status === 'Processed' && refund.client) {
       try {
         await prisma.payment.updateMany({
-          where: { clientId: refund.clientId, status: 'Paid' },
+          where: { clientId: refund.clientId, status: { in: ['Paid', 'Payment Completed', 'Payment Received', 'COMPLETED', 'Paid Fees'] } },
           data: { status: 'Refunded' }
         });
       } catch (payErr) {

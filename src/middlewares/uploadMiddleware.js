@@ -61,7 +61,9 @@ if (!storage) {
       cb(null, uploadDir);
     },
     filename: function (req, file, cb) {
-      cb(null, Date.now() + '-' + file.originalname);
+      const cleanName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const truncated = cleanName.length > 60 ? cleanName.substring(cleanName.length - 60) : cleanName;
+      cb(null, Date.now() + '-' + truncated);
     }
   });
 }

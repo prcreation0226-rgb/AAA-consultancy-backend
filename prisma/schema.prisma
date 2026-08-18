@@ -321,10 +321,10 @@ model Document {
   activeInChecklistItem   ResubmissionChecklistItem? @relation("ActiveChecklistDocument")
   
   version                 Int                        @default(1)
-  name                    String
+  name                    String                     @db.Text
   category                String
-  url                     String
-  translatedUrl           String?  // URL to download translated PDF
+  url                     String                     @db.Text
+  translatedUrl           String?                    @db.Text // URL to download translated PDF
   size                    String?
   status                  String   @default("Pending Verification") // VERIFIED, REJECTED
   comment                 String?  @db.Text
