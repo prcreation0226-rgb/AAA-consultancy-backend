@@ -121,6 +121,13 @@ const createLead = async (req, res) => {
       wordCount
     } = req.body;
 
+    if (!req.user && (!nationality || !countryOfResidence)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nationality and Country of Residence are required.'
+      });
+    }
+
     // Same-Day Booking Restriction
     if (meetingPreferredDate) {
       const todayStr = new Date().toISOString().split('T')[0];
@@ -373,8 +380,11 @@ const assignLead = async (req, res) => {
     // Update consultant on any existing active (non-cancelled) consultation directly in DB
     await prisma.consultation.updateMany({
       where: { leadId, status: { notIn: ['Cancelled'] } },
-      data: { consultantId: agentId, assignedAt: new Date() }
+      data: { consultantId: agentId, status: 'Scheduled', assignedAt: new Date() }
     }).catch(err => console.warn('[assignLead] Consultation update warning:', err.message));
+
+    // Also trigger consultation sync to ensure meeting record exists
+    syncLeadConsultation(leadId, req.app).catch(err => console.warn('[assignLead] syncLeadConsultation warning:', err.message));
 
     // Also update associated client assignedToId if exists
     if (lead.clientId) {
@@ -976,12 +986,12 @@ async function syncLeadConsultation(leadId, reqApp = null) {
         assignedToId: true
       }
     });
-    if (!lead || !lead.assignedToId) {
-      console.log(`[BOOKING] Lead not found or consultant assignment missing for Lead ID: ${leadId}`);
+    if (!lead) {
+      console.log(`[BOOKING] Lead not found for Lead ID: ${leadId}`);
       return;
     }
 
-    console.log(`[BOOKING] Consultant assigned: ${lead.assignedToId} for Lead: ${lead.firstName} ${lead.lastName}`);
+    console.log(`[BOOKING] Consultant assigned: ${lead.assignedToId || 'Unassigned'} for Lead: ${lead.firstName} ${lead.lastName}`);
 
     const isTranslation = (lead.serviceType || '').toLowerCase().includes('translation') || (lead.serviceType || '').toLowerCase().includes('sworn');
     if (isTranslation) {
@@ -1042,7 +1052,7 @@ async function syncLeadConsultation(leadId, reqApp = null) {
     }
 
     // Determine Consultation status based on Zoom creation result
-    const consultationStatus = (zoomFailed && !meetingLink) ? 'Pending Zoom' : 'Scheduled';
+    const consultationStatus = (zoomFailed && !meetingLink) ? 'Pending Zoom' : (lead.assignedToId ? 'Scheduled' : 'Pending Assignment');
 
     if (!consultation) {
       consultation = await prisma.consultation.create({
@@ -1052,7 +1062,7 @@ async function syncLeadConsultation(leadId, reqApp = null) {
           durationMinutes: Number(duration),
           status: consultationStatus,
           leadId: lead.id,
-          consultantId: lead.assignedToId,
+          consultantId: lead.assignedToId || null,
           internalNotes: lead.meetingNotes || '',
           meetingLink: meetingLink
         }
@@ -1064,8 +1074,8 @@ async function syncLeadConsultation(leadId, reqApp = null) {
         data: {
           date: meetingDate,
           timeSlot: meetingTime,
-          status: consultationStatus,
-          consultantId: lead.assignedToId,
+          status: lead.assignedToId ? (consultation.status === 'Pending Assignment' ? 'Scheduled' : consultation.status) : consultation.status,
+          consultantId: lead.assignedToId || consultation.consultantId || null,
           internalNotes: lead.meetingNotes || consultation.internalNotes || '',
           meetingLink: meetingLink || consultation.meetingLink
         }

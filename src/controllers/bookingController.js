@@ -633,8 +633,8 @@ exports.uploadTranslationDocument = async (req, res) => {
       firstName,
       lastName,
       email,
-      phone,
       nationality,
+      countryOfResidence,
       targetLanguage
     } = req.body;
 
@@ -730,6 +730,7 @@ exports.uploadTranslationDocument = async (req, res) => {
           email: email.toLowerCase(),
           phone,
           nationality: nationality || null,
+          countryOfResidence: countryOfResidence || null,
           serviceType: 'Spanish Sworn Translation',
           status: 'Payment Not Completed',
           sourceLanguage: primaryDocLang || 'English',
@@ -805,6 +806,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       email,
       phone,
       nationality,
+      countryOfResidence,
       targetLanguage,
       wordCount,
       estimatedPrice
@@ -889,6 +891,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       email: email.toLowerCase(),
       phone,
       nationality: nationality || null,
+      countryOfResidence: countryOfResidence || null,
       serviceType: 'Spanish Sworn Translation',
       status: 'Payment Not Completed',
       sourceLanguage: primaryDocLang,
