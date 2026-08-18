@@ -87,7 +87,10 @@ if (SMTP_HOST && SMTP_USER && SMTP_PASS) {
     },
     tls: {
       rejectUnauthorized: false
-    }
+    },
+    connectionTimeout: 5000,
+    greetingTimeout: 5000,
+    socketTimeout: 10000
   });
 }
 

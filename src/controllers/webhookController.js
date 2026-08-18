@@ -484,18 +484,34 @@ exports.handleStripeWebhook = async (req, res) => {
     } catch (err) {
       console.error('Error handling no_show_case_assessment webhook event:', err);
     }
-  } else if (event.type === 'checkout.session.completed' && session?.metadata?.serviceType === 'Spanish Sworn Translation') {
-    const leadId = session.metadata.leadId;
-    if (leadId) {
-      try {
-        await prisma.lead.update({
-          where: { id: leadId },
-          data: { status: 'Meeting Completed' }
-        });
-        console.log(`[Stripe Webhook] Sworn translation payment confirmed for lead ${leadId}`);
-      } catch (leadErr) {
-        console.warn('[Stripe Webhook] Translation lead status update failed:', leadErr.message);
+  } else if (event.type === 'checkout.session.completed' && (session?.metadata?.serviceType === 'Spanish Sworn Translation' || session?.metadata?.leadId || session?.client_reference_id)) {
+    const leadId = session.metadata?.leadId || session.client_reference_id;
+    const isExplicitTranslation = session?.metadata?.serviceType === 'Spanish Sworn Translation';
+    
+    // Check if the lead is indeed a Sworn Translation lead
+    let isTranslationLead = isExplicitTranslation;
+    if (!isTranslationLead && leadId) {
+      const checkLead = await prisma.lead.findUnique({ where: { id: leadId }, select: { serviceType: true } }).catch(() => null);
+      if (checkLead && (checkLead.serviceType === 'Spanish Sworn Translation' || checkLead.serviceType?.includes('Translation'))) {
+        isTranslationLead = true;
       }
+    }
+
+    if (isTranslationLead) {
+      try {
+        const { handleSwornTranslationPaymentSuccess } = require('../services/translationPaymentService');
+        await handleSwornTranslationPaymentSuccess({
+          leadId,
+          session,
+          reqApp: req.app
+        });
+        console.log(`[Stripe Webhook] Sworn translation payment confirmed & processed for lead ${leadId}`);
+      } catch (leadErr) {
+        console.error('[Stripe Webhook] Sworn translation workflow error:', leadErr.message);
+      }
+    } else {
+      // If it's a generic lead payment, process via standard payment event
+      await processPaymentEvent(event).catch(console.error);
     }
   } else {
     // Enqueue payment event (We can handle this later in Payment State Machine)

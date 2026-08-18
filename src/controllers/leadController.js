@@ -60,6 +60,32 @@ const getLeads = async (req, res) => {
             clientCode: true,
             documents: {
               select: { id: true, name: true, status: true, url: true }
+            },
+            payments: {
+              select: {
+                id: true,
+                amount: true,
+                totalPaid: true,
+                status: true,
+                paidAt: true,
+                transactionId: true,
+                gatewayId: true,
+                paymentMethod: true,
+                invoiceNumber: true
+              },
+              orderBy: { createdAt: 'desc' }
+            },
+            communications: {
+              select: {
+                id: true,
+                channel: true,
+                direction: true,
+                deliveryStatus: true,
+                externalProviderId: true,
+                failureReason: true,
+                createdAt: true
+              },
+              orderBy: { createdAt: 'desc' }
             }
           }
         }
@@ -83,7 +109,10 @@ const getLeads = async (req, res) => {
         assignedConsultantName: l.assignedTo?.fullName,
         clientCode: autoCode,
         displayId: autoCode,
-        documents: l.client?.documents || []
+        documents: l.client?.documents || [],
+        payments: l.client?.payments || [],
+        payment: l.client?.payments?.[0] || null,
+        communications: l.client?.communications || []
       };
     });
     res.json(mapped);

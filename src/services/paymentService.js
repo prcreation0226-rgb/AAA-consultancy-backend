@@ -25,6 +25,26 @@ const processPaymentEvent = async (event) => {
       });
 
       if (!payment) {
+        const lead = await tx.lead.findUnique({ where: { id: paymentId } });
+        if (lead) {
+          let existingQual = lead.qualificationData || {};
+          if (typeof existingQual !== 'object') existingQual = {};
+          await tx.lead.update({
+            where: { id: paymentId },
+            data: {
+              status: 'Payment Completed',
+              qualificationData: {
+                ...existingQual,
+                paymentStatus: 'Paid',
+                paidAt: new Date().toISOString(),
+                stripeSessionId: transactionId,
+                totalPaid: session.amount_total ? session.amount_total / 100 : (existingQual.estimatedPrice || lead.wordCount ? existingQual.estimatedPrice : 0)
+              }
+            }
+          });
+          console.log(`[Payment Event] Updated Lead ${paymentId} status to Payment Completed.`);
+          return;
+        }
         throw new Error(`Payment record ${paymentId} not found`);
       }
 

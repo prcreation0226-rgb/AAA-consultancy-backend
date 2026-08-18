@@ -29,21 +29,57 @@ const createCoupon = async (req, res) => {
       });
     }
 
+    // Server-side calculation of 24-hour expiration
+    const now = new Date();
+    const expiryDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
     // Check if code already exists in database
     const existing = await prisma.discountCode.findUnique({
       where: { code: cleanCode }
     });
 
     if (existing) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Coupon code "${cleanCode}" already exists. Please choose a different code.` 
+      const isExpired = now >= new Date(existing.expiryDate);
+
+      // If existing coupon is still ACTIVE (not used and not expired), prevent duplicate creation
+      if (!existing.isUsed && !isExpired) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Coupon code "${cleanCode}" is already active and valid until ${new Date(existing.expiryDate).toLocaleString()}.` 
+        });
+      }
+
+      // If existing coupon is EXPIRED or already USED, regenerate it with fresh 24h validity
+      const updatedCoupon = await prisma.discountCode.update({
+        where: { id: existing.id },
+        data: {
+          discountPercent: percent,
+          expiryDate: expiryDate,
+          isUsed: false,
+          usedAt: null,
+          usedByClientId: null,
+          usedInPaymentId: null,
+          clientId: null,
+          createdById: req.user?.id || null,
+          createdAt: now,
+          updatedAt: now
+        },
+        include: {
+          creator: {
+            select: { id: true, fullName: true, email: true }
+          }
+        }
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: `Coupon code "${cleanCode}" has been regenerated with a fresh 24-hour validity!`,
+        coupon: {
+          ...updatedCoupon,
+          status: 'ACTIVE'
+        }
       });
     }
-
-    // Server-side calculation of 24-hour expiration
-    const now = new Date();
-    const expiryDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     const coupon = await prisma.discountCode.create({
       data: {
