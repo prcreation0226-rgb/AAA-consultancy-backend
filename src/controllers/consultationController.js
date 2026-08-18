@@ -497,9 +497,26 @@ const updateOutcome = async (req, res) => {
       data: { status, eligibility, recommendedService, recommendedPackageId, internalNotes }
     });
 
-    // If this is a Follow-up Consultation session for an existing client, return immediately without touching lead conversion
-    if (consultation.type === 'follow_up' || (consultation.clientId && !consultation.leadId)) {
-      console.log(`[UPDATE OUTCOME] Updated Follow-up Consultation ${consultation.id} status to ${status}`);
+    // Check if this client/lead has any PREVIOUS completed consultation session
+    let previousCompletedCount = 0;
+    try {
+      previousCompletedCount = await prisma.consultation.count({
+        where: {
+          id: { not: consultation.id },
+          status: 'Completed',
+          OR: [
+            ...(consultation.leadId ? [{ leadId: consultation.leadId }] : []),
+            ...(consultation.clientId ? [{ clientId: consultation.clientId }] : [])
+          ]
+        }
+      });
+    } catch (e) {}
+
+    const isFirstCompletedSession = previousCompletedCount === 0;
+
+    // If this is a subsequent Follow-up Consultation session for a client who ALREADY completed a meeting before, return immediately
+    if (!isFirstCompletedSession && (consultation.type === 'follow_up' || (consultation.clientId && !consultation.leadId))) {
+      console.log(`[UPDATE OUTCOME] Updated subsequent Follow-up Consultation ${consultation.id} status to ${status}`);
       return res.json(consultation);
     }
 
