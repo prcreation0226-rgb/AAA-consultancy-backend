@@ -1775,68 +1775,7 @@ ${rebookUrl}`;
   }
 }
 
-const cleanupTestConsultations = async (req, res) => {
-  try {
-    const allConsultations = await prisma.consultation.findMany({
-      include: {
-        lead: true
-      }
-    });
 
-    const idsToDelete = [];
-    const testKeywords = [
-      'soju sa', 'efjkj', 'frr fkkr', 'hgh weq', 'testing la', 'testshow', 
-      'sjhjsnj', 'asdlfk', 'jhnfjncn', 'ksjkxm', 'dhjnx', 'cds `cdw', 'demotest', 
-      'test', 'dummy', 'asdf', 'qwe', 'junk'
-    ];
-
-    allConsultations.forEach((c) => {
-      // Condition 1: Orphan consultation (leadId provided but lead deleted and no clientId)
-      if (c.leadId && !c.lead && !c.clientId) {
-        idsToDelete.push(c.id);
-        return;
-      }
-
-      // Condition 2: Dummy test names or notes created during testing
-      const leadName = c.lead ? `${c.lead.firstName} ${c.lead.lastName}`.toLowerCase() : '';
-      const notesStr = (c.internalNotes || '').toLowerCase();
-      
-      const isDummy = testKeywords.some(kw => leadName.includes(kw) || notesStr.includes(kw));
-      if (isDummy) {
-        idsToDelete.push(c.id);
-      }
-    });
-
-    if (idsToDelete.length > 0) {
-      await prisma.consultation.deleteMany({
-        where: { id: { in: idsToDelete } }
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: `Cleaned up ${idsToDelete.length} test/orphan consultation records.`,
-      cleanedCount: idsToDelete.length
-    });
-  } catch (error) {
-    console.error('Error in cleanupTestConsultations:', error);
-    return res.status(500).json({ success: false, message: 'Failed to cleanup test consultations.' });
-  }
-};
-
-const resetAllConsultations = async (req, res) => {
-  try {
-    const deleted = await prisma.consultation.deleteMany();
-    return res.json({
-      success: true,
-      message: `Calendar reset successfully. Deleted ${deleted.count} consultation records.`,
-      deletedCount: deleted.count
-    });
-  } catch (error) {
-    console.error('Error in resetAllConsultations:', error);
-    return res.status(500).json({ success: false, message: 'Failed to reset calendar data.' });
-  }
-};
 
 module.exports = {
   getConsultations,
@@ -1851,8 +1790,6 @@ module.exports = {
   publicCancelConsultation,
   getPublicConsultationDetails,
   generateBookingToken,
-  resolveConsultationId,
-  cleanupTestConsultations,
-  resetAllConsultations
+  resolveConsultationId
 };
 

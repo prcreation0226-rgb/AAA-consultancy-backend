@@ -33,7 +33,7 @@ let DEFAULT_CUSTOMIZATION = {
   },
   documentChecklists: {
     dnv: {
-      main: ['Passport (Copy)', 'Employment Verification Letter', 'Remote Income Bank Statements', 'Social Security Certificate'],
+      main: ['Passport'],
       spouse: ['Passport (Copy)', 'Marriage Certificate'],
       minorChild: ['Passport (Copy)', 'Birth Certificate', 'School Enrollment Confirmation'],
       adultChild: ['Passport (Copy)', 'Proof of Financial Dependency', 'Clean Criminal Record Certificate'],
@@ -41,7 +41,7 @@ let DEFAULT_CUSTOMIZATION = {
       other: ['Passport (Copy)', 'Relationship Verification Certificate']
     },
     nlv: {
-      main: ['Passport (Copy)', 'Spanish Health Insurance Policy', 'Clean Criminal Record Certificate', 'Savings Bank Statements'],
+      main: ['Passport'],
       spouse: ['Passport (Copy)', 'Marriage Certificate'],
       minorChild: ['Passport (Copy)', 'Birth Certificate'],
       adultChild: ['Passport (Copy)', 'Proof of Financial Dependency', 'Clean Criminal Record Certificate'],
@@ -49,7 +49,7 @@ let DEFAULT_CUSTOMIZATION = {
       other: ['Passport (Copy)', 'Relationship Verification Certificate']
     },
     study: {
-      main: ['Passport (Copy)', 'Complutense Admission Letter', 'Medical Certificate', 'Sufficient Funds Guarantee'],
+      main: ['Passport'],
       spouse: ['Passport (Copy)', 'Marriage Certificate'],
       minorChild: ['Passport (Copy)', 'Birth Certificate'],
       adultChild: ['Passport (Copy)', 'Proof of Financial Dependency'],
@@ -57,7 +57,7 @@ let DEFAULT_CUSTOMIZATION = {
       other: ['Passport (Copy)']
     },
     property: {
-      main: ['Passport (Copy)', 'Property Purchase Escrow Registry', 'Spanish Bank Account Certificate'],
+      main: ['Passport'],
       spouse: ['Passport (Copy)', 'Marriage Certificate'],
       minorChild: ['Passport (Copy)', 'Birth Certificate'],
       adultChild: ['Passport (Copy)', 'Proof of Financial Dependency'],
@@ -65,7 +65,7 @@ let DEFAULT_CUSTOMIZATION = {
       other: ['Passport (Copy)']
     },
     family: {
-      main: ['Passport (Copy)', 'Relationship Verification Certificate', 'Sufficient Income Proof'],
+      main: ['Passport'],
       spouse: ['Passport (Copy)', 'Marriage Certificate'],
       minorChild: ['Passport (Copy)', 'Birth Certificate'],
       adultChild: ['Passport (Copy)', 'Proof of Financial Dependency', 'Clean Criminal Record Certificate'],
