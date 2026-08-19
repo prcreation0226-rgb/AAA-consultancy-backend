@@ -735,7 +735,7 @@ exports.uploadTranslationDocument = async (req, res) => {
           firstName,
           lastName,
           email: email.toLowerCase(),
-          phone,
+          phone: (phone && String(phone).trim()) ? String(phone).trim() : '-',
           nationality: nationality || null,
           countryOfResidence: countryOfResidence || null,
           serviceType: 'Spanish Sworn Translation',
@@ -825,7 +825,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       estimatedPrice
     } = req.body;
 
-    if (!firstName || !lastName || !email || !phone) {
+    if (!firstName || !lastName || !email) {
       return res.status(400).json({ success: false, message: 'Missing required client details' });
     }
 
@@ -886,13 +886,12 @@ exports.checkoutTranslationDocument = async (req, res) => {
     const finalWordCount = wordCount ? parseInt(wordCount, 10) : calculatedTotalWords;
 
     // 1. Find or create Lead (Sworn Translation stays strictly in Lead section)
+    const orConditions = [{ email: email.toLowerCase() }];
+    if (phone && String(phone).trim()) {
+      orConditions.push({ phone: String(phone).trim() });
+    }
     let lead = await prisma.lead.findFirst({
-      where: {
-        OR: [
-          { email: email.toLowerCase() },
-          { phone: phone }
-        ]
-      }
+      where: { OR: orConditions }
     });
 
     const primaryDoc = parsedDocuments[0] || {};
@@ -915,7 +914,7 @@ exports.checkoutTranslationDocument = async (req, res) => {
       firstName,
       lastName,
       email: email.toLowerCase(),
-      phone,
+      phone: (phone && String(phone).trim()) ? String(phone).trim() : '-',
       nationality: nationality || null,
       countryOfResidence: countryOfResidence || null,
       serviceType: 'Spanish Sworn Translation',
