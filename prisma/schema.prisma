@@ -425,12 +425,19 @@ model RelocationPackage {
 }
 
 model Template {
-  id                   String   @id @default(uuid())
-  type                 String   // "email" or "whatsapp"
-  subject              String?  
-  body                 String   @db.Text
-  
-  updatedAt            DateTime @updatedAt
+  id         String   @id @default(uuid())
+  name       String   @default("Template")
+  type       String   @default("QUICK_REPLY") // QUICK_REPLY, META_APPROVED, email, whatsapp
+  category   String   @default("QUICK_REPLY") // QUICK_REPLY, META_APPROVED
+  subject    String?  
+  body       String   @db.Text
+  contentSid     String?  
+  approvalStatus String   @default("APPROVED") // APPROVED, PENDING, REJECTED, UNSUBMITTED
+  language       String   @default("en")
+  active     Boolean  @default(true)
+  createdBy  String?  
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("templates")
 }

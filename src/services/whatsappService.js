@@ -66,7 +66,7 @@ if (isConfigured) {
  * @param {Array} [options.components=[]] - Template components containing parameters (header, body, buttons)
  * @returns {Promise<{success: boolean, messageId?: string, dryRun?: boolean}>}
  */
-exports.sendWhatsAppMessage = async ({ to, templateName, languageCode = 'en', components = [], externalProviderId = null, nameOverride = null }) => {
+exports.sendWhatsAppMessage = async ({ to, templateName, contentSid: customContentSid = null, languageCode = 'en', components = [], externalProviderId = null, nameOverride = null }) => {
   // Clean phone number format for Twilio: must start with '+' and be prefixed with 'whatsapp:'
   let cleanTo = to.trim();
   if (cleanTo.startsWith('whatsapp:')) {
@@ -204,7 +204,7 @@ Your Free Spain Visa Eligibility Assessment has been rescheduled successfully!
       let msgSid = null;
 
       try {
-        const contentSid = TEMPLATE_CONTENT_SIDS[templateName];
+        const contentSid = customContentSid || TEMPLATE_CONTENT_SIDS[templateName];
 
         let fromNum = TWILIO_WHATSAPP_FROM;
         if (fromNum && !fromNum.startsWith('whatsapp:')) {

@@ -435,7 +435,7 @@ exports.getMessagesByPhone = async (req, res) => {
  */
 exports.sendSocialMessage = async (req, res) => {
   try {
-    const { phone, text, mediaUrl, templateName, channel: requestedChannel } = req.body;
+    const { phone, text, mediaUrl, templateName, templateId, channel: requestedChannel } = req.body;
     if (!phone) {
       return res.status(400).json({ message: 'Phone or recipient ID is required' });
     }
@@ -468,14 +468,77 @@ exports.sendSocialMessage = async (req, res) => {
     const staffName = req.user?.fullName || 'Agent';
     const staffRole = req.user?.role || 'consultant';
 
-    // If templateName is provided (e.g. 'aaa_greeting'), send official Twilio Content Template via whatsappService
-    if (templateName && channel === 'WHATSAPP') {
+    // If templateId or templateName is provided, load template from DB and send exact static body
+    const targetTemplateId = templateId || templateName;
+    if (targetTemplateId && channel === 'WHATSAPP') {
+      const dbTemplate = await prisma.template.findFirst({
+        where: {
+          OR: [
+            { id: targetTemplateId },
+            { name: targetTemplateId }
+          ]
+        }
+      });
+
+      if (dbTemplate) {
+        if (!dbTemplate.active) {
+          return res.status(400).json({ message: 'This template is currently inactive.' });
+        }
+
+        const { sendWhatsAppMessage } = require('../services/whatsappService');
+        const result = await sendWhatsAppMessage({
+          to: cleanPh,
+          templateName: dbTemplate.id,
+          contentSid: dbTemplate.contentSid || null,
+          nameOverride: staffName
+        });
+
+        if (result && !result.success) {
+          return res.status(400).json({
+            success: false,
+            message: result.error || 'Failed to dispatch template via WhatsApp API'
+          });
+        }
+
+        const log = await prisma.communicationLog.findFirst({
+          where: { phone: { contains: numberPart }, direction: 'OUTBOUND' },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            respondedByUser: {
+              select: { id: true, fullName: true, role: true, avatar: true }
+            }
+          }
+        });
+
+        const respondedByObj = log?.respondedByUser ? {
+          id: log.respondedByUser.id,
+          name: log.respondedByUser.fullName,
+          role: log.respondedByUser.role,
+          avatar: log.respondedByUser.avatar
+        } : { name: staffName, role: staffRole };
+
+        return res.status(200).json({
+          success: true,
+          message: 'Template sent successfully',
+          log: log ? {
+            id: log.id,
+            sender: 'agent',
+            text: parseMessageContent(log.content).text || dbTemplate.body,
+            mediaUrl: parseMessageContent(log.content).mediaUrl,
+            rawTimestamp: log.createdAt,
+            timestamp: `${new Date(log.createdAt).toLocaleDateString('en-GB')} • ${new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+            respondedBy: respondedByObj
+          } : null
+        });
+      }
+
+      // Legacy fallback if not in DB
       const { sendWhatsAppMessage } = require('../services/whatsappService');
       const targetName = clientRecord ? `${clientRecord.firstName} ${clientRecord.lastName}`.trim() : 'Client';
 
       const result = await sendWhatsAppMessage({
         to: cleanPh,
-        templateName: templateName,
+        templateName: targetTemplateId,
         nameOverride: staffName,
         components: [
           {
@@ -513,7 +576,7 @@ exports.sendSocialMessage = async (req, res) => {
 
       return res.status(200).json({
         success: true,
-        message: 'Template sent successfully via Content SID',
+        message: 'Template sent successfully',
         log: log ? {
           id: log.id,
           sender: 'agent',
