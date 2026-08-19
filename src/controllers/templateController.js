@@ -126,6 +126,7 @@ exports.createTemplate = async (req, res) => {
         category: templateCategory,
         body: body.trim(), // Exact static text body — NO variable resolution
         contentSid: finalContentSid,
+        twilioAccountSid: process.env.TWILIO_ACCOUNT_SID || null,
         approvalStatus: initialApproval,
         language: language ? language.trim() : 'en',
         active: active !== undefined ? Boolean(active) : true,

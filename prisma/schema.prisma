@@ -431,8 +431,9 @@ model Template {
   category   String   @default("QUICK_REPLY") // QUICK_REPLY, META_APPROVED
   subject    String?  
   body       String   @db.Text
-  contentSid     String?  
-  approvalStatus String   @default("APPROVED") // APPROVED, PENDING, REJECTED, UNSUBMITTED
+  contentSid       String?  
+  twilioAccountSid String?  
+  approvalStatus   String   @default("APPROVED") // APPROVED, PENDING, REJECTED, UNSUBMITTED
   language       String   @default("en")
   active     Boolean  @default(true)
   createdBy  String?  
