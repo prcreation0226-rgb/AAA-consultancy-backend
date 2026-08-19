@@ -13,6 +13,42 @@ const isConfigured = !!(
   TWILIO_WHATSAPP_FROM
 );
 
+/**
+ * Utility function to clean and normalize international phone numbers.
+ * Converts local formats (e.g. 050..., 00971...) into clean E.164 (+97150...) format.
+ */
+const formatPhoneNumber = (phone) => {
+  if (!phone) return null;
+  let clean = String(phone).trim();
+  if (clean.startsWith('whatsapp:')) {
+    clean = clean.substring(9);
+  }
+  // Remove spaces, hyphens, brackets, special non-digits (except leading +)
+  clean = clean.replace(/[^\d+]/g, '');
+
+  // If starts with 00, convert to +
+  if (clean.startsWith('00')) {
+    clean = '+' + clean.substring(2);
+  }
+
+  // If phone doesn't start with '+', add '+'
+  if (!clean.startsWith('+')) {
+    // Check if leading 0 (like UAE 050... or 052... or 055...)
+    if (clean.startsWith('0')) {
+      clean = clean.substring(1);
+    }
+    // Default country code fallback if number is local 9 digits (e.g., 501234567 -> UAE +971501234567)
+    if (clean.length === 9 && (clean.startsWith('50') || clean.startsWith('52') || clean.startsWith('54') || clean.startsWith('55') || clean.startsWith('56') || clean.startsWith('58'))) {
+      clean = '971' + clean;
+    }
+    clean = '+' + clean;
+  }
+
+  if (clean === '+' || clean.length < 8) return null;
+  return clean;
+};
+exports.formatPhoneNumber = formatPhoneNumber;
+
 if (isConfigured) {
   console.log(`WhatsApp Service: Twilio WhatsApp API configured with Sender: ${TWILIO_WHATSAPP_FROM}`);
 } else {
@@ -324,72 +360,119 @@ Your Free Spain Visa Eligibility Assessment has been rescheduled successfully!
 
 /**
  * Sends automated Payment Successful WhatsApp message with receipt details, delivery notice, and portal credentials.
+ * Supports fallbacks across client.phone, client.lead.phone, lead.phone, and explicit phone arguments.
  */
-exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, generatedPassword }) => {
+exports.sendPaymentSuccessWhatsApp = async ({ client, lead, phone, paymentId, amount, serviceType, transactionId, generatedPassword, zohoInvoiceUrl, invoiceId }) => {
   try {
-    if (!client || !client.phone) {
-      console.warn('[Payment Success WhatsApp] client or client.phone is missing');
+    const rawPhone = phone || client?.phone || client?.lead?.phone || lead?.phone;
+    const cleanPhone = formatPhoneNumber(rawPhone);
+
+    if (!cleanPhone) {
+      console.warn('[Payment Success WhatsApp] Missing or invalid recipient phone number. Skipping.');
       return;
     }
 
     const receiptId = paymentId ? `#${paymentId.substring(0, 8)}` : `#PAY-${Date.now()}`;
+    const dedupeKey = paymentId ? `PAYMENT_SUCCESS_${paymentId}` : null;
 
-    // Deduplication check: Avoid sending duplicate receipt messages for the same payment
-    if (paymentId) {
-      const existingLog = await prisma.communicationLog.findFirst({
-        where: {
-          clientId: client.id,
-          content: { contains: receiptId }
+    // Deduplication check: Only skip if an existing message was SUCCESSFULLY sent
+    if (dedupeKey && (client?.id || lead?.id)) {
+      try {
+        const existingLog = await prisma.communicationLog.findFirst({
+          where: {
+            OR: [
+              { externalProviderId: dedupeKey },
+              { messageId: dedupeKey }
+            ],
+            deliveryStatus: 'SENT'
+          }
+        });
+        if (existingLog) {
+          console.log(`[Payment Success WA] Receipt already delivered for ${dedupeKey}. Skipping duplicate.`);
+          return;
         }
-      });
-      if (existingLog) {
-        console.log(`[Payment Success WhatsApp] Receipt ${receiptId} already logged/sent to client ${client.id}. Skipping duplicate.`);
-        return;
+      } catch (dedupErr) {
+        console.warn('[Payment Success WA] Deduplication check warning:', dedupErr.message);
       }
     }
 
-    const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
-    const email = client.email || 'N/A';
-    const customerId = client.clientCode || (client.id ? `CID-${12000 + parseInt(client.id.replace(/\D/g, '').slice(-3) || '1')}` : 'CID-12001');
-    const password = generatedPassword || (client.plainTempPassword ? client.plainTempPassword : (client.isTemporaryPassword ? 'Sent via Email / Set at Registration' : 'Your registered password'));
-    const service = serviceType || client.serviceType || 'Spanish Sworn Translation';
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const dayjs = require('dayjs');
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const backendUrl = process.env.BACKEND_URL || 'https://aaa-crm-service-production.up.railway.app';
     const portalUrl = `${frontendUrl}/#/portal/login`;
-    const formattedAmount = Number(amount || 0).toFixed(2);
 
-    const messageBody = `🎉 *Payment Successful & Confirmed!*
+    const clientName = `${client?.firstName || lead?.firstName || ''} ${client?.lastName || lead?.lastName || ''}`.trim() || 'Valued Client';
+    const clientCode = client?.clientCode || (client?.id ? `CID-${12000 + parseInt(client.id.replace(/\D/g, '').slice(-3) || '1')}` : 'CID-12001');
+    const formattedAmount = Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formattedDate = dayjs().format('DD/MM/YYYY hh:mm A');
+    const email = client?.email || lead?.email || 'N/A';
+    const password = generatedPassword || (client?.plainTempPassword ? client.plainTempPassword : (client?.isTemporaryPassword ? 'Sent via Email / Set at Registration' : 'Your registered password'));
 
-Dear ${clientName},
+    const resolvePackageTitle = (rawService, packageId) => {
+      const pkgMap = {
+        'option_a': 'Option A: Professional Case Assessment (€250)',
+        'option_b': 'Option B: Full Processing Package (End to End Service)',
+        'option_c': 'Option C: Premium Package (End to End Service + Administrative Relocation)',
+        'option_d': 'Option D: Administrative Relocation Package',
+        'full_process': 'Full Processing Package (End to End Service)',
+        'premium': 'Premium Package (End to End Service + Administrative Relocation)',
+        'case_assessment': 'Professional Case Assessment (€250)'
+      };
+      if (packageId && pkgMap[packageId.toLowerCase()]) return pkgMap[packageId.toLowerCase()];
+      if (rawService && pkgMap[rawService.toLowerCase()]) return pkgMap[rawService.toLowerCase()];
 
-Thank you for your payment to AAA Business Consultancy. Your order has been successfully received.
+      const sMap = {
+        'dnv': 'Digital Nomad Visa (DNV)',
+        'nlv': 'Non-Lucrative Visa (NLV)',
+        'golden_visa': 'Golden Visa (Property Investment)',
+        'study_visa': 'Spain Study Visa',
+        'tourist_visa': 'Spain Tourist Visa (Schengen)',
+        'self_employed': 'Spain Self-Employed / Business Visa'
+      };
+      if (rawService && sMap[rawService.toLowerCase()]) return sMap[rawService.toLowerCase()];
+      if (packageId && sMap[packageId.toLowerCase()]) return sMap[packageId.toLowerCase()];
 
-📄 *Payment Receipt Details:*
-• Customer ID: ${customerId}
-• Receipt ID: ${receiptId}
-• Service: ${service}
-• Amount Paid: €${formattedAmount}
+      if (rawService && !rawService.startsWith('pkg_') && !rawService.startsWith('a5459021')) {
+        return rawService;
+      }
+      return 'Spain Visa & Residency Service';
+    };
 
-⏰ *Delivery Time Notice:*
-Maximum delivery time within 7 working days from the date of payment is successfully received.
+    const displayService = resolvePackageTitle(serviceType || client?.serviceType || lead?.serviceType, client?.packageId);
 
-🔑 *Your Client Portal Login Credentials:*
-• Login Portal: ${portalUrl}
-• Login ID (Email): ${email}
-• Password: ${password}
-
-Please log into your client portal to upload your documents and track your order status in real time.`;
-
-    let cleanPh = String(client.phone || '').trim();
-    if (cleanPh.startsWith('whatsapp:')) cleanPh = cleanPh.substring(9);
-    cleanPh = cleanPh.replace(/[^\d+]/g, '');
-    if (!cleanPh.startsWith('+')) cleanPh = '+' + cleanPh;
-
-    if (!cleanPh || cleanPh === '+') {
-      console.warn('[Payment Success WhatsApp] Phone number is empty or invalid:', client.phone);
-      return;
+    let credsSection = '';
+    if (generatedPassword || (client && client.isTemporaryPassword)) {
+      credsSection = `\n🔑 *Portal Login Credentials:*\n👤 *Username:* ${email}\n🔑 *Temp Password:* ${password}\n`;
     }
 
-    const twilioTo = `whatsapp:${cleanPh}`;
+    const pdfDirectUrl = invoiceId ? `${backendUrl}/api/v1/payments/zoho-pdf/${invoiceId}.pdf` : null;
+
+    let zohoSection = '';
+    if (pdfDirectUrl) {
+      zohoSection = `\n📄 *Download Tax Invoice PDF:* ${pdfDirectUrl}\n`;
+    } else if (zohoInvoiceUrl) {
+      zohoSection = `\n📄 *Official Tax Invoice:* ${zohoInvoiceUrl}\n`;
+    }
+
+    const messageBody = `🎉 *Payment Confirmed - AAA Business Consultancy*
+
+Dear *${clientName}*,
+
+Thank you! We have successfully received your payment. Here are your receipt details:
+
+📋 *Receipt Summary:*
+• 👤 *Client ID:* ${clientCode}
+• 💳 *Amount Paid:* €${formattedAmount}
+• 📦 *Package / Service:* ${displayService}
+• 📅 *Date:* ${formattedDate}
+${credsSection}${zohoSection}
+🚀 *Next Steps:*
+Your Client Portal is active. Log in to upload your required documents and track your application progress:
+🔗 *Client Portal:* ${portalUrl}
+
+Thank you for choosing AAA Business Consultancy! 🇪🇸`;
+
+    const twilioTo = `whatsapp:${cleanPhone}`;
     let deliveryStatus = 'SENT';
     let failureReason = null;
 
@@ -401,9 +484,9 @@ Please log into your client portal to upload your documents and track your order
           from: TWILIO_WHATSAPP_FROM,
           to: twilioTo
         });
-        console.log(`[Payment Success WhatsApp] Successfully sent automated receipt & credentials to ${twilioTo}`);
+        console.log(`[Payment Success WA Sent] Dispatched receipt to ${cleanPhone} for ${clientCode}`);
       } catch (err) {
-        console.error(`[Payment Success WhatsApp] Twilio send failed to ${twilioTo}:`, err.message);
+        console.error(`[Payment Success WA Error] Twilio send failed to ${twilioTo}:`, err.message);
         deliveryStatus = 'FAILED';
         failureReason = err.message;
       }
@@ -415,25 +498,33 @@ Please log into your client portal to upload your documents and track your order
       console.log('------------------------------------------------------------');
     }
 
-    // Log in CommunicationLog so it appears in Live Chat / Social Inbox
+    // Record deduplication & communication log in DB
     try {
+      let validClientId = null;
+      if (client?.id) {
+        const checkClient = await prisma.client.findUnique({ where: { id: client.id }, select: { id: true } }).catch(() => null);
+        if (checkClient) validClientId = checkClient.id;
+      }
+
       await prisma.communicationLog.create({
         data: {
-          clientId: client.id,
-          phone: cleanPh,
-          name: 'System Automated',
+          clientId: validClientId,
+          phone: cleanPhone,
+          name: clientName,
           channel: 'WHATSAPP',
           direction: 'OUTBOUND',
+          messageId: dedupeKey || `PAY_${Date.now()}`,
+          externalProviderId: dedupeKey,
           content: messageBody,
           deliveryStatus: deliveryStatus,
           failureReason: failureReason
         }
       });
     } catch (logErr) {
-      console.warn('[Payment Success WhatsApp] Could not log message to CommunicationLog:', logErr.message);
+      console.warn('[Payment Success WA Log Warning]:', logErr.message);
     }
-  } catch (globalErr) {
-    console.error('[Payment Success WhatsApp Error]:', globalErr.message);
+  } catch (err) {
+    console.error('[Payment Success WA Exception]:', err.message);
   }
 };
 
@@ -660,133 +751,7 @@ Best regards,
   }
 };
 
-/**
- * Sends automated WhatsApp Payment Success Receipt to client upon successful payment.
- * Includes Permanent CID (CID-12001), Amount, Service Package, Transaction ID, Zoho Invoice Link, and Portal Link.
- */
-exports.sendPaymentSuccessWhatsApp = async ({ client, paymentId, amount, serviceType, transactionId, generatedPassword, zohoInvoiceUrl, invoiceId }) => {
-  try {
-    const phone = client?.phone;
-    if (!phone) {
-      console.warn('[Payment Success WA] Missing client phone number. Skipping.');
-      return;
-    }
 
-    // Deduplication check via CommunicationLog to prevent duplicate receipt dispatch
-    if (paymentId) {
-      try {
-        const existingLog = await prisma.communicationLog.findFirst({
-          where: {
-            externalProviderId: `PAYMENT_SUCCESS_${paymentId}`
-          }
-        });
-        if (existingLog) {
-          console.log(`[Payment Success WA] Receipt already sent for Payment ID ${paymentId}. Skipping duplicate.`);
-          return;
-        }
-      } catch (dedupErr) {
-        console.warn('[Payment Success WA] Deduplication check warning:', dedupErr.message);
-      }
-    }
-
-    const { sendCustomWhatsApp } = require('./chatbotService');
-    const dayjs = require('dayjs');
-    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
-    const backendUrl = process.env.BACKEND_URL || 'https://aaa-crm-service-production.up.railway.app';
-    const portalUrl = `${frontendUrl}/#/portal/login`;
-    const clientName = `${client.firstName} ${client.lastName}`.trim();
-    const clientCode = client.clientCode || `CID-12001`;
-    const formattedAmount = Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const formattedDate = dayjs().format('DD/MM/YYYY hh:mm A');
-    const resolvePackageTitle = (rawService, packageId) => {
-      const pkgMap = {
-        'option_a': 'Option A: Professional Case Assessment (€250)',
-        'option_b': 'Option B: Full Processing Package (End to End Service)',
-        'option_c': 'Option C: Premium Package (End to End Service + Administrative Relocation)',
-        'option_d': 'Option D: Administrative Relocation Package',
-        'full_process': 'Full Processing Package (End to End Service)',
-        'premium': 'Premium Package (End to End Service + Administrative Relocation)',
-        'case_assessment': 'Professional Case Assessment (€250)'
-      };
-      if (packageId && pkgMap[packageId.toLowerCase()]) return pkgMap[packageId.toLowerCase()];
-      if (rawService && pkgMap[rawService.toLowerCase()]) return pkgMap[rawService.toLowerCase()];
-
-      const sMap = {
-        'dnv': 'Digital Nomad Visa (DNV)',
-        'nlv': 'Non-Lucrative Visa (NLV)',
-        'golden_visa': 'Golden Visa (Property Investment)',
-        'study_visa': 'Spain Study Visa',
-        'tourist_visa': 'Spain Tourist Visa (Schengen)',
-        'self_employed': 'Spain Self-Employed / Business Visa'
-      };
-      if (rawService && sMap[rawService.toLowerCase()]) return sMap[rawService.toLowerCase()];
-      if (packageId && sMap[packageId.toLowerCase()]) return sMap[packageId.toLowerCase()];
-
-      if (rawService && !rawService.startsWith('pkg_') && !rawService.startsWith('a5459021')) {
-        return rawService;
-      }
-      return 'Spain Visa & Residency Service';
-    };
-
-    const displayService = resolvePackageTitle(serviceType || client.serviceType, client.packageId);
-
-    let credsSection = '';
-    if (generatedPassword) {
-      credsSection = `\n🔑 *Portal Login Credentials:*\n👤 *Username:* ${client.email}\n🔑 *Temp Password:* ${generatedPassword}\n`;
-    }
-
-    const pdfDirectUrl = invoiceId ? `${backendUrl}/api/v1/payments/zoho-pdf/${invoiceId}.pdf` : null;
-
-    let zohoSection = '';
-    if (pdfDirectUrl) {
-      zohoSection = `\n📄 *Download Tax Invoice PDF:* ${pdfDirectUrl}\n`;
-    } else if (zohoInvoiceUrl) {
-      zohoSection = `\n📄 *Official Tax Invoice:* ${zohoInvoiceUrl}\n`;
-    }
-
-    const messageBody = `🎉 *Payment Confirmed - AAA Business Consultancy*
-
-Dear *${clientName}*,
-
-Thank you! We have successfully received your payment. Here are your receipt details:
-
-📋 *Receipt Summary:*
-• 👤 *Client ID:* ${clientCode}
-• 💳 *Amount Paid:* €${formattedAmount}
-• 📦 *Package / Service:* ${displayService}
-• 📅 *Date:* ${formattedDate}
-${credsSection}${zohoSection}
-🚀 *Next Steps:*
-Your Client Portal is active. Log in to upload your required documents and track your application progress:
-🔗 *Client Portal:* ${portalUrl}
-
-Thank you for choosing AAA Business Consultancy! 🇪🇸`;
-
-    await sendCustomWhatsApp(phone, messageBody, pdfDirectUrl).catch(err => console.error('[Payment Success WA Error]:', err.message));
-
-    // Record deduplication marker in CommunicationLog
-    try {
-      await prisma.communicationLog.create({
-        data: {
-          clientId: client.id,
-          phone: phone,
-          name: clientName,
-          channel: 'WHATSAPP',
-          direction: 'OUTBOUND',
-          externalProviderId: paymentId ? `PAYMENT_SUCCESS_${paymentId}` : 'PAYMENT_SUCCESS',
-          content: messageBody,
-          deliveryStatus: 'SENT'
-        }
-      });
-    } catch (logErr) {
-      console.warn('[Payment Success WA Log Warning]:', logErr.message);
-    }
-
-    console.log(`[Payment Success WA Sent] Dispatched payment success receipt to ${phone} for CID: ${clientCode}`);
-  } catch (err) {
-    console.error('[Payment Success WA Exception]:', err.message);
-  }
-};
 
 
 

@@ -29,6 +29,8 @@ const processPaymentEvent = async (event) => {
         if (lead) {
           let existingQual = lead.qualificationData || {};
           if (typeof existingQual !== 'object') existingQual = {};
+          const totalPaidAmt = session.amount_total ? session.amount_total / 100 : (existingQual.estimatedPrice || lead.wordCount ? existingQual.estimatedPrice : 0);
+
           await tx.lead.update({
             where: { id: paymentId },
             data: {
@@ -38,11 +40,44 @@ const processPaymentEvent = async (event) => {
                 paymentStatus: 'Paid',
                 paidAt: new Date().toISOString(),
                 stripeSessionId: transactionId,
-                totalPaid: session.amount_total ? session.amount_total / 100 : (existingQual.estimatedPrice || lead.wordCount ? existingQual.estimatedPrice : 0)
+                totalPaid: totalPaidAmt
               }
             }
           });
           console.log(`[Payment Event] Updated Lead ${paymentId} status to Payment Completed.`);
+
+          // Send WhatsApp and Email receipt to Lead
+          try {
+            const { sendPaymentSuccessWhatsApp } = require('./whatsappService');
+            await sendPaymentSuccessWhatsApp({
+              lead,
+              phone: lead.phone,
+              paymentId: lead.id,
+              amount: totalPaidAmt,
+              serviceType: lead.serviceType,
+              transactionId
+            });
+            console.log(`[Payment Event] Dispatched WhatsApp receipt to Lead ${lead.phone}`);
+          } catch (waErr) {
+            console.error('[Payment Event Lead WA Error]:', waErr.message);
+          }
+
+          try {
+            const { sendPaymentSuccessEmail } = require('./emailService');
+            if (lead.email) {
+              await sendPaymentSuccessEmail({
+                to: lead.email,
+                clientName: `${lead.firstName} ${lead.lastName}`.trim(),
+                customerId: `LEAD-${lead.id.substring(0, 6)}`,
+                serviceType: lead.serviceType,
+                amount: totalPaidAmt
+              });
+              console.log(`[Payment Event] Dispatched confirmation email to Lead ${lead.email}`);
+            }
+          } catch (emailErr) {
+            console.error('[Payment Event Lead Email Error]:', emailErr.message);
+          }
+
           return;
         }
         throw new Error(`Payment record ${paymentId} not found`);
@@ -174,16 +209,17 @@ const processPaymentEvent = async (event) => {
           });
 
           // Update associated Lead status to 'Under Process' / 'Payment Received' if it exists
+          let clientLead = null;
           if (!isNoShowAssessment) {
-            const lead = await tx.lead.findFirst({
+            clientLead = await tx.lead.findFirst({
               where: { clientId: payment.clientId }
             });
-            if (lead) {
+            if (clientLead) {
               await tx.lead.update({
-                where: { id: lead.id },
+                where: { id: clientLead.id },
                 data: { status: isTranslation ? 'Under Process' : 'Payment Received' }
               });
-              console.log(`[Stripe Webhook] Updated associated Lead ${lead.id} status to ${isTranslation ? 'Under Process' : 'Payment Received'}.`);
+              console.log(`[Stripe Webhook] Updated associated Lead ${clientLead.id} status to ${isTranslation ? 'Under Process' : 'Payment Received'}.`);
             }
           }
 
@@ -191,8 +227,11 @@ const processPaymentEvent = async (event) => {
           if (!isNoShowAssessment && !isTranslation) {
             try {
               const { sendVisaChecklist } = require('./emailService');
-              await sendVisaChecklist(updatedClient.email, `${updatedClient.firstName} ${updatedClient.lastName}`, updatedClient.serviceType);
-              console.log(`[Auto-Checklist Webhook] Sent checklist to client ${updatedClient.email} for ${updatedClient.serviceType}`);
+              const targetEmail = updatedClient.email || clientLead?.email;
+              if (targetEmail) {
+                await sendVisaChecklist(targetEmail, `${updatedClient.firstName} ${updatedClient.lastName}`, updatedClient.serviceType);
+                console.log(`[Auto-Checklist Webhook] Sent checklist to client ${targetEmail} for ${updatedClient.serviceType}`);
+              }
             } catch (emailErr) {
               console.error('[Auto-Checklist Webhook] Failed to send checklist email:', emailErr.message);
             }
@@ -203,16 +242,16 @@ const processPaymentEvent = async (event) => {
           let zohoInvoiceId = null;
           try {
             const zohoInvoiceService = require('./zohoInvoiceService');
-            const existingZohoId = updatedClient.zohoInvoiceId || paymentRecord?.gatewayId || (paymentRecord?.invoiceSnapshot && paymentRecord.invoiceSnapshot.zohoInvoiceId);
+            const existingZohoId = updatedClient.zohoInvoiceId || payment?.gatewayId || (payment?.invoiceSnapshot && payment.invoiceSnapshot.zohoInvoiceId);
             
             if (existingZohoId) {
               console.log(`[Auto-Zoho Payment Webhook] Marking existing Zoho Invoice ${existingZohoId} as PAID...`);
               await zohoInvoiceService.markZohoInvoiceAsPaid({
                 invoiceId: existingZohoId,
                 amount: totalPaid,
-                email: updatedClient.email,
+                email: updatedClient.email || clientLead?.email,
                 name: `${updatedClient.firstName} ${updatedClient.lastName}`.trim(),
-                phone: updatedClient.phone
+                phone: updatedClient.phone || clientLead?.phone
               });
               zohoInvoiceId = existingZohoId;
               zohoInvoiceUrl = updatedClient.zohoInvoiceUrl || null;
@@ -234,11 +273,16 @@ const processPaymentEvent = async (event) => {
             console.error('[Auto-Zoho Payment Webhook] Failed to sync Zoho Invoice payment:', zohoErr.message);
           }
 
+          const targetPhone = updatedClient.phone || clientLead?.phone;
+          const targetEmail = updatedClient.email || clientLead?.email;
+
           // Send Automated Payment Receipt & Credentials WhatsApp Message
           try {
             const { sendPaymentSuccessWhatsApp } = require('./whatsappService');
             await sendPaymentSuccessWhatsApp({
               client: updatedClient,
+              lead: clientLead,
+              phone: targetPhone,
               paymentId: payment.id,
               amount: totalPaid,
               serviceType: updatedClient.serviceType,
@@ -246,7 +290,7 @@ const processPaymentEvent = async (event) => {
               zohoInvoiceUrl,
               invoiceId: zohoInvoiceId
             });
-            console.log(`[Auto-WhatsApp Payment Webhook] Sent payment success & portal credentials to client ${updatedClient.phone}`);
+            console.log(`[Auto-WhatsApp Payment Webhook] Sent payment success & portal credentials to ${targetPhone}`);
           } catch (waErr) {
             console.error('[Auto-WhatsApp Payment Webhook] Failed to send WhatsApp notification:', waErr.message);
           }
@@ -255,16 +299,18 @@ const processPaymentEvent = async (event) => {
           try {
             const { sendPaymentSuccessEmail } = require('./emailService');
             const customerId = updatedClient.clientCode || `CID-${12000 + parseInt(updatedClient.id.replace(/\D/g, '').slice(-3) || '1')}`;
-            await sendPaymentSuccessEmail({
-              to: updatedClient.email,
-              clientName: `${updatedClient.firstName} ${updatedClient.lastName}`,
-              customerId: customerId,
-              serviceType: updatedClient.serviceType,
-              amount: totalPaid,
-              tempPassword: session.metadata?.tempPassword || null,
-              zohoInvoiceUrl
-            });
-            console.log(`[Auto-Email Payment Webhook] Sent payment confirmation email to client ${updatedClient.email}`);
+            if (targetEmail) {
+              await sendPaymentSuccessEmail({
+                to: targetEmail,
+                clientName: `${updatedClient.firstName} ${updatedClient.lastName}`,
+                customerId: customerId,
+                serviceType: updatedClient.serviceType,
+                amount: totalPaid,
+                tempPassword: session.metadata?.tempPassword || null,
+                zohoInvoiceUrl
+              });
+              console.log(`[Auto-Email Payment Webhook] Sent payment confirmation email to client ${targetEmail}`);
+            }
           } catch (emailConfErr) {
             console.error('[Auto-Email Payment Webhook] Failed to send payment confirmation email:', emailConfErr.message);
           }

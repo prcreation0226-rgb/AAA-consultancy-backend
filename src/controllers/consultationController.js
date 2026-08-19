@@ -592,14 +592,26 @@ const updateOutcome = async (req, res) => {
 
       const updatedLead = await prisma.lead.update({
         where: { id: targetLeadId },
-        data: { status: newLeadStatus }
+        data: {
+          status: newLeadStatus,
+          ...(recommendedService ? { serviceType: recommendedService } : {})
+        }
       });
-      console.log(`[Outcome Status Trigger] Lead ${targetLeadId} status updated to: ${newLeadStatus}`);
+      console.log(`[Outcome Status Trigger] Lead ${targetLeadId} status updated to: ${newLeadStatus}, serviceType: ${recommendedService || 'unchanged'}`);
 
       // Auto-convert Lead to Client whenever marked Eligible or Completed
       if (newLeadStatus === 'Eligible') {
         console.log(`[DEBUG updateOutcome] Calling autoConvertLeadToClient for leadId=${targetLeadId}`);
         await autoConvertLeadToClient(targetLeadId);
+      }
+
+      // Also ensure Client serviceType is updated with recommendedService if client exists
+      const targetClientId = consultation.clientId || updatedLead?.clientId;
+      if (targetClientId && recommendedService) {
+        await prisma.client.update({
+          where: { id: targetClientId },
+          data: { serviceType: recommendedService }
+        }).catch(err => console.warn('[Outcome ServiceType Sync Warning]:', err.message));
       }
 
       // Schedule €250 Drip follow-ups (3 days & 7 days later) if remindersQueue is active
