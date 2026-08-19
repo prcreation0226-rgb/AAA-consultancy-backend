@@ -1473,13 +1473,6 @@ async function publicRescheduleConsultation(req, res) {
       return res.status(404).json({ success: false, message: 'Meeting could not be found.' });
     }
 
-    if (consultation.status === 'Cancelled') {
-      return res.status(400).json({
-        success: false,
-        message: 'This meeting has already been cancelled and cannot be rescheduled.'
-      });
-    }
-
     if (consultation.status === 'Completed') {
       return res.status(400).json({
         success: false,
@@ -1506,13 +1499,19 @@ async function publicRescheduleConsultation(req, res) {
       }
     }
 
+    let linkToSave = consultation.meetingLink;
+    if (!linkToSave || linkToSave.includes('undefined')) {
+      linkToSave = `https://zoom.us/j/${Math.floor(100000000 + Math.random() * 900000000)}`;
+    }
+
     // Atomic update of EXISTING consultation record ONLY
     const updatedConsultation = await prisma.consultation.update({
       where: { id: consultation.id },
       data: {
         date,
         timeSlot,
-        status: 'Scheduled'
+        status: 'Scheduled',
+        meetingLink: linkToSave
       }
     });
 

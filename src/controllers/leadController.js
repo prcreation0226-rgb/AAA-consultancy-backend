@@ -1142,18 +1142,22 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       });
       console.log(`[BOOKING] Created consultation (ID: ${consultation.id}) with status: ${consultationStatus}`);
     } else {
+      const updatedStatus = (consultation.status === 'Cancelled' || consultation.status === 'Pending Assignment')
+        ? (lead.assignedToId ? 'Scheduled' : 'Pending Assignment')
+        : consultation.status;
+
       consultation = await prisma.consultation.update({
         where: { id: consultation.id },
         data: {
           date: meetingDate,
           timeSlot: meetingTime,
-          status: lead.assignedToId ? (consultation.status === 'Pending Assignment' ? 'Scheduled' : consultation.status) : consultation.status,
+          status: updatedStatus,
           consultantId: lead.assignedToId || consultation.consultantId || null,
           internalNotes: lead.meetingNotes || consultation.internalNotes || '',
           meetingLink: meetingLink || consultation.meetingLink
         }
       });
-      console.log(`[BOOKING] Updated consultation (ID: ${consultation.id}) with status: ${consultationStatus}`);
+      console.log(`[BOOKING] Updated consultation (ID: ${consultation.id}) with status: ${updatedStatus}`);
     }
 
     // Clean up any stale duplicate Pending Acceptance cards for this lead
@@ -1166,7 +1170,7 @@ async function syncLeadConsultation(leadId, reqApp = null) {
     }).catch(err => console.warn('[BOOKING] Cleanup duplicate consultation warning:', err.message));
 
     // Update Lead status to Meeting Scheduled if scheduled
-    if (consultationStatus === 'Scheduled') {
+    if (consultationStatus === 'Scheduled' || consultation.status === 'Scheduled') {
       await prisma.lead.update({
         where: { id: lead.id },
         data: { status: 'Meeting Scheduled' }
@@ -1175,9 +1179,9 @@ async function syncLeadConsultation(leadId, reqApp = null) {
     }
 
     // 2. Immediate Idempotent WhatsApp Confirmation for Lead
-    if (consultationStatus === 'Scheduled' && meetingLink) {
+    if ((consultationStatus === 'Scheduled' || consultation.status === 'Scheduled') && meetingLink) {
       try {
-        // Idempotency check on WhatsApp notification per consultation
+        // Idempotency check on WhatsApp notification per consultation slot
         const existingLog = await prisma.communicationLog.findFirst({
           where: {
             phone: lead.phone,
@@ -1186,7 +1190,11 @@ async function syncLeadConsultation(leadId, reqApp = null) {
           }
         });
 
-        if (!existingLog) {
+        const dayjs = require('dayjs');
+        const formattedDate = meetingDate ? (meetingDate.includes('-') ? dayjs(meetingDate).format('DD/MM/YYYY') : meetingDate) : meetingDate;
+        const isAlreadyNotifiedForThisDate = existingLog && existingLog.content && existingLog.content.includes(formattedDate);
+
+        if (!isAlreadyNotifiedForThisDate) {
           console.log(`[WHATSAPP] Dispatching booking confirmation in background for Lead: ${lead.firstName} ${lead.lastName} (${lead.phone})`);
           
           // Asynchronously dispatch WhatsApp in background so API responds instantly
