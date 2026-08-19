@@ -911,8 +911,6 @@ const createStripeCheckoutSession = async (req, res) => {
       discountAmount = Math.round((baseAmount * (discountPercent / 100)) * 100) / 100;
     }
 
-    const netAmount = Math.max(0, Math.round((baseAmount - discountAmount) * 100) / 100);
-
     // Fetch company settings for VAT rate (default 5%)
     let vatRate = 5;
     try {
@@ -924,8 +922,10 @@ const createStripeCheckoutSession = async (req, res) => {
       console.warn('[createStripeCheckoutSession] Settings lookup fallback to 5%:', sErr.message);
     }
 
-    const vatAmount = Math.round((netAmount * (vatRate / 100)) * 100) / 100;
-    const finalTotalPayable = Math.round((netAmount + vatAmount) * 100) / 100;
+    // Both VAT and Coupon are calculated directly on the Base Package Amount (baseAmount)
+    const vatAmount = Math.round((baseAmount * (vatRate / 100)) * 100) / 100;
+    const netAmount = Math.max(0, Math.round((baseAmount - discountAmount) * 100) / 100);
+    const finalTotalPayable = Math.max(0, Math.round((baseAmount + vatAmount - discountAmount) * 100) / 100);
 
     // 2. Create a Pending payment record in the database first
     const payment = await prisma.payment.create({
