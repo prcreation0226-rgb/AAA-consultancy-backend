@@ -640,6 +640,7 @@ exports.uploadTranslationDocument = async (req, res) => {
       firstName,
       lastName,
       email,
+      phone,
       nationality,
       countryOfResidence,
       targetLanguage
@@ -717,15 +718,14 @@ exports.uploadTranslationDocument = async (req, res) => {
     grandTotal = parseFloat(grandTotal.toFixed(2));
 
     // Save/Update Lead in CRM database upon requesting quote
-    if (firstName && lastName && email && phone) {
+    if (firstName && lastName && email) {
       try {
+        const orConditions = [{ email: email.toLowerCase() }];
+        if (phone && String(phone).trim()) {
+          orConditions.push({ phone: String(phone).trim() });
+        }
         let lead = await prisma.lead.findFirst({
-          where: {
-            OR: [
-              { email: email.toLowerCase() },
-              { phone: phone }
-            ]
-          }
+          where: { OR: orConditions }
         });
 
         const primaryDoc = parsedDocuments[0] || {};
