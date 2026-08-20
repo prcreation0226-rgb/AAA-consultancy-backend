@@ -141,6 +141,8 @@ model Client {
   assignedToId     String?
   assignedTo       User?    @relation("AgentClients", fields: [assignedToId], references: [id])
   assignedAt       DateTime?
+  assignedHandlerId   String?
+  assignedHandlerName String?
   nextFollowUpDate DateTime?
 
   lead             Lead?
