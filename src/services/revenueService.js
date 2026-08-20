@@ -134,8 +134,7 @@ const getRevenueAnalytics = async (userRole = 'super_admin', userId = null) => {
           }
         }
       }
-    },
-    orderBy: { billingDate: 'desc' }
+    }
   });
 
   // 2. Fetch all refund requests
