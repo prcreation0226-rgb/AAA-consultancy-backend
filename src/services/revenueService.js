@@ -172,8 +172,18 @@ const getRevenueAnalytics = async (userRole = 'super_admin', userId = null) => {
 
   // 4. Process payments
   for (const p of payments) {
-    const isPaid = p.status === 'Paid' || p.status === 'Completed' || (p.totalPaid && p.totalPaid > 0 && p.status !== 'Pending');
-    const isPending = p.status === 'Pending' || p.status === 'Pending Payment' || p.status === 'Overdue';
+    const sLower = (p.status || '').toLowerCase();
+    const isPaid = [
+      'paid',
+      'completed',
+      'payment received',
+      'payment completed',
+      'succeeded',
+      'success',
+      'paid fees'
+    ].includes(sLower) || (p.totalPaid && Number(p.totalPaid) > 0 && sLower !== 'pending' && sLower !== 'pending payment' && sLower !== 'overdue');
+    
+    const isPending = sLower === 'pending' || sLower === 'pending payment' || sLower === 'overdue' || sLower === 'waiting for payment';
 
     const pGross = Number(p.amount) || 0;
     const pDiscount = Number(p.discount) || 0;
@@ -188,8 +198,9 @@ const getRevenueAnalytics = async (userRole = 'super_admin', userId = null) => {
         paidClientIds.add(p.clientId);
       }
 
-      // Date resolution: prefer paidAt, then billingDate, then createdAt
-      const paymentDate = p.paidAt ? new Date(p.paidAt) : (p.billingDate ? new Date(p.billingDate) : new Date(p.createdAt));
+      // Date resolution: prefer paidAt, then billingDate, then createdAt, then dueDate
+      const rawDate = p.paidAt || p.billingDate || p.createdAt || p.dueDate;
+      const paymentDate = rawDate ? new Date(rawDate) : new Date();
 
       if (paymentDate >= startOfToday && paymentDate <= endOfToday) {
         revenueToday += recognizedAmount;
