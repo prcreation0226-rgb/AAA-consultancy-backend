@@ -35,13 +35,11 @@ function getSortableTimestamp(dateStr, timeSlotStr, status) {
 
 const getConsultations = async (req, res) => {
   try {
-    // Auto-sync any leads with meetingPreferredDate that don't have a Consultation row in DB yet (ignoring brand-new leads created <60s ago)
+    // Auto-sync any leads with meetingPreferredDate that don't have a Consultation row in DB yet
     try {
-      const sixtySecondsAgo = new Date(Date.now() - 60000);
       const leadsNeedingSync = await prisma.lead.findMany({
         where: {
           meetingPreferredDate: { not: null },
-          createdAt: { lte: sixtySecondsAgo },
           consultations: { none: {} }
         },
         select: { id: true }
