@@ -348,7 +348,16 @@ const autoConvertLeadToClient = async (leadId) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(plainPassword, salt);
 
-    const unifiedClientCode = lead.clientCode || clientRecord?.clientCode || `CID-${12001 + (await prisma.client.count())}`;
+    let unifiedClientCode = clientRecord?.clientCode;
+    if (!unifiedClientCode) {
+      let nextNum = 12001 + (await prisma.client.count());
+      let candidate = `CID-${nextNum}`;
+      while (await prisma.client.findFirst({ where: { clientCode: candidate } })) {
+        nextNum++;
+        candidate = `CID-${nextNum}`;
+      }
+      unifiedClientCode = candidate;
+    }
     console.log(`[AutoConvert] clientRecord=${clientRecord ? clientRecord.id : 'null'} unifiedClientCode=${unifiedClientCode} safeEmail=${safeEmail}`);
 
     if (!clientRecord) {

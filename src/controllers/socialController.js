@@ -131,7 +131,7 @@ exports.getConversations = async (req, res) => {
           } catch (err) {
             console.warn('Profile fetch error:', err.message);
           }
-        } else if (latestLog && (latestLog.channel === 'FACEBOOK' || latestLog.channel === 'facebook')) {
+        } else if (latestLog && (latestLog.channel === 'FACEBOOK' || latestLog.channel === 'facebook') && !cleanPh.startsWith('+')) {
           try {
             const facebookService = require('../services/facebookService');
             const fbProfile = await facebookService.getFacebookUserProfile(cleanPh);
