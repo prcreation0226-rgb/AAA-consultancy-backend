@@ -1,8 +1,5 @@
 const prisma = require('../config/db');
 
-// In-Memory Lock to guarantee single execution per Lead ID
-const activeBookingSyncLocks = new Set();
-
 const getLeads = async (req, res) => {
   try {
     // 1. Fetch lightweight sorted lead IDs (sorts only UUIDs to prevent MySQL sort_buffer_size overflow code 1038)
@@ -1061,13 +1058,6 @@ _Note: Please join on time (within 10 minutes of appointment time to avoid autom
 
 // Sync Consultation Session and generate/update meeting details and link
 async function syncLeadConsultation(leadId, reqApp = null) {
-  // 1. In-Memory Mutex Lock: Prevent concurrent syncs for the exact same leadId
-  if (activeBookingSyncLocks.has(leadId)) {
-    console.log(`[SYNC LOCK] Sync already in progress for Lead ID: ${leadId}. Skipping redundant parallel trigger.`);
-    return null;
-  }
-  activeBookingSyncLocks.add(leadId);
-
   try {
     console.log(`[BOOKING] Booking submission received for Lead ID: ${leadId}`);
     const lead = await prisma.lead.findUnique({
@@ -1083,20 +1073,19 @@ async function syncLeadConsultation(leadId, reqApp = null) {
         meetingPreferredTime: true,
         meetingNotes: true,
         formSubmittedAt: true,
-        assignedToId: true,
-        clientId: true
+        assignedToId: true
       }
     });
     if (!lead) {
       console.log(`[BOOKING] Lead not found for Lead ID: ${leadId}`);
-      return null;
+      return;
     }
 
     console.log(`[BOOKING] Consultant assigned: ${lead.assignedToId || 'Unassigned'} for Lead: ${lead.firstName} ${lead.lastName}`);
 
     const isTranslation = (lead.serviceType || '').toLowerCase().includes('translation') || (lead.serviceType || '').toLowerCase().includes('sworn');
     if (isTranslation) {
-      return null;
+      return;
     }
 
     const { getCustomization } = require('./settingsController');
@@ -1117,7 +1106,7 @@ async function syncLeadConsultation(leadId, reqApp = null) {
     const meetingDate = lead.meetingPreferredDate || fallbackDate;
     const meetingTime = lead.meetingPreferredTime || 'TBD / Flexible';
 
-    // 2. Idempotency Check: Reuse existing Zoom link if already generated
+    // 1. Idempotency Check: Reuse existing Zoom link if already generated
     let meetingLink = consultation?.meetingLink || null;
     let zoomFailed = false;
 
@@ -1220,37 +1209,24 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       console.log(`[BOOKING] Consultation marked Scheduled for Lead ID: ${lead.id}`);
     }
 
-    // 3. Immediate Idempotent WhatsApp Confirmation for Lead
-    if ((consultationStatus === 'Scheduled' || consultation.status === 'Scheduled') && meetingLink && lead.phone) {
+    // 2. Immediate Idempotent WhatsApp Confirmation for Lead
+    if ((consultationStatus === 'Scheduled' || consultation.status === 'Scheduled') && meetingLink) {
       try {
-        const dayjs = require('dayjs');
-        const formattedDate = meetingDate ? (meetingDate.includes('-') ? dayjs(meetingDate).format('DD/MM/YYYY') : meetingDate) : meetingDate;
-
-        // Strict Deduplication Check: Check if an identical WhatsApp booking confirmation was already sent to this phone for this date within the last 15 minutes
-        const rawDigits = lead.phone.replace(/\D/g, '');
-        const searchDigits = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
-        const recentCutoff = new Date(Date.now() - 15 * 60 * 1000);
-
+        // Idempotency check on WhatsApp notification per consultation slot
         const existingLog = await prisma.communicationLog.findFirst({
           where: {
+            phone: lead.phone,
             channel: 'WHATSAPP',
-            direction: 'OUTBOUND',
-            createdAt: { gte: recentCutoff },
-            phone: { contains: searchDigits }
-          },
-          orderBy: { createdAt: 'desc' }
+            externalProviderId: consultation.id
+          }
         });
 
-        const isAlreadySent = Boolean(
-          existingLog &&
-          existingLog.content &&
-          existingLog.content.includes('Spain Visa Consultation Confirmed') &&
-          existingLog.content.includes(formattedDate) &&
-          (meetingTime === 'TBD / Flexible' || existingLog.content.includes(meetingTime))
-        );
+        const dayjs = require('dayjs');
+        const formattedDate = meetingDate ? (meetingDate.includes('-') ? dayjs(meetingDate).format('DD/MM/YYYY') : meetingDate) : meetingDate;
+        const isAlreadyNotifiedForThisDate = existingLog && existingLog.content && existingLog.content.includes(formattedDate);
 
-        if (!isAlreadySent) {
-          console.log(`[WHATSAPP] Dispatching single booking confirmation for Lead: ${lead.firstName} ${lead.lastName} (${lead.phone})`);
+        if (!isAlreadyNotifiedForThisDate) {
+          console.log(`[WHATSAPP] Dispatching booking confirmation in background for Lead: ${lead.firstName} ${lead.lastName} (${lead.phone})`);
           
           const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
           const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
@@ -1263,17 +1239,17 @@ async function syncLeadConsultation(leadId, reqApp = null) {
           const { sendCustomWhatsApp } = require('../services/chatbotService');
           await sendCustomWhatsApp(lead.phone, messageBody, { name: clientName, externalProviderId: consultation.id }).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
         } else {
-          console.log(`[WHATSAPP] Booking confirmation already dispatched for ${lead.phone} on ${formattedDate} (${meetingTime}). Skipping duplicate.`);
+          console.log(`[WHATSAPP] Booking confirmation already sent for Consultation ID: ${consultation.id}`);
         }
       } catch (waErr) {
         console.error('[WHATSAPP] Confirmation failed:', waErr.message);
       }
     }
 
-    // 4. Immediate Email Confirmation for User (Applicant) and Admin Notification (Runs for every booking)
+    // 3. Immediate Email Confirmation for User (Applicant) and Admin Notification (Runs for every booking)
     try {
       const { sendAppointmentConfirmationEmail, sendEmail } = require('../services/emailService');
-      const clientName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim();
+      const clientName = `${lead.firstName} ${lead.lastName}`.trim();
       const adminSenderEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_USER || 'client@aaabusinessconsultancy.com';
       const mLink = meetingLink || consultation.meetingLink || 'https://zoom.us';
       const mDate = meetingDate || consultation.date || 'TBD';
@@ -1323,28 +1299,26 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       console.error('[BOOKING EMAIL] Error invoking email dispatch:', emailErr.message);
     }
 
-    // 5. Socket.io Notification to CRM Staff
-    try {
-      if (reqApp) {
-        const io = reqApp.get('io');
-        if (io) {
-          io.to('role:admin').to('role:consultant').to(`user:${lead.assignedToId}`).emit('new_booking', {
-            consultation,
-            lead
-          });
-          console.log(`[SOCKET] new_booking emitted for Consultation ID: ${consultation.id}`);
+    // 4. Socket.io Notification to CRM Staff
+      try {
+        if (reqApp) {
+          const io = reqApp.get('io');
+          if (io) {
+            io.to('role:admin').to('role:consultant').to(`user:${lead.assignedToId}`).emit('new_booking', {
+              consultation,
+              lead
+            });
+            console.log(`[SOCKET] new_booking emitted for Consultation ID: ${consultation.id}`);
+          }
         }
+      } catch (socketErr) {
+        console.warn('[SOCKET] Broadcast warning:', socketErr.message);
       }
-    } catch (socketErr) {
-      console.warn('[SOCKET] Broadcast warning:', socketErr.message);
-    }
 
     return consultation;
   } catch (error) {
     console.error('Error in syncLeadConsultation:', error);
     return null;
-  } finally {
-    activeBookingSyncLocks.delete(leadId);
   }
 }
 
