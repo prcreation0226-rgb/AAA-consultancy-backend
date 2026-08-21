@@ -327,7 +327,13 @@ exports.createEligibilityBooking = async (req, res) => {
 
     // Idempotency check: Reuse existing consultation or meetingLink if available
     let existingConsultation = await prisma.consultation.findFirst({
-      where: { leadId: lead.id }
+      where: {
+        OR: [
+          { leadId: lead.id },
+          { clientId: client.id }
+        ]
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
     let meetingLink = existingConsultation?.meetingLink || null;
