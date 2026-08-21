@@ -1076,13 +1076,7 @@ async function syncLeadConsultation(leadId, reqApp = null) {
     const duration = settings.flowAutomationSettings?.defaultMeetingDuration || 30;
 
     let consultation = await prisma.consultation.findFirst({
-      where: {
-        OR: [
-          { leadId: lead.id },
-          ...(lead.clientId ? [{ clientId: lead.clientId }] : [])
-        ]
-      },
-      orderBy: { createdAt: 'desc' }
+      where: { leadId: lead.id }
     });
 
     const fallbackDate = lead.formSubmittedAt ? new Date(lead.formSubmittedAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
@@ -1141,7 +1135,6 @@ async function syncLeadConsultation(leadId, reqApp = null) {
           durationMinutes: Number(duration),
           status: consultationStatus,
           leadId: lead.id,
-          clientId: lead.clientId || null,
           consultantId: lead.assignedToId || null,
           internalNotes: lead.meetingNotes || '',
           meetingLink: meetingLink
@@ -1159,8 +1152,6 @@ async function syncLeadConsultation(leadId, reqApp = null) {
           date: meetingDate,
           timeSlot: meetingTime,
           status: updatedStatus,
-          leadId: lead.id,
-          clientId: lead.clientId || consultation.clientId || null,
           consultantId: lead.assignedToId || consultation.consultantId || null,
           internalNotes: lead.meetingNotes || consultation.internalNotes || '',
           meetingLink: meetingLink || consultation.meetingLink
@@ -1169,17 +1160,12 @@ async function syncLeadConsultation(leadId, reqApp = null) {
       console.log(`[BOOKING] Updated consultation (ID: ${consultation.id}) with status: ${updatedStatus}`);
     }
 
-    // Clean up any stale duplicate consultation cards for this lead/client for the exact same slot
+    // Clean up any stale duplicate Pending Acceptance cards for this lead
     await prisma.consultation.deleteMany({
       where: {
-        OR: [
-          { leadId: lead.id },
-          ...(lead.clientId ? [{ clientId: lead.clientId }] : [])
-        ],
+        leadId: lead.id,
         id: { not: consultation.id },
-        date: meetingDate,
-        timeSlot: meetingTime,
-        status: { in: ['Pending Acceptance', 'Scheduled', 'Pending Assignment'] }
+        status: 'Pending Acceptance'
       }
     }).catch(err => console.warn('[BOOKING] Cleanup duplicate consultation warning:', err.message));
 
@@ -1243,7 +1229,20 @@ Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has 
 
 _Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
 
-              await sendCustomWhatsApp(lead.phone, messageBody, { name: clientName, externalProviderId: consultation.id }).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
+              await sendCustomWhatsApp(lead.phone, messageBody).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
+
+              // Log consultation-specific idempotency marker
+              await prisma.communicationLog.create({
+                data: {
+                  phone: lead.phone,
+                  name: clientName,
+                  channel: 'WHATSAPP',
+                  direction: 'OUTBOUND',
+                  externalProviderId: consultation.id,
+                  deliveryStatus: 'SENT',
+                  content: messageBody
+                }
+              }).catch(err => console.warn('[WHATSAPP Log Warning]:', err.message));
 
               console.log(`[WHATSAPP] Async confirmation sent for Consultation ID: ${consultation.id}`);
             } catch (asyncErr) {
