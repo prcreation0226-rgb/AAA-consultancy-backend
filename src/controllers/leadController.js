@@ -1343,8 +1343,7 @@ module.exports = {
   getLeadById, 
   updateLead, 
   getPublicLeadDetails, 
-  updateMeetingPreference,
-  syncLeadConsultation
+  updateMeetingPreference 
 };
 
 

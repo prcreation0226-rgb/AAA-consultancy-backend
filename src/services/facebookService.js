@@ -50,17 +50,9 @@ exports.sendMessengerMessage = async (recipientId, text) => {
  */
 exports.getFacebookUserProfile = async (senderId) => {
   try {
-    const rawId = String(senderId || '').trim();
-    if (!rawId) return null;
-
-    // Phone number strings (e.g. +278298289..., +971..., etc.) are not Facebook PSIDs.
-    if (rawId.startsWith('+') || (rawId.length >= 10 && /^\+?\d+$/.test(rawId) && (rawId.startsWith('27') || rawId.startsWith('260') || rawId.startsWith('280') || rawId.startsWith('971') || rawId.startsWith('91')))) {
-      return null;
-    }
-
     const token = await getFacebookAccessToken();
     if (!token) return null;
-    const cleanId = rawId.replace(/[^\d]/g, '');
+    const cleanId = (senderId || '').replace(/[^\d]/g, '');
     if (!cleanId) return null;
 
     const response = await axios.get(`https://graph.facebook.com/v19.0/${cleanId}`, {
@@ -75,10 +67,7 @@ exports.getFacebookUserProfile = async (senderId) => {
       return { name: name || 'Facebook User', avatar: response.data.profile_pic || null };
     }
   } catch (err) {
-    const msg = err.response?.data?.error?.message || err.message;
-    if (!msg.includes('Unsupported get request') && !msg.includes('does not exist')) {
-      console.warn(`[Facebook Service Profile Error] ${senderId}:`, msg);
-    }
+    console.warn(`[Facebook Service Profile Error] ${senderId}:`, err.response?.data?.error?.message || err.message);
   }
   return null;
 };
