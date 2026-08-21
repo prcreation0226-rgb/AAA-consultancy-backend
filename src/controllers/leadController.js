@@ -1228,51 +1228,21 @@ async function syncLeadConsultation(leadId, reqApp = null) {
         if (!isAlreadyNotifiedForThisDate) {
           console.log(`[WHATSAPP] Dispatching booking confirmation in background for Lead: ${lead.firstName} ${lead.lastName} (${lead.phone})`);
           
-          // Asynchronously dispatch WhatsApp in background so API responds instantly
-          (async () => {
-            try {
-              const { sendCustomWhatsApp } = require('../services/chatbotService');
+          const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+          const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
+          const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultation.id}`;
+          const packagesUrl = 'https://aaabusinessconsultancy.com/services-and-packages/';
+          const clientName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Valued Client';
 
-              const dayjs = require('dayjs');
-              const formattedDate = meetingDate ? (meetingDate.includes('-') ? dayjs(meetingDate).format('DD/MM/YYYY') : meetingDate) : meetingDate;
+          const messageBody = `✈️ *Spain Visa Consultation Confirmed!*\n\nDear *${clientName}*,\n\nYour Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉\n\n📅 *Date:* ${formattedDate}\n⏰ *Time:* ${meetingTime} (UAE)\n🔗 *Meeting Join Link:* ${meetingLink}\n\n─────────────\n👇 *Quick Action Links:*\n• 🔄 *Reschedule Booking:* ${rescheduleUrl}\n• ❌ *Cancel Booking:* ${cancelUrl}\n• 📦 *View Visa Packages:* ${packagesUrl}\n\n_Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
 
-              const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
-              const rescheduleUrl = `${frontendUrl}/#/public/lead-form?reschedule=true&consultationId=${consultation.id}`;
-              const cancelUrl = `${frontendUrl}/#/public/lead-form?cancel=true&consultationId=${consultation.id}`;
-              const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
-
-              const clientName = `${lead.firstName} ${lead.lastName}`.trim();
-              const messageBody = `✈️ *Spain Visa Consultation Confirmed!*
-
-Dear *${clientName}*,
-
-Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
-
-📅 *Date:* ${formattedDate}
-⏰ *Time:* ${meetingTime} (UAE)
-🔗 *Meeting Join Link:* ${meetingLink}
-
-─────────────
-👇 *Quick Action Links:*
-• 🔄 *Reschedule Booking:* ${rescheduleUrl}
-• ❌ *Cancel Booking:* ${cancelUrl}
-• 📦 *View Visa Packages:* ${packagesUrl}
-
-_Note: Please join within 10 minutes of appointment time to avoid automatic cancellation._`;
-
-              await sendCustomWhatsApp(lead.phone, messageBody, { name: clientName, externalProviderId: consultation.id }).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
-
-              console.log(`[WHATSAPP] Async confirmation sent for Consultation ID: ${consultation.id}`);
-            } catch (asyncErr) {
-              console.error('[WHATSAPP Async Dispatch Error]:', asyncErr.message);
-            }
-          })();
+          const { sendCustomWhatsApp } = require('../services/chatbotService');
+          await sendCustomWhatsApp(lead.phone, messageBody, { name: clientName, externalProviderId: consultation.id }).catch(err => console.error('[WHATSAPP Direct Send Error]:', err.message));
         } else {
           console.log(`[WHATSAPP] Booking confirmation already sent for Consultation ID: ${consultation.id}`);
         }
       } catch (waErr) {
         console.error('[WHATSAPP] Confirmation failed:', waErr.message);
-        // Do NOT rollback database status — keep consultation scheduled
       }
     }
 
