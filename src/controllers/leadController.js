@@ -264,28 +264,11 @@ const createLead = async (req, res) => {
 
       const inactiveStatuses = ['Lost Lead', 'Spam', 'Cold Lead', 'No Show', 'Completed', 'Cancelled', 'Canceled', 'Refused', 'Meeting Completed', 'Meeting Cancelled'];
       
-      if (latestLead) {
-        const timeDiffMs = Date.now() - new Date(latestLead.createdAt).getTime();
-        if (timeDiffMs < 60000) {
-          console.log(`[BOOKING GUARD] Rapid duplicate submission detected for Lead ID ${latestLead.id} (${timeDiffMs}ms ago). Reusing existing lead.`);
-          const fullLead = await prisma.lead.findUnique({
-            where: { id: latestLead.id },
-            include: { consultations: true }
-          });
-          const consultation = fullLead?.consultations?.[0];
-          return res.status(200).json({
-            success: true,
-            ...fullLead,
-            meetingLink: consultation?.meetingLink
-          });
-        }
-
-        if (!inactiveStatuses.includes(latestLead.status)) {
-          return res.status(409).json({
-            code: 'DUPLICATE_LEAD',
-            message: 'An active booking or application already exists under this email or phone number.'
-          });
-        }
+      if (latestLead && !inactiveStatuses.includes(latestLead.status)) {
+        return res.status(409).json({
+          code: 'DUPLICATE_LEAD',
+          message: 'An active booking or application already exists under this email or phone number.'
+        });
       }
     }
 

@@ -232,7 +232,7 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
 /**
  * Sends free-text responses via Twilio WhatsApp API or logs in Dry-Run mode.
  */
-async function sendCustomWhatsApp(phone, messageBody) {
+async function sendCustomWhatsApp(phone, messageBody, optsOrName = null) {
   let cleanPhone = phone.trim();
   if (cleanPhone.startsWith('whatsapp:')) {
     cleanPhone = cleanPhone.substring(9);
@@ -240,6 +240,13 @@ async function sendCustomWhatsApp(phone, messageBody) {
   cleanPhone = cleanPhone.replace(/[^\d+]/g, '');
   if (!cleanPhone.startsWith('+')) {
     cleanPhone = '+' + cleanPhone;
+  }
+
+  let options = {};
+  if (typeof optsOrName === 'string') {
+    options = { name: optsOrName };
+  } else if (optsOrName && typeof optsOrName === 'object') {
+    options = optsOrName;
   }
 
   // Sandbox Mode Whitelist Filter
@@ -271,7 +278,7 @@ async function sendCustomWhatsApp(phone, messageBody) {
         to: twilioTo
       });
       console.log(`[Twilio WA Outbound Success] Sent to ${twilioTo}. SID: ${res.sid}, Status: ${res.status}`);
-      await logCommunication(phone, messageBody, "OUTBOUND", 'Agent', res?.sid);
+      await logCommunication(phone, messageBody, "OUTBOUND", options.name || 'Agent', res?.sid, options.externalProviderId || null);
       return res;
     } catch (err) {
       console.error(`[Twilio WA Outbound Error] Failed to ${twilioTo}: ${err.code} - ${err.message}`);
@@ -283,14 +290,14 @@ async function sendCustomWhatsApp(phone, messageBody) {
     console.log(`To:       ${twilioTo}`);
     console.log(`Body:     ${messageBody}`);
     console.log('------------------------------------------------------------');
-    await logCommunication(phone, messageBody, "OUTBOUND");
+    await logCommunication(phone, messageBody, "OUTBOUND", options.name || 'Agent', null, options.externalProviderId || null);
   }
 }
 
 /**
  * Creates a record in CommunicationLog linked to the matching client.
  */
-async function logCommunication(phone, messageText, direction, name = 'Applicant', messageId = null) {
+async function logCommunication(phone, messageText, direction, name = 'Applicant', messageId = null, externalProviderId = null) {
   try {
     let cleanPhone = phone.trim();
     if (cleanPhone.startsWith('whatsapp:')) {
@@ -315,6 +322,7 @@ async function logCommunication(phone, messageText, direction, name = 'Applicant
         direction: direction,
         content: messageText,
         messageId: messageId,
+        externalProviderId: externalProviderId,
         deliveryStatus: 'SENT'
       }
     });
