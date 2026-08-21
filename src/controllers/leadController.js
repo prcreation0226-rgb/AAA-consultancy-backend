@@ -122,7 +122,24 @@ const getLeads = async (req, res) => {
   }
 };
 
+const activePhoneLocks = new Set();
+
 const createLead = async (req, res) => {
+  const rawPhone = (req.body.phone || '').replace(/\D/g, '');
+  const rawEmail = (req.body.email || '').toLowerCase().trim();
+  const phoneLockKey = rawPhone.length >= 10 ? rawPhone.slice(-10) : rawPhone;
+  const lockKey = phoneLockKey || rawEmail;
+
+  if (lockKey && activePhoneLocks.has(lockKey)) {
+    console.log(`[CONCURRENCY LOCK] Concurrent lead creation request blocked for key ${lockKey}`);
+    return res.status(200).json({
+      success: true,
+      message: 'Booking request is already being processed.'
+    });
+  }
+
+  if (lockKey) activePhoneLocks.add(lockKey);
+
   try {
     const {
       firstName, 
@@ -404,6 +421,8 @@ const createLead = async (req, res) => {
   } catch (error) {
     console.error('Error in createLead:', error);
     res.status(500).json({ message: 'Server error creating lead', error: error.message });
+  } finally {
+    if (lockKey) activePhoneLocks.delete(lockKey);
   }
 };
 
