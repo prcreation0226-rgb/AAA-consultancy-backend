@@ -229,6 +229,9 @@ exports.handleChatbotMessage = async (phone, name, text, messageId = null, media
   }
 };
 
+// Transport-Level Deduplication Map (Prevents identical WhatsApp messages within 3 minutes)
+const recentWaDispatches = new Map();
+
 /**
  * Sends free-text responses via Twilio WhatsApp API or logs in Dry-Run mode.
  */
@@ -240,6 +243,25 @@ async function sendCustomWhatsApp(phone, messageBody) {
   cleanPhone = cleanPhone.replace(/[^\d+]/g, '');
   if (!cleanPhone.startsWith('+')) {
     cleanPhone = '+' + cleanPhone;
+  }
+
+  // Deduplication Check for Confirmation Messages
+  if (messageBody && (messageBody.includes('Spain Visa Consultation Confirmed') || messageBody.includes('Meeting Join Link:'))) {
+    const rawKey = `${cleanPhone}:booking_confirmation`;
+    const lastSent = recentWaDispatches.get(rawKey);
+    const now = Date.now();
+    if (lastSent && (now - lastSent) < 180000) { // 3-minute strict duplicate suppression
+      console.log(`[DEDUPLICATION GUARD] Suppressed duplicate WhatsApp meeting confirmation to ${cleanPhone} (sent ${Math.round((now - lastSent)/1000)}s ago).`);
+      return { success: true, duplicateSuppressed: true };
+    }
+    recentWaDispatches.set(rawKey, now);
+
+    // Auto-cleanup stale cache entries (>10 minutes)
+    if (recentWaDispatches.size > 200) {
+      for (const [k, v] of recentWaDispatches.entries()) {
+        if (now - v > 600000) recentWaDispatches.delete(k);
+      }
+    }
   }
 
   // Sandbox Mode Whitelist Filter
