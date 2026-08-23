@@ -276,11 +276,16 @@ const reviewDocument = async (req, res) => {
     const isApproved = statusUpper === 'VERIFIED' || statusUpper === 'APPROVED';
     const isRejected = statusUpper === 'REJECTED';
 
-    if (document.client && (isApproved || isRejected)) {
+    let targetClient = document.client;
+    if (!targetClient && document.clientId) {
+      targetClient = await prisma.client.findUnique({ where: { id: document.clientId } }).catch(() => null);
+    }
+
+    if (targetClient && (isApproved || isRejected)) {
       try {
-        const clientName = `${document.client.firstName || ''} ${document.client.lastName || ''}`.trim() || 'Client';
-        const clientEmail = document.client.email;
-        const clientPhone = document.client.phone;
+        const clientName = `${targetClient.firstName || ''} ${targetClient.lastName || ''}`.trim() || 'Client';
+        const clientEmail = targetClient.email;
+        const clientPhone = targetClient.phone;
         const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
         const portalUrl = `${frontendUrl}/#/portal/login`;
 
@@ -294,7 +299,7 @@ const reviewDocument = async (req, res) => {
           const emailHtml = isApproved
             ? `
               <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                <h3 style="color: #051A3B;">Hello ${document.client.firstName || clientName},</h3>
+                <h3 style="color: #051A3B;">Hello ${targetClient.firstName || clientName},</h3>
                 <p>Great news! Your uploaded document has been reviewed and <b style="color: #2e7d32;">APPROVED</b> by our verification team:</p>
                 <ul>
                   <li><b>Document Name:</b> ${document.name}</li>
@@ -313,7 +318,7 @@ const reviewDocument = async (req, res) => {
             `
             : `
               <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                <h3 style="color: #051A3B;">Hello ${document.client.firstName || clientName},</h3>
+                <h3 style="color: #051A3B;">Hello ${targetClient.firstName || clientName},</h3>
                 <p>Your uploaded document requires revision and has been <b style="color: #d32f2f;">REJECTED</b> during verification:</p>
                 <ul>
                   <li><b>Document Name:</b> ${document.name}</li>
@@ -331,7 +336,7 @@ const reviewDocument = async (req, res) => {
               </div>
             `;
 
-          sendEmail({ to: clientEmail, subject: emailSubject, html: emailHtml }).catch(err => {
+          await sendEmail({ to: clientEmail, subject: emailSubject, html: emailHtml }).catch(err => {
             console.error('[DocReview Email Error]:', err.message);
           });
         }
@@ -340,10 +345,10 @@ const reviewDocument = async (req, res) => {
         if (clientPhone) {
           const { sendCustomWhatsApp } = require('../services/chatbotService');
           const waMsg = isApproved
-            ? `✅ *Document Approved!*\n\nHello *${document.client.firstName || clientName}*,\n\nYour uploaded document *"${document.name}"* (${document.category || 'General'}) has been successfully verified and approved by our team.\n\nTrack your status here:\n🔗 ${portalUrl}`
-            : `❌ *Action Required: Document Revision Needed*\n\nHello *${document.client.firstName || clientName}*,\n\nYour uploaded document *"${document.name}"* requires revision.\n\n*Reason:* ${feedbackComment || 'Document requires updated re-upload.'}\n\nPlease log in to re-upload your file:\n🔗 ${portalUrl}`;
+            ? `✅ *Document Approved!*\n\nHello *${targetClient.firstName || clientName}*,\n\nYour uploaded document *"${document.name}"* (${document.category || 'General'}) has been successfully verified and approved by our team.\n\nTrack your status here:\n🔗 ${portalUrl}`
+            : `❌ *Action Required: Document Revision Needed*\n\nHello *${targetClient.firstName || clientName}*,\n\nYour uploaded document *"${document.name}"* requires revision.\n\n*Reason:* ${feedbackComment || 'Document requires updated re-upload.'}\n\nPlease log in to re-upload your file:\n🔗 ${portalUrl}`;
 
-          sendCustomWhatsApp(clientPhone, waMsg).catch(err => {
+          await sendCustomWhatsApp(clientPhone, waMsg).catch(err => {
             console.error('[DocReview WA Error]:', err.message);
           });
         }
@@ -356,7 +361,7 @@ const reviewDocument = async (req, res) => {
             : `Your document "${document.name}" was rejected. Reason: ${feedbackComment || 'Please re-upload'}`;
 
           const clientUser = await prisma.user.findFirst({
-            where: { email: document.client.email }
+            where: { email: targetClient.email }
           }).catch(() => null);
 
           if (clientUser) {
