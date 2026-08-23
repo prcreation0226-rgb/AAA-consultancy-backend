@@ -272,15 +272,17 @@ const reviewDocument = async (req, res) => {
     });
 
     // 🔔 Trigger Client Notifications (Email + WhatsApp + In-App) on Approve or Reject
-    if (document.client && (status === 'VERIFIED' || status === 'APPROVED' || status === 'REJECTED')) {
+    const statusUpper = (status || '').toUpperCase();
+    const isApproved = statusUpper === 'VERIFIED' || statusUpper === 'APPROVED';
+    const isRejected = statusUpper === 'REJECTED';
+
+    if (document.client && (isApproved || isRejected)) {
       try {
         const clientName = `${document.client.firstName || ''} ${document.client.lastName || ''}`.trim() || 'Client';
         const clientEmail = document.client.email;
         const clientPhone = document.client.phone;
         const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
         const portalUrl = `${frontendUrl}/#/portal/login`;
-
-        const isApproved = status === 'VERIFIED' || status === 'APPROVED';
 
         // 1. Send Email Notification to Client
         if (clientEmail) {
