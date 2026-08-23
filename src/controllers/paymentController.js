@@ -459,6 +459,14 @@ const createRefundRequest = async (req, res) => {
     }
 
     let refundAmount = Number(amount) || 0;
+    if (refundAmount <= 0 && targetClientId) {
+      const paidPmt = await prisma.payment.findFirst({
+        where: { clientId: targetClientId, status: { in: ['Paid', 'Payment Completed', 'Payment Received', 'COMPLETED', 'Paid Fees'] } }
+      }).catch(() => null);
+      if (paidPmt && paidPmt.amount > 0) {
+        refundAmount = Math.max(0, paidPmt.amount - (paidPmt.discount || 0));
+      }
+    }
     
     const refund = await prisma.refundRequest.create({
       data: {
@@ -575,18 +583,32 @@ const createRefundRequest = async (req, res) => {
           .catch(err => console.error('[BG-Email] Client refund receipt email failed:', err.message)) : Promise.resolve()
       ]);
 
-      // 2. Create Internal CRM Notification in DB
+      // 2. Create Internal CRM Notification in DB for Super Admin, Admin, Finance, Operations & Client
       try {
-        await prisma.notification.create({
-          data: {
-            userId: targetClientId,
-            type: 'REFUND_CLAIM',
-            title: '🛡️ New Refund Claim Registered',
-            body: `Client ${clientName} submitted a 100% refund claim (€${refundAmount.toLocaleString()}). Audit required.`
-          }
+        const staffUsers = await prisma.user.findMany({
+          where: { role: { in: ['super_admin', 'admin', 'finance', 'operations'] } },
+          select: { id: true }
+        });
+
+        const recipients = new Set(staffUsers.map(u => u.id));
+        if (targetClient?.assignedToId) recipients.add(targetClient.assignedToId);
+        if (targetClientId) recipients.add(targetClientId);
+
+        const notifEntries = Array.from(recipients).map(uId => ({
+          userId: uId,
+          type: 'REFUND_CLAIM',
+          title: '🚨 New Refund Claim Submitted',
+          body: `Client ${clientName} submitted a 100% Guarantee refund claim (€${refundAmount.toLocaleString()}). Category: ${category}. Audit required.`,
+          clientId: targetClientId || null,
+          isRead: false
+        }));
+
+        await prisma.notification.createMany({
+          data: notifEntries,
+          skipDuplicates: true
         });
       } catch (notifErr) {
-        console.error('Failed to create internal CRM notification:', notifErr.message);
+        console.error('Failed to create internal CRM notifications:', notifErr.message);
       }
 
     } catch (auditErr) {

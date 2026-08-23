@@ -252,7 +252,8 @@ const reviewDocument = async (req, res) => {
     
     const document = await prisma.document.update({
       where: { id },
-      data: { status, comment: feedbackComment }
+      data: { status, comment: feedbackComment },
+      include: { client: true }
     });
 
     const { logActivity } = require('../services/auditService');
@@ -269,9 +270,115 @@ const reviewDocument = async (req, res) => {
       action: actionType,
       description: `${reviewerName} marked document "${document.name}" as ${status}.${feedbackComment ? ` Comment: "${feedbackComment}"` : ''}`
     });
+
+    // 🔔 Trigger Client Notifications (Email + WhatsApp + In-App) on Approve or Reject
+    if (document.client && (status === 'VERIFIED' || status === 'APPROVED' || status === 'REJECTED')) {
+      try {
+        const clientName = `${document.client.firstName || ''} ${document.client.lastName || ''}`.trim() || 'Client';
+        const clientEmail = document.client.email;
+        const clientPhone = document.client.phone;
+        const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+        const portalUrl = `${frontendUrl}/#/portal/login`;
+
+        const isApproved = status === 'VERIFIED' || status === 'APPROVED';
+
+        // 1. Send Email Notification to Client
+        if (clientEmail) {
+          const { sendEmail } = require('../services/emailService');
+          const emailSubject = isApproved
+            ? `✅ Document Approved: ${document.name} - AAA Business Consultancy`
+            : `⚠️ Action Required: Document Re-upload Needed - AAA Business Consultancy`;
+
+          const emailHtml = isApproved
+            ? `
+              <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <h3 style="color: #051A3B;">Hello ${document.client.firstName || clientName},</h3>
+                <p>Great news! Your uploaded document has been reviewed and <b style="color: #2e7d32;">APPROVED</b> by our verification team:</p>
+                <ul>
+                  <li><b>Document Name:</b> ${document.name}</li>
+                  <li><b>Category:</b> ${document.category || 'General'}</li>
+                  <li><b>Status:</b> Approved / Verified</li>
+                </ul>
+                <p>You can view your application progress anytime on your client portal.</p>
+                <p style="margin-top: 20px;">
+                  <a href="${portalUrl}" style="background-color: #051A3B; color: #E5C058; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                     Go to Client Portal
+                  </a>
+                </p>
+                <br/>
+                <p>Best regards,<br/><b>AAA Business Consultancy Team</b></p>
+              </div>
+            `
+            : `
+              <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <h3 style="color: #051A3B;">Hello ${document.client.firstName || clientName},</h3>
+                <p>Your uploaded document requires revision and has been <b style="color: #d32f2f;">REJECTED</b> during verification:</p>
+                <ul>
+                  <li><b>Document Name:</b> ${document.name}</li>
+                  <li><b>Category:</b> ${document.category || 'General'}</li>
+                  <li><b>Rejection Reason:</b> <span style="color: #d32f2f; font-weight: bold;">${feedbackComment || 'Requires clear re-upload'}</span></li>
+                </ul>
+                <p>Please log in to your Client Portal and re-upload an updated, clear copy of this document at your earliest convenience.</p>
+                <p style="margin-top: 20px;">
+                  <a href="${portalUrl}" style="background-color: #d32f2f; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                     Re-upload Document Now
+                  </a>
+                </p>
+                <br/>
+                <p>Best regards,<br/><b>AAA Business Consultancy Team</b></p>
+              </div>
+            `;
+
+          sendEmail({ to: clientEmail, subject: emailSubject, html: emailHtml }).catch(err => {
+            console.error('[DocReview Email Error]:', err.message);
+          });
+        }
+
+        // 2. Send WhatsApp Notification to Client
+        if (clientPhone) {
+          const { sendCustomWhatsApp } = require('../services/chatbotService');
+          const waMsg = isApproved
+            ? `✅ *Document Approved!*\n\nHello *${document.client.firstName || clientName}*,\n\nYour uploaded document *"${document.name}"* (${document.category || 'General'}) has been successfully verified and approved by our team.\n\nTrack your status here:\n🔗 ${portalUrl}`
+            : `❌ *Action Required: Document Revision Needed*\n\nHello *${document.client.firstName || clientName}*,\n\nYour uploaded document *"${document.name}"* requires revision.\n\n*Reason:* ${feedbackComment || 'Document requires updated re-upload.'}\n\nPlease log in to re-upload your file:\n🔗 ${portalUrl}`;
+
+          sendCustomWhatsApp(clientPhone, waMsg).catch(err => {
+            console.error('[DocReview WA Error]:', err.message);
+          });
+        }
+
+        // 3. Create In-App DB Notification for Client User (if user record exists)
+        if (prisma.notification && typeof prisma.notification.create === 'function') {
+          const title = isApproved ? `✅ Document Approved: ${document.name}` : `⚠️ Document Rejected: ${document.name}`;
+          const body = isApproved
+            ? `Your document "${document.name}" has been approved.`
+            : `Your document "${document.name}" was rejected. Reason: ${feedbackComment || 'Please re-upload'}`;
+
+          const clientUser = await prisma.user.findFirst({
+            where: { email: document.client.email }
+          }).catch(() => null);
+
+          if (clientUser) {
+            await prisma.notification.create({
+              data: {
+                userId: clientUser.id,
+                type: isApproved ? 'doc_approved' : 'doc_rejected',
+                title,
+                body,
+                clientId: document.clientId,
+                documentId: document.id,
+                isRead: false
+              }
+            }).catch(err => console.warn('[DocReview InApp Notif DB Error]:', err.message));
+          }
+        }
+      } catch (notifErr) {
+        console.error('[DocReview Notification Trigger Error]:', notifErr.message);
+      }
+    }
     
     res.json(document);
   } catch (error) {
+    console.error('Error reviewing document:', error);
     res.status(500).json({ message: 'Server error reviewing document' });
   }
 };

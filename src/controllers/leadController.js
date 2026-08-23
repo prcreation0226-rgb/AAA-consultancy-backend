@@ -723,6 +723,24 @@ const updateLead = async (req, res) => {
       }).catch(err => console.warn('[updateLead] Consultation update warning:', err.message));
     }
 
+    if (notes !== undefined && notes !== null) {
+      try {
+        const { logActivity } = require('../services/auditService');
+        const actorName = req.user ? (req.user.fullName || req.user.email) : 'Staff';
+        const actorRole = req.user ? (req.user.role || 'staff') : 'staff';
+        logActivity({
+          leadId: lead.id,
+          actorId: req.user?.id || 'system',
+          actorName,
+          actorRole,
+          action: 'NOTE_ADDED',
+          description: `Case file note updated by ${actorName}.`
+        });
+      } catch (logErr) {
+        console.warn('[updateLead] logActivity warning:', logErr.message);
+      }
+    }
+
     const mapped = {
       ...lead,
       name: `${lead.firstName} ${lead.lastName}`,

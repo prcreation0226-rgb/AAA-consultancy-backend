@@ -536,6 +536,30 @@ const updateClientStatus = async (req, res) => {
             reason: `Automated refund trigger: Visa status updated to Visa Refused. Service: ${client.serviceType}. Total paid: €${totalAmountPaid}. Eligibility matching 100% refund guarantee: ${isEligible ? 'Eligible (100% Refund)' : 'Not Eligible'}.`
           }
         });
+
+        // Broadcast notifications to staff and client
+        try {
+          const staffUsers = await prisma.user.findMany({
+            where: { role: { in: ['super_admin', 'admin', 'finance', 'operations'] } },
+            select: { id: true }
+          });
+          const recipients = new Set(staffUsers.map(u => u.id));
+          if (client?.assignedToId) recipients.add(client.assignedToId);
+          if (id) recipients.add(id);
+
+          const notifEntries = Array.from(recipients).map(uId => ({
+            userId: uId,
+            type: 'REFUND_CLAIM',
+            title: '🚨 Automated Refund Claim Triggered',
+            body: `Visa Refused for ${client.firstName} ${client.lastName}. Refund claim of €${refundAmount} registered (${isEligible ? 'Eligible' : 'Not Eligible'}).`,
+            clientId: id || null,
+            isRead: false
+          }));
+
+          await prisma.notification.createMany({ data: notifEntries, skipDuplicates: true });
+        } catch (notifErr) {
+          console.error('Failed to create automated refund notifications:', notifErr.message);
+        }
       } catch (err) {
         console.error('Failed to auto-trigger refund request calculation:', err.message);
       }
