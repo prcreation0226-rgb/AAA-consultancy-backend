@@ -280,6 +280,20 @@ const reviewDocument = async (req, res) => {
     if (!targetClient && document.clientId) {
       targetClient = await prisma.client.findUnique({ where: { id: document.clientId } }).catch(() => null);
     }
+    if (!targetClient && document.checklistItemId) {
+      const itemWithClient = await prisma.resubmissionChecklistItem.findUnique({
+        where: { id: document.checklistItemId },
+        include: { applicationCycle: { include: { client: true } } }
+      }).catch(() => null);
+      targetClient = itemWithClient?.applicationCycle?.client || null;
+    }
+    if (!targetClient && document.applicationId) {
+      const cycleWithClient = await prisma.applicationCycle.findUnique({
+        where: { id: document.applicationId },
+        include: { client: true }
+      }).catch(() => null);
+      targetClient = cycleWithClient?.client || null;
+    }
 
     if (targetClient && (isApproved || isRejected)) {
       try {

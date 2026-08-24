@@ -902,6 +902,20 @@ const reviewChecklistDoc = async (req, res) => {
     if (!targetClient && doc.clientId) {
       targetClient = await prisma.client.findUnique({ where: { id: doc.clientId } }).catch(() => null);
     }
+    if (!targetClient && doc.checklistItemId) {
+      const itemWithClient = await prisma.resubmissionChecklistItem.findUnique({
+        where: { id: doc.checklistItemId },
+        include: { applicationCycle: { include: { client: true } } }
+      }).catch(() => null);
+      targetClient = itemWithClient?.applicationCycle?.client || null;
+    }
+    if (!targetClient && doc.applicationId) {
+      const cycleWithClient = await prisma.applicationCycle.findUnique({
+        where: { id: doc.applicationId },
+        include: { client: true }
+      }).catch(() => null);
+      targetClient = cycleWithClient?.client || null;
+    }
 
     if (targetClient && (isApproved || isRejected)) {
       try {
