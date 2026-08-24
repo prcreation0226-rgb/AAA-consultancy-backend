@@ -662,6 +662,11 @@ exports.sendSocialMessage = async (req, res) => {
       const twilioTo = `whatsapp:${cleanPh}`;
       console.log(`Sending manual WhatsApp message to ${twilioTo}: ${displayContent}`);
 
+      const backendBaseUrl = (process.env.BACKEND_URL || 'https://aaa-consultancy-backend-production.up.railway.app').replace('/api/v1', '').replace(/\/$/, '');
+      const fullMediaUrl = mediaUrl
+        ? (mediaUrl.startsWith('http') ? mediaUrl : `${backendBaseUrl}${mediaUrl.startsWith('/') ? '' : '/'}${mediaUrl}`)
+        : null;
+
       if (isTwilioConfigured) {
         try {
           const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
@@ -669,7 +674,7 @@ exports.sendSocialMessage = async (req, res) => {
             body: text || ' ',
             from: TWILIO_WHATSAPP_FROM,
             to: twilioTo,
-            ...(mediaUrl && { mediaUrl: [mediaUrl] })
+            ...(fullMediaUrl && { mediaUrl: [fullMediaUrl] })
           });
         } catch (err) {
           console.error('Twilio manual send failed:', err.message);
