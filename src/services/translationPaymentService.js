@@ -277,7 +277,28 @@ async function handleSwornTranslationPaymentSuccess({ leadId, session, reqApp = 
     const clientPhone = lead.phone || client.phone;
     if (clientPhone && clientPhone.trim()) {
       const paymentDateFormatted = formatDateDDMMYYYY(new Date());
-      const waMessage = `Hello *${clientName}*,\n\nYour payment of *€${Number(totalPaid).toFixed(2)}* for *Spanish Sworn Translation (Traducción Jurada Oficial)* has been successfully received. 🎉\n\nThank you for your payment. We have recorded your payment and our certified sworn translators will now proceed with the next steps.\n\n📋 *Payment Reference:* ${paymentReference}\n📅 *Payment Date:* ${paymentDateFormatted}\n📑 *Words:* ${wordCount}\n🌐 *Language:* ${sourceLang} ➔ ${targetLang}\n\nYour official certified sworn translation with ministry certification stamps will be delivered to your registered email (*${lead.email}*) within max 7 working days.\n\nThank you for choosing AAA Business Consultancy! 🇪🇸`;
+      const backendUrl = (process.env.BACKEND_URL || 'https://aaa-consultancy-backend-production.up.railway.app').replace('/api/v1', '').replace(/\/$/, '');
+      const receiptPdfUrl = paymentRecord?.id ? `${backendUrl}/api/v1/payments/zoho-pdf/${paymentRecord.id}.pdf` : `${frontendUrl}/#/portal/login`;
+
+      const waMessage = `🎉 *Payment Confirmed - AAA Business Consultancy*
+
+Dear *${clientName}*,
+
+Thank you! We have successfully received your payment for *Spanish Sworn Translation (Traducción Jurada Oficial)*.
+
+📋 *Receipt Summary:*
+• 👤 *Client Code:* ${client?.clientCode || 'CID-12000'}
+• 💳 *Amount Paid:* €${Number(totalPaid).toFixed(2)}
+• 📦 *Service:* Spanish Sworn Translation
+• 📅 *Date:* ${paymentDateFormatted}
+• 📑 *Details:* ${wordCount} words (${sourceLang} ➔ ${targetLang})
+• 📄 *Download Receipt PDF:* ${receiptPdfUrl}
+
+Your official certified sworn translation with ministry certification stamps will be delivered to your registered email (*${lead.email}*) within max 7 working days.
+
+🔗 *Client Portal:* ${portalUrl}
+
+Thank you for choosing AAA Business Consultancy! 🇪🇸`;
 
       try {
         await sendCustomWhatsApp(clientPhone, waMessage);
