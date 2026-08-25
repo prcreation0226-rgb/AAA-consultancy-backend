@@ -58,6 +58,7 @@ exports.getTemplates = async (req, res) => {
 exports.getAllTemplatesAdmin = async (req, res) => {
   try {
     const templates = await prisma.template.findMany({
+      where: { active: true },
       orderBy: { createdAt: 'desc' }
     });
     return res.status(200).json(templates);
