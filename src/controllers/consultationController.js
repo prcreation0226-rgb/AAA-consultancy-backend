@@ -97,9 +97,8 @@ const getConsultations = async (req, res) => {
     
     const mapped = consultations
       .filter(c => {
-        if (c.leadId && !c.lead && !c.clientId) return false;
-        if (c.leadId && !c.lead) return false;
-        if (c.clientId && !c.client && !c.lead) return false;
+        // Filter out orphaned consultations where lead/client was deleted
+        if (!c.lead && !c.client) return false;
         return true;
       })
       .map(c => {

@@ -933,6 +933,7 @@ const deleteClient = async (req, res) => {
       prisma.applicationCycle.deleteMany({ where: { clientId: id } }),
       prisma.communicationLog.deleteMany({ where: { clientId: id } }),
       prisma.discountCode.deleteMany({ where: { clientId: id } }),
+      prisma.consultation.deleteMany({ where: { clientId: id } }),
       prisma.lead.updateMany({
         where: { clientId: id },
         data: { clientId: null }
