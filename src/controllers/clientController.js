@@ -49,8 +49,7 @@ const getClients = async (req, res) => {
     
     const totalClientsCount = sortedClients.length;
     const mapped = sortedClients.map((c, index) => {
-      const autoCode = `CID-${12000 + (totalClientsCount - index)}`;
-      const finalClientCode = c.clientCode || autoCode;
+      const finalClientCode = c.clientCode || (c.lead && c.lead.clientCode) || `CID-${12001 + index}`;
       
       return {
         ...c,
@@ -158,16 +157,22 @@ const createClient = async (req, res) => {
       const hashedPassword = await bcrypt.hash(plainPassword, salt);
       credentialsGenerated = true;
 
-      // Preserve permanent CID from lead if available
+      // Preserve permanent CID from lead if available by leadId, email, or phone
       let clientCode = '';
+      let targetLead = null;
       if (leadId) {
-        const leadObj = await prisma.lead.findUnique({
-          where: { id: leadId },
-          select: { clientCode: true }
+        targetLead = await prisma.lead.findUnique({ where: { id: leadId } });
+      } else if (email) {
+        targetLead = await prisma.lead.findFirst({ where: { email } });
+      } else if (phone) {
+        targetLead = await prisma.lead.findFirst({ where: { phone } });
+      }
+
+      if (targetLead) {
+        const leadIndex = await prisma.lead.count({
+          where: { createdAt: { lte: targetLead.createdAt } }
         });
-        if (leadObj && leadObj.clientCode) {
-          clientCode = leadObj.clientCode;
-        }
+        clientCode = `CID-${12000 + (leadIndex || 1)}`;
       }
 
       if (!clientCode) {

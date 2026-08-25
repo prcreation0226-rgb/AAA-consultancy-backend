@@ -88,15 +88,22 @@ async function handleSwornTranslationPaymentSuccess({ leadId, session, reqApp = 
     client = await prisma.client.findUnique({ where: { email: lead.email.toLowerCase() } });
   }
 
+  const leadIndex = await prisma.lead.count({
+    where: { createdAt: { lte: lead.createdAt } }
+  });
+  const universalCode = `CID-${12000 + (leadIndex || 1)}`;
+
   if (!client) {
     try {
-      // Create new client record for translation customer
+      // Create new client record for translation customer with inherited CID code
       client = await prisma.client.create({
         data: {
           firstName: lead.firstName,
           lastName: lead.lastName,
           email: lead.email.toLowerCase(),
           phone: lead.phone,
+          clientCode: universalCode,
+          leadId: lead.id,
           nationality: lead.nationality || null,
           serviceType: 'Spanish Sworn Translation',
           status: 'Payment Completed',
@@ -107,7 +114,7 @@ async function handleSwornTranslationPaymentSuccess({ leadId, session, reqApp = 
           wordCount: wordCount
         }
       });
-      console.log(`[TranslationPaymentService] Created Client profile ${client.id} for Lead ${lead.id}`);
+      console.log(`[TranslationPaymentService] Created Client profile ${client.id} (${universalCode}) for Lead ${lead.id}`);
     } catch (clientCreateErr) {
       if (clientCreateErr.code === 'P2002' || clientCreateErr.message?.includes('Unique constraint')) {
         client = await prisma.client.findUnique({ where: { email: lead.email.toLowerCase() } });
@@ -115,11 +122,15 @@ async function handleSwornTranslationPaymentSuccess({ leadId, session, reqApp = 
         throw clientCreateErr;
       }
     }
-  } else {
+  }
+
+  if (client) {
     // Update existing client record
     client = await prisma.client.update({
       where: { id: client.id },
       data: {
+        clientCode: client.clientCode || universalCode,
+        leadId: client.leadId || lead.id,
         status: 'Payment Completed',
         documentUploadAllowed: true,
         serviceType: client.serviceType || 'Spanish Sworn Translation'
