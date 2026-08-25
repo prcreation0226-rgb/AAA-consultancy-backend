@@ -284,7 +284,8 @@ const updatePaymentStatus = async (req, res) => {
               discount: Number(payment.discount) || 0,
               netAmount: updatedPayment.totalPaid || (payment.amount - (payment.discount || 0)),
               serviceType: clientObj.serviceType,
-              dueDate: payment.dueDate
+              dueDate: payment.dueDate,
+              isPaid: true
             });
             if (zohoRes && zohoRes.invoiceUrl) {
               zohoInvoiceUrl = zohoRes.invoiceUrl;
@@ -705,6 +706,19 @@ const updateRefundStatus = async (req, res) => {
         to: refund.client.email,
         subject: `Refund Processed Successfully (€${refund.amount}) - AAA Visa`,
         html: receiptHtml
+      }).then(async (emailRes) => {
+        console.log(`[Refund Email] Dispatched receipt to ${refund.client.email}`);
+        await prisma.communicationLog.create({
+          data: {
+            clientId: refund.clientId,
+            name: `${refund.client.firstName} ${refund.client.lastName}`.trim(),
+            channel: 'EMAIL',
+            direction: 'OUTBOUND',
+            messageId: emailRes?.messageId || `RF_EMAIL_${refund.id}`,
+            content: `Refund Processed Successfully (€${refund.amount}) - AAA Visa`,
+            deliveryStatus: 'SENT'
+          }
+        }).catch(() => null);
       }).catch(mailErr => console.error('[BG-Email] Refund receipt email failed:', mailErr.message));
     }
     

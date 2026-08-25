@@ -110,6 +110,18 @@ exports.createTemplate = async (req, res) => {
           if (twilioContent && twilioContent.sid) {
             finalContentSid = twilioContent.sid;
             console.log(`[Twilio Content API] ✅ Created template "${name}" on Twilio with SID: ${finalContentSid}`);
+
+            // Submit Approval Request so template name registers in Twilio Console instead of (Unnamed template)
+            try {
+              const cleanTemplateName = name.trim().replace(/[^a-z0-9_]/gi, '_').toLowerCase().slice(0, 60);
+              await twilioClient.content.v1.contents(finalContentSid).approvalCreate({
+                name: cleanTemplateName,
+                category: 'UTILITY'
+              });
+              console.log(`[Twilio Approval API] ✅ Registered WhatsApp template name "${cleanTemplateName}" for Content SID: ${finalContentSid}`);
+            } catch (approvalErr) {
+              console.warn('[Twilio Approval API Warning]:', approvalErr.message);
+            }
           }
         } catch (twilioErr) {
           console.warn('[Twilio Content API Warning] Automatic SID generation failed:', twilioErr.message);
@@ -234,15 +246,26 @@ exports.deleteTemplate = async (req, res) => {
       return res.status(404).json({ message: 'Template not found' });
     }
 
-    // Soft delete by setting active = false
-    const deactivated = await prisma.template.update({
-      where: { id },
-      data: { active: false }
+    // Delete from Twilio Content API if contentSid is present
+    if (existing.contentSid && process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+      try {
+        const twilio = require('twilio');
+        const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        await twilioClient.content.v1.contents(existing.contentSid.trim()).remove();
+        console.log(`[Twilio Content API] ✅ Deleted Content SID ${existing.contentSid} from Twilio.`);
+      } catch (twilioErr) {
+        console.warn('[Twilio Content API Warning] Failed to delete template from Twilio:', twilioErr.message);
+      }
+    }
+
+    // Delete from CRM Database
+    await prisma.template.delete({
+      where: { id }
     });
 
-    return res.status(200).json({ message: 'Template deactivated successfully', template: deactivated });
+    return res.status(200).json({ message: 'Template deleted from CRM and Twilio successfully', id });
   } catch (err) {
-    console.error('Error deactivating template:', err.message);
-    return res.status(500).json({ message: 'Failed to deactivate template' });
+    console.error('Error deleting template:', err.message);
+    return res.status(500).json({ message: 'Failed to delete template' });
   }
 };

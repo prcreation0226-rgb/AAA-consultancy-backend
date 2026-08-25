@@ -3,10 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 async function exchangeTokenFinal() {
-  const clientId = '1000.1J1IB3UF7CH85NZ5QN4LB1W9L6CFWY';
-  const clientSecret = '23ace4b6f8b62f03fc41739ecf1884468ae05685bc';
-  const code = '1000.436b5f4670102f72ecbf57af64a3ba52.1daa5dc9bdd1a268fa9ed0699d712f15';
-  const orgId = '928304133';
+  const clientId = '1000.CO745VR02B4J21LS9VU1DUNBNRAN1T';
+  const clientSecret = 'faa1da5ddec0ed91023c470dfbd9e9aa70834819e3';
+  const code = '1000.0f88734af8c6ce9003de160e1c420be3.45626c6fdfde50dd95595861afad877f';
+  const orgId = '932776843';
 
   console.log('1. Exchanging code for Permanent Refresh Token...');
   try {
