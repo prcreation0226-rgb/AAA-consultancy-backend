@@ -114,7 +114,7 @@ exports.createTemplate = async (req, res) => {
             // Submit Approval Request so template name registers in Twilio Console instead of (Unnamed template)
             try {
               const cleanTemplateName = name.trim().replace(/[^a-z0-9_]/gi, '_').toLowerCase().slice(0, 60);
-              await twilioClient.content.v1.contents(finalContentSid).approvalCreate({
+              await twilioClient.content.v1.contents(finalContentSid).approvalCreate.create({
                 name: cleanTemplateName,
                 category: 'UTILITY'
               });
