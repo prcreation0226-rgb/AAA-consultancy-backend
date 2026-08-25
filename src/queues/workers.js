@@ -166,7 +166,7 @@ const setupWorkers = () => {
             const missingListHtml = missing.map(m => `<li>${m}</li>`).join('');
 
             // Send WhatsApp reminder
-            const waMsg = `Hello *${clientName}*,\n\nThis is a friendly reminder from AAA Business Consultancy. We notice you have pending documents required to proceed with your Spain ${client.serviceType || 'Visa'} application:\n\n${missingListText}\n\nPlease upload them directly to your client portal to avoid processing delays:\n🔗 ${portalUrl}`;
+            const waMsg = `Hello *${clientName}*,\n\nThis is a friendly reminder from AAA Business Consultancy. We notice you have pending documents required to proceed with your Spain ${client.serviceType || 'Visa'} application.\n\nPlease upload them directly to your client portal to avoid processing delays:\n🔗 ${portalUrl}`;
             await sendCustomWhatsApp(client.phone, waMsg).catch(err => console.error(`[Cron Missing Docs] WA failed for client ${client.id}:`, err.message));
 
             // Send Email reminder
