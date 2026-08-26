@@ -981,8 +981,31 @@ const reviewChecklistDoc = async (req, res) => {
         if (clientPhone) {
           const { sendCustomWhatsApp } = require('../services/chatbotService');
           const waMsg = isApproved
-            ? `✅ *Document Approved!*\n\nHello *${targetClient.firstName || clientName}*,\n\nYour uploaded document *"${doc.name}"* (${doc.category || 'General'}) has been successfully verified and approved by our team.\n\nTrack your status here:\n🔗 ${portalUrl}`
-            : `❌ *Action Required: Document Revision Needed*\n\nHello *${targetClient.firstName || clientName}*,\n\nYour uploaded document *"${doc.name}"* requires revision.\n\n*Reason:* ${comment || 'Document requires updated re-upload.'}\n\nPlease log in to re-upload your file:\n🔗 ${portalUrl}`;
+            ? `✅ *Document Verified & Approved!*
+
+Hello *${targetClient.firstName || clientName}*,
+
+Good news! Your uploaded document has been verified and approved by our team:
+
+📄 *Document Name:* ${doc.name}
+📂 *Category:* ${doc.category || 'General'}
+Status: ✅ *APPROVED*
+
+You can view your application progress on your Client Portal:
+🔗 ${portalUrl}`
+            : `❌ *Action Required: Document Revision Needed*
+
+Hello *${targetClient.firstName || clientName}*,
+
+Your uploaded document requires revision:
+
+📄 *Document Name:* ${doc.name}
+📂 *Category:* ${doc.category || 'General'}
+Status: ❌ *REJECTED*
+⚠️ *Rejection Reason:* ${comment || 'Please upload a clear, updated copy.'}
+
+Please log in to your Client Portal to re-upload an updated copy:
+🔗 ${portalUrl}`;
 
           await sendCustomWhatsApp(clientPhone, waMsg).catch(err => {
             console.error('[ChecklistReview WA Error]:', err.message);
