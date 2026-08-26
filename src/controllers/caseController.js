@@ -1119,7 +1119,7 @@ const recordGovernmentDecision = async (req, res) => {
       const clientObj = existingCycle.client || (await prisma.client.findUnique({ where: { id: existingCycle.clientId } }).catch(() => null));
       if (clientObj) {
         const { sendVisaDecisionWhatsApp } = require('../services/whatsappService');
-        sendVisaDecisionWhatsApp({ client: clientObj, status: newVisaStatus, decisionDate: governmentDecisionDate });
+        await sendVisaDecisionWhatsApp({ client: clientObj, status: newVisaStatus, decisionDate: governmentDecisionDate });
       }
     } catch (vErr) {
       console.error('[Government Decision WA Error]:', vErr.message);

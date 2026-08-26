@@ -576,7 +576,7 @@ const updateClientStatus = async (req, res) => {
       if (vUpper.includes('APPROV') || vUpper.includes('REFUS') || vUpper.includes('REJECT')) {
         try {
           const { sendVisaDecisionWhatsApp } = require('../services/whatsappService');
-          sendVisaDecisionWhatsApp({ client, status: visaStatus });
+          await sendVisaDecisionWhatsApp({ client, status: visaStatus });
         } catch (vErr) {
           console.error('[Visa Decision WA Trigger Error]:', vErr.message);
         }
@@ -917,7 +917,7 @@ const updateClient = async (req, res) => {
       if (vUpper.includes('APPROV') || vUpper.includes('REFUS') || vUpper.includes('REJECT')) {
         try {
           const { sendVisaDecisionWhatsApp } = require('../services/whatsappService');
-          sendVisaDecisionWhatsApp({ client, status: visaStatus });
+          await sendVisaDecisionWhatsApp({ client, status: visaStatus });
         } catch (vErr) {
           console.error('[Visa Decision WA Trigger Error]:', vErr.message);
         }
