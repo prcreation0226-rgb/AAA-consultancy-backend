@@ -271,10 +271,11 @@ async function sendCustomWhatsApp(phone, messageBody) {
         to: twilioTo
       });
       console.log(`[Twilio WA Outbound Success] Sent to ${twilioTo}. SID: ${res.sid}, Status: ${res.status}`);
-      await logCommunication(phone, messageBody, "OUTBOUND", 'Agent', res?.sid);
+      await logCommunication(phone, messageBody, "OUTBOUND", 'Agent', res?.sid, 'SENT');
       return res;
     } catch (err) {
       console.error(`[Twilio WA Outbound Error] Failed to ${twilioTo}: ${err.code} - ${err.message}`);
+      await logCommunication(phone, messageBody, "OUTBOUND", 'Agent', null, 'FAILED', err.message).catch(() => null);
       throw err;
     }
   } else {
@@ -283,14 +284,14 @@ async function sendCustomWhatsApp(phone, messageBody) {
     console.log(`To:       ${twilioTo}`);
     console.log(`Body:     ${messageBody}`);
     console.log('------------------------------------------------------------');
-    await logCommunication(phone, messageBody, "OUTBOUND");
+    await logCommunication(phone, messageBody, "OUTBOUND", 'Agent', 'DRY_RUN', 'SENT');
   }
 }
 
 /**
  * Creates a record in CommunicationLog linked to the matching client.
  */
-async function logCommunication(phone, messageText, direction, name = 'Applicant', messageId = null) {
+async function logCommunication(phone, messageText, direction, name = 'Applicant', messageId = null, deliveryStatus = 'SENT', failureReason = null) {
   try {
     let cleanPhone = phone.trim();
     if (cleanPhone.startsWith('whatsapp:')) {
@@ -315,7 +316,8 @@ async function logCommunication(phone, messageText, direction, name = 'Applicant
         direction: direction,
         content: messageText,
         messageId: messageId,
-        deliveryStatus: 'SENT'
+        deliveryStatus: deliveryStatus,
+        failureReason: failureReason
       }
     });
   } catch (e) {
