@@ -791,6 +791,7 @@ Best regards,
 *AAA Business Consultancy Team* 🇪🇸`;
 
     await sendCustomWhatsApp(phone, messageBody);
+    console.log(`[Refund WhatsApp Success] Processed confirmation sent to ${phone}`);
   } catch (err) {
     console.error('[Refund WA Error]:', err.message);
   }
