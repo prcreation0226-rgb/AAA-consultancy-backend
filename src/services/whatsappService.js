@@ -751,6 +751,51 @@ Best regards,
   }
 };
 
+/**
+ * Sends an automated WhatsApp confirmation message to client when refund is successfully processed.
+ */
+exports.sendRefundProcessedWhatsApp = async ({ client, amount, category, payoutMethod, transactionRef }) => {
+  try {
+    const phone = client?.phone;
+    if (!phone) return;
+
+    const { sendCustomWhatsApp } = require('./chatbotService');
+    const clientName = `${client?.firstName || ''} ${client?.lastName || ''}`.trim() || 'Valued Client';
+    const formattedAmount = Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const methodStr = payoutMethod || 'Direct Bank Transfer / Card Refund';
+    const refStr = transactionRef || 'N/A';
+    const refundCat = category || 'Spain Visa Money-Back Guarantee';
+
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const formattedDate = `${day}/${month}/${year}`;
+
+    const messageBody = `💰 *Refund Successful & Processed - AAA Business Consultancy* 🇪🇸
+
+Dear *${clientName}*,
+
+We are pleased to inform you that your refund claim has been *successfully processed*.
+
+📋 *Refund Receipt Details:*
+• 💶 *Amount Refunded:* €${formattedAmount}
+• 📂 *Category:* ${refundCat}
+• 💳 *Payout Method:* ${methodStr}
+• 🧾 *Transaction / UTR Ref:* ${refStr}
+• 📅 *Processing Date:* ${formattedDate}
+
+Thank you for choosing AAA Business Consultancy. If you have any questions, feel free to reply directly to this message.
+
+Best regards,
+*AAA Business Consultancy Team* 🇪🇸`;
+
+    await sendCustomWhatsApp(phone, messageBody);
+  } catch (err) {
+    console.error('[Refund WA Error]:', err.message);
+  }
+};
+
 
 
 

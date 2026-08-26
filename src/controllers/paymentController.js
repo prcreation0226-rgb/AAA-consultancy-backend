@@ -720,6 +720,18 @@ const updateRefundStatus = async (req, res) => {
           }
         }).catch(() => null);
       }).catch(mailErr => console.error('[BG-Email] Refund receipt email failed:', mailErr.message));
+
+      // Fire-and-forget WhatsApp Receipt Dispatch (ONLY when status === 'Processed')
+      const { sendRefundProcessedWhatsApp } = require('../services/whatsappService');
+      sendRefundProcessedWhatsApp({
+        client: refund.client,
+        amount: refund.amount,
+        category: refund.category,
+        payoutMethod: refund.payoutMethod,
+        transactionRef: refund.transactionRef
+      }).then(() => {
+        console.log(`[Refund WhatsApp] Dispatched processed confirmation to ${refund.client.phone}`);
+      }).catch(waErr => console.error('[BG-WhatsApp] Refund receipt WA failed:', waErr.message));
     }
     
     res.json(refund);
