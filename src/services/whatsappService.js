@@ -797,6 +797,144 @@ Best regards,
   }
 };
 
+/**
+ * Sends automated WhatsApp & Email notification when visa status is updated to Approved or Refused/Rejected.
+ */
+exports.sendVisaDecisionWhatsApp = async ({ client, status, decisionDate }) => {
+  try {
+    if (!client) return;
+    const phone = client.phone;
+    const email = client.email;
+    const clientName = `${client.firstName || ''} ${client.lastName || ''}`.trim() || 'Valued Client';
+    const clientCode = client.clientCode || client.id?.substring(0, 8) || 'N/A';
+    const serviceType = client.serviceType || 'Spain Visa Service';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://aaa-crm-service.netlify.app';
+    const portalUrl = `${frontendUrl}/#/portal/login`;
+
+    const d = decisionDate ? new Date(decisionDate) : new Date();
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const formattedDate = `${day}/${month}/${year}`;
+
+    const statusUpper = (status || '').toUpperCase();
+    const isApproved = statusUpper.includes('APPROV') || statusUpper === 'GRANTED';
+
+    if (isApproved) {
+      const waMsg = `🎉 *CONGRATULATIONS! Your Spain Visa Application is APPROVED!* 🇪🇸
+
+Dear *${clientName}*,
+
+We are thrilled to inform you that your official Spain Visa / Residency Application has been **APPROVED** by the Spanish Immigration Authority! 🇪🇸✨
+
+📋 *Application Details:*
+• 👤 *Client ID:* ${clientCode}
+• 📦 *Service Plan:* ${serviceType}
+• 📅 *Decision Date:* ${formattedDate}
+• Status: ✅ *VISA APPROVED*
+
+Log in to your Client Portal to view next steps for TIE Card / NIE Registration:
+🔗 ${portalUrl}
+
+Best regards,
+*AAA Business Consultancy Team* 🇪🇸`;
+
+      if (phone) {
+        const { sendCustomWhatsApp } = require('./chatbotService');
+        await sendCustomWhatsApp(phone, waMsg).catch(e => console.error('[VisaApproved WA Error]:', e.message));
+      }
+
+      if (email) {
+        const { sendEmail } = require('./emailService');
+        await sendEmail({
+          to: email,
+          subject: `🎉 CONGRATULATIONS! Your Spain Visa Application is APPROVED! 🇪🇸`,
+          html: `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+              <div style="background-color: #051A3B; color: #ffffff; padding: 20px; text-align: center;">
+                <h2 style="margin: 0; color: #E5C058;">🎉 VISA APPLICATION APPROVED!</h2>
+                <p style="margin: 5px 0 0 0; font-size: 14px;">AAA Business Consultancy 🇪🇸</p>
+              </div>
+              <div style="padding: 25px;">
+                <p>Dear <b>${clientName}</b>,</p>
+                <p>We are delighted to inform you that your official Spain Visa / Residency Application has been <b>APPROVED</b> by the Spanish Immigration Department! 🇪🇸✨</p>
+                <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; border-left: 4px solid #2e7d32; margin: 20px 0;">
+                  <p style="margin: 4px 0;"><b>Client ID:</b> ${clientCode}</p>
+                  <p style="margin: 4px 0;"><b>Service Plan:</b> ${serviceType}</p>
+                  <p style="margin: 4px 0;"><b>Decision Date:</b> ${formattedDate}</p>
+                  <p style="margin: 4px 0;"><b>Status:</b> <span style="color: #2e7d32; font-weight: bold;">APPROVED</span></p>
+                </div>
+                <p>Please log in to your Client Portal to download your resolution document and view instructions for TIE / NIE local registration.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${portalUrl}" style="background-color: #051A3B; color: #E5C058; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Go to Client Portal</a>
+                </div>
+                <p>Best regards,<br/><b>AAA Business Consultancy Team 🇪🇸</b></p>
+              </div>
+            </div>
+          `
+        }).catch(e => console.error('[VisaApproved Email Error]:', e.message));
+      }
+    } else {
+      const waMsg = `⚠️ *Important Update: Spain Visa Application Status*
+
+Dear *${clientName}*,
+
+We have received an official resolution update regarding your Spain Visa Application from the Immigration Department.
+
+📋 *Application Status Details:*
+• 👤 *Client ID:* ${clientCode}
+• 📦 *Service Plan:* ${serviceType}
+• 📅 *Decision Date:* ${formattedDate}
+• Status: ❌ *VISA REFUSED / REJECTED*
+• ℹ️ *Next Action:* Our legal team is auditing your resolution for 100% Money-Back Guarantee Refund or Appeal / Resubmission eligibility.
+
+Log in to your Client Portal to submit your claim or view resubmission options:
+🔗 ${portalUrl}
+
+Best regards,
+*AAA Business Consultancy Team* 🇪🇸`;
+
+      if (phone) {
+        const { sendCustomWhatsApp } = require('./chatbotService');
+        await sendCustomWhatsApp(phone, waMsg).catch(e => console.error('[VisaRefused WA Error]:', e.message));
+      }
+
+      if (email) {
+        const { sendEmail } = require('./emailService');
+        await sendEmail({
+          to: email,
+          subject: `⚠️ Important Update: Spain Visa Application Decision (${clientCode})`,
+          html: `
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+              <div style="background-color: #7f1d1d; color: #ffffff; padding: 20px; text-align: center;">
+                <h2 style="margin: 0; color: #ffffff;">⚠️ Application Resolution Notice</h2>
+                <p style="margin: 5px 0 0 0; font-size: 14px;">AAA Business Consultancy 🇪🇸</p>
+              </div>
+              <div style="padding: 25px;">
+                <p>Dear <b>${clientName}</b>,</p>
+                <p>We have received an official decision regarding your Spain Visa Application from the Spanish Immigration Department.</p>
+                <div style="background-color: #fef2f2; padding: 15px; border-radius: 6px; border-left: 4px solid #d32f2f; margin: 20px 0;">
+                  <p style="margin: 4px 0;"><b>Client ID:</b> ${clientCode}</p>
+                  <p style="margin: 4px 0;"><b>Service Plan:</b> ${serviceType}</p>
+                  <p style="margin: 4px 0;"><b>Decision Date:</b> ${formattedDate}</p>
+                  <p style="margin: 4px 0;"><b>Status:</b> <span style="color: #d32f2f; font-weight: bold;">VISA REFUSED / REJECTED</span></p>
+                </div>
+                <p>Our legal team is auditing your case. Under our 100% Money-Back Guarantee, you may be eligible for a full refund or an immediate appeal/resubmission.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${portalUrl}" style="background-color: #d32f2f; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Go to Client Portal</a>
+                </div>
+                <p>Best regards,<br/><b>AAA Business Consultancy Team 🇪🇸</b></p>
+              </div>
+            </div>
+          `
+        }).catch(e => console.error('[VisaRefused Email Error]:', e.message));
+      }
+    }
+  } catch (err) {
+    console.error('[Visa Decision Notification Error]:', err.message);
+  }
+};
+
 
 
 

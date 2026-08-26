@@ -1114,6 +1114,17 @@ const recordGovernmentDecision = async (req, res) => {
       description: `Official Government Decision recorded: ${governmentDecision} on ${governmentDecisionDate || new Date().toISOString().split('T')[0]}. Client visa status updated to "${newVisaStatus}".`
     });
 
+    // 🔔 Trigger Visa Decision WhatsApp & Email Notifications for Client
+    try {
+      const clientObj = existingCycle.client || (await prisma.client.findUnique({ where: { id: existingCycle.clientId } }).catch(() => null));
+      if (clientObj) {
+        const { sendVisaDecisionWhatsApp } = require('../services/whatsappService');
+        sendVisaDecisionWhatsApp({ client: clientObj, status: newVisaStatus, decisionDate: governmentDecisionDate });
+      }
+    } catch (vErr) {
+      console.error('[Government Decision WA Error]:', vErr.message);
+    }
+
     res.json({ cycle: updatedCycle, clientVisaStatus: newVisaStatus });
   } catch (error) {
     console.error('Error recording government decision:', error);

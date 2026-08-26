@@ -569,6 +569,19 @@ const updateClientStatus = async (req, res) => {
         console.error('Failed to auto-trigger refund request calculation:', err.message);
       }
     }
+
+    // 🔔 Trigger Visa Decision WhatsApp & Email Notifications for Client
+    if (visaStatus) {
+      const vUpper = (visaStatus || '').toUpperCase();
+      if (vUpper.includes('APPROV') || vUpper.includes('REFUS') || vUpper.includes('REJECT')) {
+        try {
+          const { sendVisaDecisionWhatsApp } = require('../services/whatsappService');
+          sendVisaDecisionWhatsApp({ client, status: visaStatus });
+        } catch (vErr) {
+          console.error('[Visa Decision WA Trigger Error]:', vErr.message);
+        }
+      }
+    }
     
     res.json(client);
   } catch (error) {
@@ -898,6 +911,18 @@ const updateClient = async (req, res) => {
       where: { id },
       data
     });
+
+    if (visaStatus) {
+      const vUpper = (visaStatus || '').toUpperCase();
+      if (vUpper.includes('APPROV') || vUpper.includes('REFUS') || vUpper.includes('REJECT')) {
+        try {
+          const { sendVisaDecisionWhatsApp } = require('../services/whatsappService');
+          sendVisaDecisionWhatsApp({ client, status: visaStatus });
+        } catch (vErr) {
+          console.error('[Visa Decision WA Trigger Error]:', vErr.message);
+        }
+      }
+    }
 
     res.json({
       ...client,
