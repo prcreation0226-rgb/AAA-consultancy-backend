@@ -455,10 +455,12 @@ const autoConvertLeadToClient = async (leadId) => {
 const updateOutcome = async (req, res) => {
   try {
     const { id } = req.params;
-    let { status, eligibility, outcome, notes, internalNotes, recommendedService, recommendedPackageId } = req.body;
-    
-    // Always default status to 'Completed' when logging an outcome
-    status = status || 'Completed';
+    const existingConsultation = await prisma.consultation.findUnique({ where: { id } });
+    if (!existingConsultation) {
+      return res.status(404).json({ message: 'Consultation not found' });
+    }
+
+    status = status || existingConsultation.status || 'Scheduled';
 
     internalNotes = internalNotes || notes || (typeof outcome === 'object' && outcome !== null ? outcome?.notes : '') || '';
 
@@ -480,13 +482,6 @@ const updateOutcome = async (req, res) => {
 
     // 1-Hour Cancellation Rule Enforcement
     if (status === 'Cancelled') {
-      const existingConsultation = await prisma.consultation.findUnique({
-        where: { id }
-      });
-      if (!existingConsultation) {
-        return res.status(404).json({ message: 'Consultation not found' });
-      }
-
       if (existingConsultation.status === 'Cancelled') {
         // Idempotency: Already cancelled, just return success
         return res.json(existingConsultation);

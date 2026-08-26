@@ -615,12 +615,11 @@ async function processZoomRecording(requestBody) {
     if (consultation) {
       console.log(`Found Consultation ID ${consultation.id} for Zoom Meeting ${meetingId}. Saving recordingUrl.`);
       
-      // 1. Update Consultation record status and recording link
+      // 1. Update Consultation record recording link (preserve status for manual consultant update)
       await prisma.consultation.update({
         where: { id: consultation.id },
         data: {
-          recordingUrl: shareUrl,
-          status: 'Completed'
+          recordingUrl: shareUrl
         }
       });
 
