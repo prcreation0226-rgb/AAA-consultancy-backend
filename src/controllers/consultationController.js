@@ -1596,29 +1596,16 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
 
     // 🔔 Create In-App CRM Notifications for Super Admin, Admin, Operations, Consultant & Assigned Staff
     try {
-      const staffUsers = await prisma.user.findMany({
-        where: { role: { in: ['super_admin', 'admin', 'operations', 'consultant', 'finance', 'marketing', 'agent'] } },
-        select: { id: true }
+      const { createRescheduleNotification } = require('./notificationController');
+      await createRescheduleNotification({
+        clientName,
+        date,
+        timeSlot,
+        consultationId,
+        clientId: consultation.clientId || null,
+        assignedToId: consultation.assignedToId || null,
+        reqApp: req.app
       });
-      const recipientIds = new Set(staffUsers.map(u => u.id));
-      if (consultation.assignedToId) {
-        recipientIds.add(consultation.assignedToId);
-      }
-
-      const notifTitle = `🔄 Meeting Rescheduled: ${clientName}`;
-      const notifBody = `Appointment for ${clientName} has been rescheduled to ${formattedDate} at ${timeSlot} (UAE).`;
-
-      const notifRows = Array.from(recipientIds).map(userId => ({
-        userId,
-        type: 'meeting_rescheduled',
-        title: notifTitle,
-        body: notifBody,
-        clientId: consultation.clientId || null
-      }));
-
-      if (notifRows.length > 0) {
-        await prisma.notification.createMany({ data: notifRows }).catch(e => console.warn('[Notif Warn] Reschedule notif error:', e.message));
-      }
 
       // Record CRM AuditLog entry
       await prisma.auditLog.create({
@@ -1628,17 +1615,6 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           details: `Meeting for ${clientName} was rescheduled to ${formattedDate} at ${timeSlot}.`
         }
       }).catch(err => console.warn('[AuditLog Warning] Could not record reschedule audit:', err.message));
-
-      // Emit Real-time Socket.IO notification to CRM UI
-      const io = req.app ? req.app.get('io') : null;
-      if (io) {
-        io.emit('new-notification', {
-          title: notifTitle,
-          body: notifBody,
-          type: 'meeting_rescheduled',
-          clientId: consultation.clientId
-        });
-      }
     } catch (notifErr) {
       console.error('[Reschedule Staff Notif Error]:', notifErr.message);
     }

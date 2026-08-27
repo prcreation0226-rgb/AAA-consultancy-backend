@@ -333,4 +333,68 @@ const createLeadNotification = async ({ leadName, email, phone, country, service
   }
 };
 
-module.exports = { getMyNotifications, getUnreadCount, markRead, markAllRead, createDocumentNotification, createLeadNotification };
+// Internal helper — called when an existing consultation is rescheduled
+const createRescheduleNotification = async ({ clientName, date, timeSlot, consultationId, clientId, assignedToId, reqApp }) => {
+  try {
+    const staffMembers = await prisma.user.findMany({
+      where: {
+        role: { in: ['super_admin', 'admin', 'operations', 'consultant', 'finance', 'marketing', 'agent'] }
+      },
+      select: { id: true, role: true }
+    });
+
+    const recipientIds = new Set(staffMembers.map(s => s.id));
+    if (assignedToId) {
+      recipientIds.add(assignedToId);
+    }
+
+    const dayjs = require('dayjs');
+    const formattedDate = date ? (date.includes('-') ? dayjs(date).format('DD/MM/YYYY') : date) : date;
+
+    const notifTitle = `🔄 Meeting Rescheduled: ${clientName || 'Client'}`;
+    const notifBody = `Appointment for ${clientName || 'Client'} has been rescheduled to ${formattedDate} at ${timeSlot} (UAE).`;
+
+    const notificationEntries = Array.from(recipientIds).map(userId => ({
+      userId,
+      type: 'meeting_rescheduled',
+      title: notifTitle,
+      body: notifBody,
+      isRead: false,
+      clientId: clientId || null
+    }));
+
+    if (notificationEntries.length > 0) {
+      await prisma.notification.createMany({
+        data: notificationEntries,
+        skipDuplicates: true
+      });
+      console.log(`[Reschedule Notification] ✅ Created ${notificationEntries.length} notifications for rescheduled meeting: ${clientName}`);
+    }
+
+    if (reqApp) {
+      const io = reqApp.get('io');
+      if (io) {
+        io.emit('new-notification', {
+          title: notifTitle,
+          body: notifBody,
+          type: 'meeting_rescheduled',
+          clientId: clientId || null,
+          consultationId: consultationId || null
+        });
+        console.log('[Reschedule Notification] 📡 Socket.io broadcast sent.');
+      }
+    }
+  } catch (error) {
+    console.error('[Reschedule Notification] ❌ Error creating reschedule notification:', error.message, error.stack);
+  }
+};
+
+module.exports = {
+  getMyNotifications,
+  getUnreadCount,
+  markRead,
+  markAllRead,
+  createDocumentNotification,
+  createLeadNotification,
+  createRescheduleNotification
+};
