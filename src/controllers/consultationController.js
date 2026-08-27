@@ -1393,7 +1393,7 @@ async function getPublicConsultationDetails(req, res) {
     const lead = consultation.lead || {};
     const remainingHours = calculateRemainingHours(consultation.date, consultation.timeSlot);
     const canCancel = consultation.status !== 'Cancelled' && consultation.status !== 'Completed' && remainingHours > 1.0;
-    const canReschedule = consultation.status !== 'Cancelled' && consultation.status !== 'Completed';
+    const canReschedule = consultation.status !== 'Cancelled' && consultation.status !== 'Completed' && remainingHours > 1.0;
 
     return res.status(200).json({
       success: true,
@@ -1437,27 +1437,14 @@ async function publicRescheduleConsultation(req, res) {
       return res.status(400).json({ success: false, message: 'Consultation token/ID, new date, and timeSlot are required.' });
     }
 
-    // Same-Day Booking Restriction
+    // Same-Day Booking Restriction for Rescheduling (Must be at least next calendar day)
     if (date) {
       const todayStr = new Date().toISOString().split('T')[0];
-      const { getCustomization } = require('./settingsController');
-      const settings = getCustomization();
-      const allowSameDay = Boolean(settings.flowAutomationSettings?.allowSameDayBooking);
-
-      if (allowSameDay) {
-        if (date < todayStr) {
-          return res.status(400).json({
-            success: false,
-            message: 'Past dates cannot be booked.'
-          });
-        }
-      } else {
-        if (date <= todayStr) {
-          return res.status(400).json({
-            success: false,
-            message: 'Booking date must be at least the next calendar day.'
-          });
-        }
+      if (date <= todayStr) {
+        return res.status(400).json({
+          success: false,
+          message: 'Rescheduled booking date must be at least the next calendar day.'
+        });
       }
     }
 
@@ -1471,6 +1458,22 @@ async function publicRescheduleConsultation(req, res) {
       return res.status(400).json({
         success: false,
         message: 'This meeting has already been completed and cannot be rescheduled.'
+      });
+    }
+
+    if (consultation.status === 'Cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'This meeting has already been cancelled and cannot be rescheduled.'
+      });
+    }
+
+    // Meeting Reschedule Cut-off Restriction (within 1 hour)
+    const remainingHours = calculateRemainingHours(consultation.date, consultation.timeSlot);
+    if (remainingHours <= 1.0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Meeting cannot be rescheduled within 1 hour of the scheduled meeting time.'
       });
     }
 
