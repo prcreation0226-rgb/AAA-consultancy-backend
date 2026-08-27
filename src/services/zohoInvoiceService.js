@@ -65,12 +65,47 @@ const getAccessToken = async () => {
 };
 
 /**
+ * Safely extracts client name without producing "undefined undefined" strings.
+ */
+const extractClientName = (client) => {
+  if (!client) return 'Valued Client';
+  if (typeof client === 'string') {
+    const clean = client.trim();
+    if (clean && clean !== 'undefined undefined' && !clean.toLowerCase().includes('undefined')) {
+      return clean;
+    }
+    return 'Valued Client';
+  }
+  const first = (client.firstName || client.first_name || '').trim();
+  const last = (client.lastName || client.last_name || '').trim();
+  const combined = `${first} ${last}`.trim();
+  if (combined && combined !== 'undefined undefined' && !combined.toLowerCase().includes('undefined')) {
+    return combined;
+  }
+  if (client.fullName && typeof client.fullName === 'string' && !client.fullName.toLowerCase().includes('undefined')) {
+    return client.fullName.trim();
+  }
+  if (client.name && typeof client.name === 'string' && !client.name.toLowerCase().includes('undefined')) {
+    return client.name.trim();
+  }
+  if (client.email && typeof client.email === 'string') {
+    const prefix = client.email.split('@')[0].replace(/[._-]/g, ' ').trim();
+    if (prefix) {
+      return prefix.charAt(0).toUpperCase() + prefix.slice(1);
+    }
+  }
+  return 'Valued Client';
+};
+
+/**
  * Searches for an existing Customer Contact in Zoho by email, or creates a new one.
  */
 const createOrGetContact = async ({ name, email, phone }) => {
   const token = await getAccessToken();
   const orgId = process.env.ZOHO_ORGANIZATION_ID;
   const apiUrl = process.env.ZOHO_API_URL || 'https://www.zohoapis.com/invoice/v3';
+
+  const cleanName = extractClientName(name);
 
   if (!token || !orgId) {
     return { contactId: `mock-contact-${Date.now()}`, isMock: true };
@@ -94,12 +129,12 @@ const createOrGetContact = async ({ name, email, phone }) => {
 
     // 2. Create new contact if not found
     const createRes = await axios.post(`${apiUrl}/contacts?organization_id=${orgId}`, {
-      contact_name: name || 'Valued Client',
+      contact_name: cleanName,
       contact_type: 'customer',
       language_code: 'en',
       contact_persons: [
         {
-          first_name: name || 'Valued Client',
+          first_name: cleanName,
           email: email,
           phone: phone || '',
           is_primary_contact: true
@@ -133,10 +168,15 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
   const orgId = process.env.ZOHO_ORGANIZATION_ID;
   const apiUrl = process.env.ZOHO_API_URL || 'https://www.zohoapis.com/invoice/v3';
 
-  const clientName = client ? `${client.firstName} ${client.lastName}`.trim() : 'Valued Client';
-  const email = client?.email || 'client@example.com';
+  const clientName = extractClientName(client);
+  const email = (client && typeof client === 'object' ? client.email : null) || (typeof client === 'string' && client.includes('@') ? client : 'client@example.com');
   const phone = client?.phone || '';
-  const finalAmount = Number(netAmount || (amount ? amount - (discount || 0) : 0));
+
+  // Calculate Base Fee, 5% UAE VAT, and Grand Total to match CRM invoice calculations
+  const rawAmount = Number(amount) || Number(netAmount) || 0;
+  const baseRate = Math.max(0, rawAmount - (Number(discount) || 0));
+  const vatAmount = Math.round(baseRate * 0.05 * 100) / 100;
+  const grandTotal = Math.round((baseRate + vatAmount) * 100) / 100;
 
   // If not configured, return fault-tolerant Dry-Run URL
   if (!token || !orgId) {
@@ -153,14 +193,12 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
   }
 
   try {
-    // Step 1: Ensure Contact exists in Zoho
+    // Step 1: Ensure Contact exists in Zoho with valid clean name
     const { contactId } = await createOrGetContact({ name: clientName, email, phone });
 
-    // Step 2: Formulate invoice payload
+    // Step 2: Formulate invoice payload with base rate + 5% UAE VAT line item
     const formattedDueDate = dueDate ? new Date(dueDate).toISOString().split('T')[0] : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
     const clientCodeDisplay = client?.clientCode || null;
-    const itemRate = Number(amount) || finalAmount + (Number(discount) || 0);
 
     const invoicePayload = {
       customer_id: contactId,
@@ -170,7 +208,13 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
         {
           name: serviceType || 'Spain Relocation & Visa Package',
           description: `Relocation Legal Package for ${clientName}${couponCode ? ` (Coupon ${couponCode} applied: ${discountPercent || ''}% OFF)` : ''}`,
-          rate: itemRate,
+          rate: baseRate,
+          quantity: 1
+        },
+        {
+          name: 'UAE VAT (5%)',
+          description: '5% UAE Value Added Tax',
+          rate: vatAmount,
           quantity: 1
         }
       ],
@@ -205,28 +249,17 @@ const createZohoInvoice = async ({ client, amount, discount, netAmount, serviceT
         console.warn('[Zoho Invoice Status Sent Warning]:', sentErr.response?.data || sentErr.message);
       }
 
-      // If payment is completed, record payment in Zoho so invoice is marked as PAID
+      // If payment is completed, record payment in Zoho so invoice status is marked as PAID
       if (isPaid && inv.invoice_id) {
         try {
-          await axios.post(`${apiUrl}/customerpayments?organization_id=${orgId}`, {
-            customer_id: contactId,
-            payment_mode: 'Stripe',
-            amount: finalAmount,
-            date: new Date().toISOString().split('T')[0],
-            invoices: [
-              {
-                invoice_id: inv.invoice_id,
-                amount_applied: finalAmount
-              }
-            ]
-          }, {
-            headers: {
-              Authorization: `Zoho-oauthtoken ${token}`,
-              'X-com-zoho-invoice-organizationid': orgId,
-              'Content-Type': 'application/json'
-            }
+          await markZohoInvoiceAsPaid({
+            invoiceId: inv.invoice_id,
+            amount: grandTotal,
+            email,
+            name: clientName,
+            phone
           });
-          console.log(`[Zoho Invoice Service] Recorded payment of €${finalAmount} for Zoho Invoice ${inv.invoice_number}. Status: PAID.`);
+          console.log(`[Zoho Invoice Service] Recorded payment of ${grandTotal} for Zoho Invoice ${inv.invoice_number}. Status: PAID.`);
         } catch (payErr) {
           console.warn('[Zoho Payment Record Warning]:', payErr.response?.data || payErr.message);
         }
@@ -297,7 +330,8 @@ const markZohoInvoiceAsPaid = async ({ invoiceId, amount, email, name, phone }) 
   }
 
   try {
-    const { contactId } = await createOrGetContact({ name, email, phone });
+    const cleanName = extractClientName(name);
+    let targetContactId = null;
     let finalAmount = Number(amount || 0);
 
     try {
@@ -310,11 +344,17 @@ const markZohoInvoiceAsPaid = async ({ invoiceId, amount, email, name, phone }) 
       });
       if (invDetailRes.data?.invoice) {
         const inv = invDetailRes.data.invoice;
+        targetContactId = inv.customer_id;
         finalAmount = (typeof inv.balance === 'number' && inv.balance > 0) ? inv.balance : (inv.total || finalAmount);
-        console.log(`[Zoho Invoice Service] Invoice ${inv.invoice_number} fetched. Balance Due: ${inv.balance}, Total: ${inv.total}`);
+        console.log(`[Zoho Invoice Service] Invoice ${inv.invoice_number} fetched. Customer ID: ${targetContactId}, Balance Due: ${inv.balance}, Total: ${inv.total}`);
       }
     } catch (fetchErr) {
       console.warn('[Zoho Fetch Invoice Detail Warning]:', fetchErr.response?.data || fetchErr.message);
+    }
+
+    if (!targetContactId) {
+      const { contactId } = await createOrGetContact({ name: cleanName, email, phone });
+      targetContactId = contactId;
     }
 
     try {
@@ -329,7 +369,7 @@ const markZohoInvoiceAsPaid = async ({ invoiceId, amount, email, name, phone }) 
     }
 
     const payRes = await axios.post(`${apiUrl}/customerpayments?organization_id=${orgId}`, {
-      customer_id: contactId,
+      customer_id: targetContactId,
       payment_mode: 'Stripe',
       amount: finalAmount,
       date: new Date().toISOString().split('T')[0],
@@ -361,5 +401,6 @@ module.exports = {
   createOrGetContact,
   createZohoInvoice,
   markZohoInvoiceAsPaid,
-  getZohoInvoicePdfBuffer
+  getZohoInvoicePdfBuffer,
+  extractClientName
 };
