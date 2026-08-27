@@ -322,7 +322,10 @@ exports.sendVisaChecklist = async (to, clientName, serviceType, paymentData = {}
 /**
  * Sends branded Appointment Confirmation email with Reschedule, Cancel, and Packages action buttons.
  */
-exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlot, time, meetingLink, link, consultationId, rescheduleLink, cancelLink }) => {
+exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlot, time, meetingLink, link, consultationId, rescheduleLink, cancelLink, serviceType }) => {
+  const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+  const svcInfo = getServiceTitleInfo(serviceType);
+
   const formattedDate = formatDateDDMMYYYY(date);
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   const finalTime = timeSlot || time || 'TBD';
@@ -335,13 +338,13 @@ exports.sendAppointmentConfirmationEmail = async ({ to, firstName, date, timeSlo
     <div style="font-family: Arial, sans-serif; max-width: 620px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
       <div style="background: linear-gradient(135deg, #0f0c29, #302b63); padding: 24px; text-align: center; color: #ffffff;">
         <h2 style="margin: 0; font-size: 22px; font-weight: 800;">AAA Business Consultancy</h2>
-        <p style="margin: 6px 0 0; font-size: 14px; opacity: 0.8;">Spain Visa & Residency Services</p>
+        <p style="margin: 6px 0 0; font-size: 14px; opacity: 0.8;">${svcInfo.categoryName}</p>
       </div>
 
       <div style="padding: 28px;">
-        <h3 style="color: #2d3748; margin-top: 0; font-size: 18px;">✈️ Appointment Confirmation</h3>
+        <h3 style="color: #2d3748; margin-top: 0; font-size: 18px;">${svcInfo.icon} ${svcInfo.title} Confirmation</h3>
         <p style="color: #4a5568; line-height: 1.6;">Dear <b>${firstName}</b>,</p>
-        <p style="color: #4a5568; line-height: 1.6;">Thank you for booking your <b>Free 20-Minute Eligibility Assessment</b> with our expert team. Your booking is confirmed.</p>
+        <p style="color: #4a5568; line-height: 1.6;">Thank you for booking your <b>Free 20-Minute ${svcInfo.assessmentName}</b> with our expert team. Your booking is confirmed.</p>
 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; margin: 20px 0;">
           <h4 style="margin-top: 0; color: #1e293b; font-size: 15px;">📅 Appointment Details:</h4>

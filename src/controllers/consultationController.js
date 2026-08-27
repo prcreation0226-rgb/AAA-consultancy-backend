@@ -1130,11 +1130,14 @@ async function sendConsultationNotifications(consultation) {
     // 1. Send WhatsApp Message
     try {
       const { sendCustomWhatsApp } = require('../services/chatbotService');
-      const waMsg = `✈️ *Spain Visa Consultation Confirmed!*
+      const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+      const svcInfo = getServiceTitleInfo(consultation.serviceType || (lead && lead.serviceType));
+
+      const waMsg = `${svcInfo.icon} *${svcInfo.title} Confirmed!*
 
 Dear *${name}*,
 
-Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free ${svcInfo.assessmentName} with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${date}
 ⏰ *Time:* ${time} (UAE)
@@ -1158,14 +1161,16 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
       const { sendAppointmentConfirmationEmail } = require('../services/emailService');
       await sendAppointmentConfirmationEmail({
         to: email,
-        firstName: lead.firstName,
+        firstName: lead ? lead.firstName : name,
         date,
         timeSlot: time,
         meetingLink: link,
-        consultationId: consultation.id
+        consultationId: consultation.id,
+        serviceType: consultation.serviceType || (lead && lead.serviceType)
       });
+      console.log(`[NOTIFICATIONS] Sent appointment confirmation email to ${email}`);
     } catch (emailErr) {
-      console.error('[NOTIFICATIONS] Failed to send Email confirmation:', emailErr.message);
+      console.error('[NOTIFICATIONS] Failed to send confirmation email:', emailErr.message);
     }
 
     // 3. Schedule 3 Reminders (24h, 1h, 10m before)
@@ -1552,11 +1557,14 @@ async function publicRescheduleConsultation(req, res) {
     if (phone) {
       try {
         const { sendCustomWhatsApp } = require('../services/chatbotService');
-        const waMsg = `✈️ *Spain Visa Consultation Rescheduled!*
+        const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+        const svcInfo = getServiceTitleInfo(lead?.serviceType || client?.serviceType || consultation?.serviceType);
+
+        const waMsg = `${svcInfo.icon} *${svcInfo.title} Rescheduled!*
 
 Dear *${clientName}*,
 
-Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free ${svcInfo.assessmentName} with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${formattedDate}
 ⏰ *Time:* ${timeSlot} (UAE)
@@ -1586,7 +1594,8 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           date,
           timeSlot,
           meetingLink: link,
-          consultationId: consultationId
+          consultationId: consultationId,
+          serviceType: lead?.serviceType || client?.serviceType || consultation?.serviceType
         });
         console.log(`[Reschedule Email Sent] Dispatched confirmation email to ${email}`);
       } catch (emailErr) {
@@ -1699,11 +1708,14 @@ async function publicCancelConsultation(req, res) {
     if (phone) {
       try {
         const { sendCustomWhatsApp } = require('../services/chatbotService');
-        const waMsg = `❌ *Spain Visa Consultation Cancelled*
+        const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+        const svcInfo = getServiceTitleInfo(lead?.serviceType || consultation?.serviceType);
+
+        const waMsg = `❌ *${svcInfo.title} Cancelled*
 
 Dear *${clientName}*,
 
-Your Spain Visa Eligibility Assessment scheduled for ${displayDate} at ${consultation.timeSlot} (UAE) has been cancelled as requested.
+Your ${svcInfo.assessmentName} scheduled for ${displayDate} at ${consultation.timeSlot} (UAE) has been cancelled as requested.
 
 If you ever wish to re-book, feel free to visit our booking page anytime:
 ${rebookUrl}`;
@@ -1717,14 +1729,17 @@ ${rebookUrl}`;
     if (email) {
       try {
         const { sendEmail } = require('../services/emailService');
+        const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+        const svcInfo = getServiceTitleInfo(lead?.serviceType || consultation?.serviceType);
+
         await sendEmail({
           to: email,
-          subject: 'Appointment Cancelled: Spain Visa Eligibility Assessment',
+          subject: `Appointment Cancelled: ${svcInfo.title}`,
           html: `
             <div style="font-family: Arial, sans-serif; padding: 20px;">
               <h3>Appointment Cancellation Confirmed</h3>
               <p>Dear ${lead ? lead.firstName : 'Client'},</p>
-              <p>Your Spain Visa Eligibility Assessment scheduled for <b>${displayDate}</b> at <b>${consultation.timeSlot} (UAE)</b> has been cancelled.</p>
+              <p>Your ${svcInfo.assessmentName} scheduled for <b>${displayDate}</b> at <b>${consultation.timeSlot} (UAE)</b> has been cancelled.</p>
               <p>You can book a new session anytime at <a href="${rebookUrl}">AAA Business Consultancy</a>.</p>
             </div>
           `

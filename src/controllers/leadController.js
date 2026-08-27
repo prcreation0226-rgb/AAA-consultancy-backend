@@ -1229,11 +1229,14 @@ async function syncLeadConsultation(leadId, reqApp = null) {
               const packagesUrl = "https://aaabusinessconsultancy.com/services-and-packages/";
 
               const clientName = `${lead.firstName} ${lead.lastName}`.trim();
-              const messageBody = `✈️ *Spain Visa Consultation Confirmed!*
+              const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+              const svcInfo = getServiceTitleInfo(lead.serviceType);
+
+              const messageBody = `${svcInfo.icon} *${svcInfo.title} Confirmed!*
 
 Dear *${clientName}*,
 
-Your Free Spain Visa Eligibility Assessment with *AAA Business Consultancy* has been scheduled successfully! 🎉
+Your Free ${svcInfo.assessmentName} with *AAA Business Consultancy* has been scheduled successfully! 🎉
 
 📅 *Date:* ${formattedDate}
 ⏰ *Time:* ${meetingTime} (UAE)
