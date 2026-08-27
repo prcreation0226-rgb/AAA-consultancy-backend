@@ -66,6 +66,8 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
     let emailPromise = Promise.resolve();
     let waPromise = Promise.resolve();
 
+    const consultationServiceType = consultation?.serviceType || client?.serviceType || lead?.serviceType || null;
+
     switch (event) {
       case 'MEETING_CANCELLED': {
         const rebookLink = `${frontendUrl}/#/public/lead-form?id=${lead?.id || client?.lead?.id || targetLeadId || ''}&rebook=true`;
@@ -75,6 +77,7 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
           waPromise = sendWhatsAppMessage({
             to: phone,
             templateName: 'meeting_cancelled',
+            serviceType: consultationServiceType,
             components: [
               { type: 'body', parameters: [
                 { type: 'text', text: fullName },
@@ -113,6 +116,7 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
             waPromise = sendWhatsAppMessage({
               to: phone,
               templateName: 'meeting_booked',
+              serviceType: consultationServiceType,
               components: [
                 { type: 'body', parameters: [
                   { type: 'text', text: fullName },
@@ -135,7 +139,8 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
               time: safeTime,
               link,
               rescheduleLink,
-              cancelLink
+              cancelLink,
+              serviceType: consultationServiceType
             }).then(res => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_BOOKED', { success: true }))
               .catch(err => logDelivery(clientId, email, fullName, 'EMAIL', 'MEETING_BOOKED', { success: false, error: err.message }));
           }
@@ -147,6 +152,7 @@ const notifyClient = async ({ event, clientId, leadId, consultationId, data = {}
           waPromise = sendWhatsAppMessage({
             to: phone,
             templateName: 'meeting_rescheduled',
+            serviceType: consultationServiceType,
             components: [
               { type: 'body', parameters: [
                 { type: 'text', text: fullName },

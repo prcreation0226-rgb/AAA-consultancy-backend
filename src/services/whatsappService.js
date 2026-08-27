@@ -66,7 +66,7 @@ if (isConfigured) {
  * @param {Array} [options.components=[]] - Template components containing parameters (header, body, buttons)
  * @returns {Promise<{success: boolean, messageId?: string, dryRun?: boolean}>}
  */
-exports.sendWhatsAppMessage = async ({ to, templateName, contentSid: customContentSid = null, languageCode = 'en', components = [], externalProviderId = null, nameOverride = null }) => {
+exports.sendWhatsAppMessage = async ({ to, templateName, contentSid: customContentSid = null, languageCode = 'en', components = [], externalProviderId = null, nameOverride = null, serviceType = null }) => {
   // Clean phone number format for Twilio: must start with '+' and be prefixed with 'whatsapp:'
   let cleanTo = to.trim();
   if (cleanTo.startsWith('whatsapp:')) {
@@ -127,12 +127,15 @@ exports.sendWhatsAppMessage = async ({ to, templateName, contentSid: customConte
 
       // 2. Default fallback values for CRM system templates
       if (!templateText) {
+        const { getServiceTitleInfo } = require('../utils/serviceTitleHelper');
+        const svcInfo = getServiceTitleInfo(serviceType);
+
         const fallbacks = {
-          meeting_booked: `✈️ *Spain Visa Consultation Confirmed!*
+          meeting_booked: `${svcInfo.icon} *${svcInfo.title} Confirmed!*
 
 Dear *{{1}}*,
 
-Your Free Spain Visa Eligibility Assessment with AAA Business Consultancy has been scheduled successfully! 🎉
+Your Free ${svcInfo.assessmentName} with AAA Business Consultancy has been scheduled successfully! 🎉
 
 📅 *Date:* {{2}}
 ⏰ *Time:* {{3}} (UAE)
@@ -159,11 +162,11 @@ _Note: Please join within 10 minutes of appointment time to avoid automatic canc
           payment_reminder_2h: 'Hello {{1}},\n\nWe noticed that you started setting up your Spain Visa / Relocation application but haven\'t completed the payment yet.\n\nTo secure your assigned immigration specialist and begin processing today, please complete your payment:\n\n🔗 Payment Link: {{2}}\n\nIf you have any questions, please reply directly. We are here to help!\n\nBest regards,\nAAA Business Consultancy Team',
           payment_reminder_24h: 'Hello {{1}},\n\nThis is a gentle reminder that your relocation package invoice is still pending. It has been 24 hours since your account initialization.\n\nTo avoid losing your slot and priority file review, please finalize your payment using the link below:\n\n🔗 Complete Payment: {{2}}\n\nOur team is ready to begin your visa submission steps as soon as payment is confirmed.\n\nBest regards,\nAAA Business Consultancy Team',
           payment_reminder_48h: 'Hello {{1}},\n\nWe would like to remind you that your invoice has been pending for 2 days.\n\nIf you are ready to relocate or secure your Spanish visa/residency, please complete the final steps of your application fee payment:\n\n🔗 Final Payment Link: {{2}}\n\nBest regards,\nAAA Business Consultancy Team',
-          meeting_cancelled: `❌ *Spain Visa Consultation Cancelled*
+          meeting_cancelled: `❌ *${svcInfo.title} Cancelled*
 
 Dear *{{1}}*,
 
-Your Free Spain Visa Eligibility Assessment scheduled for *{{2}}* at *{{3}}* (UAE) has been cancelled.
+Your Free ${svcInfo.assessmentName} scheduled for *{{2}}* at *{{3}}* (UAE) has been cancelled.
 
 If you would like to reschedule your consultation, please click the link below to select a new date and time slot:
 
@@ -171,11 +174,11 @@ If you would like to reschedule your consultation, please click the link below t
 
 ─────────────
 *AAA Business Consultancy*`,
-          meeting_rescheduled: `🔄 *Spain Visa Consultation Rescheduled*
+          meeting_rescheduled: `🔄 *${svcInfo.title} Rescheduled*
 
 Dear *{{1}}*,
 
-Your Free Spain Visa Eligibility Assessment has been rescheduled successfully!
+Your Free ${svcInfo.assessmentName} has been rescheduled successfully!
 
 📅 *New Date:* {{2}}
 ⏰ *New Time:* {{3}} (UAE)
